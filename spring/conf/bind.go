@@ -175,6 +175,11 @@ func BindValue(p flatten.Storage, v reflect.Value, t reflect.Type, param BindPar
 		}
 	}()
 
+	// Check for FlatMap before the general map case.
+	if t == reflect.TypeFor[FlatMap]() {
+		return bindFlatMap(p, v, param, filter)
+	}
+
 	switch v.Kind() {
 	case reflect.Map:
 		return bindMap(p, v, t, param, filter)
@@ -463,6 +468,114 @@ func bindMap(p flatten.Storage, v reflect.Value, t reflect.Type, param BindParam
 		ret.SetMapIndex(reflect.ValueOf(key), subValue)
 	}
 	v.Set(ret)
+	return nil
+}
+
+// collectFlatEntries recursively walks the key tree under prefix,
+// collecting all leaf values into ret with the relative key path.
+//
+// For prefix "x.a" with baseKey "a":
+//   - Leaf "x.a.b" = "1"  ->  ret["a.b"] = "1"
+//   - Leaf "x.a.d.e" = "2" ->  ret["a.d.e"] = "2"
+func collectFlatEntries(p flatten.Storage, prefix string, baseKey string, ret FlatMap) error {
+	childKeys := make(map[string]struct{})
+	p.MapKeys(prefix, childKeys)
+	for child := range childKeys {
+		fullChildKey := prefix + "." + child
+		relativeKey := baseKey + "." + child
+		if val, ok := p.Value(fullChildKey); ok {
+			resolved, err := resolveString(p, val)
+			if err != nil {
+				return err
+			}
+			if resolved, err = decrypt.Decode(resolved); err != nil {
+				return errutil.Explain(err, "failed to decrypt value for key %q", fullChildKey)
+			}
+			ret[relativeKey] = resolved
+		}
+		// Also collect nested keys if this is also a prefix.
+		if p.Exists(fullChildKey) {
+			if err := collectFlatEntries(p, fullChildKey, relativeKey, ret); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// bindFlatMap binds configuration properties into a FlatMap (map[string]string)
+// where the remaining key suffixes become the map keys.
+//
+// Unlike bindMap, which only collects one level of child keys, bindFlatMap
+// collects all descendant leaf keys under the prefix and uses the full suffix
+// (minus the prefix) as the map key.
+//
+// Example:
+//
+//	Properties:
+//	  x.a.b=1
+//	  x.a.d.e=2
+//
+//	With param.Key = "x":
+//	  FlatMap{"a.b": "1", "a.d.e": "2"}
+//
+// Errors:
+// - Returns error if property prefix does not exist and no default is provided.
+func bindFlatMap(p flatten.Storage, v reflect.Value, param BindParam, filter Filter) error {
+
+	// FlatMap cannot have a non-empty default value (same as regular maps).
+	if param.Tag.HasDef && param.Tag.Def != "" {
+		err := errutil.Explain(nil, "map can't have a non-empty default value")
+		return errutil.Explain(err, "failed to bind flat map at path %s", param.Path)
+	}
+
+	ret := make(FlatMap)
+
+	// Handle empty key as default value placeholder (same as bindMap).
+	if param.Tag.Key == "" {
+		if param.Tag.HasDef {
+			v.Set(reflect.ValueOf(ret))
+			return nil
+		}
+	}
+
+	keySet := make(map[string]struct{})
+	p.MapKeys(param.Key, keySet)
+	if len(keySet) == 0 {
+		if param.Tag.HasDef {
+			v.Set(reflect.ValueOf(ret))
+			return nil
+		}
+		err := errutil.Explain(nil, "map property %q does not exist", param.Key)
+		return errutil.Explain(err, "failed to bind flat map at path %s", param.Path)
+	}
+
+	for key := range keySet {
+		fullKey := key
+		if param.Key != "" {
+			fullKey = param.Key + "." + key
+		}
+
+		// Check if this is a leaf value (exact match in storage).
+		if val, ok := p.Value(fullKey); ok {
+			resolved, err := resolveString(p, val)
+			if err != nil {
+				return err
+			}
+			if resolved, err = decrypt.Decode(resolved); err != nil {
+				return errutil.Explain(err, "failed to decrypt value for key %q", fullKey)
+			}
+			ret[key] = resolved
+		}
+		// Also collect nested keys if this is also a prefix (e.g. x.a=1 AND x.a.b=2).
+		if p.Exists(fullKey) {
+			if err := collectFlatEntries(p, fullKey, key, ret); err != nil {
+				return err
+			}
+		}
+	}
+
+	v.Set(reflect.ValueOf(ret))
 	return nil
 }
 

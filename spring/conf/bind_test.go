@@ -947,3 +947,156 @@ func TestStructBinding(t *testing.T) {
 		})
 	})
 }
+
+func TestFlatMapBinding(t *testing.T) {
+
+	t.Run("deeply nested keys", func(t *testing.T) {
+		p := flatten.NewPropertiesStorage(flatten.NewProperties(map[string]string{
+			"x.a.b":   "1",
+			"x.a.d.e": "2",
+		}))
+		var s struct {
+			Config conf.FlatMap `value:"${x}"`
+		}
+		err := conf.Bind(p, &s)
+		assert.That(t, err).Nil()
+		assert.That(t, s.Config).Equal(conf.FlatMap{
+			"a.b":   "1",
+			"a.d.e": "2",
+		})
+	})
+
+	t.Run("single level keys", func(t *testing.T) {
+		p := flatten.NewPropertiesStorage(flatten.MapProperties(map[string]any{
+			"config": map[string]any{
+				"a": 1,
+				"b": 2,
+				"c": 3,
+			},
+		}))
+		var s struct {
+			Config conf.FlatMap `value:"${config}"`
+		}
+		err := conf.Bind(p, &s)
+		assert.That(t, err).Nil()
+		assert.That(t, s.Config).Equal(conf.FlatMap{
+			"a": "1",
+			"b": "2",
+			"c": "3",
+		})
+	})
+
+	t.Run("mixed leaf and nested keys", func(t *testing.T) {
+		p := flatten.NewPropertiesStorage(flatten.NewProperties(map[string]string{
+			"x.a":     "1",
+			"x.b.c":   "2",
+			"x.b.d.e": "3",
+		}))
+		var s struct {
+			Config conf.FlatMap `value:"${x}"`
+		}
+		err := conf.Bind(p, &s)
+		assert.That(t, err).Nil()
+		assert.That(t, s.Config).Equal(conf.FlatMap{
+			"a":     "1",
+			"b.c":   "2",
+			"b.d.e": "3",
+		})
+	})
+
+	t.Run("leaf value also has nested keys", func(t *testing.T) {
+		p := flatten.NewPropertiesStorage(flatten.NewProperties(map[string]string{
+			"x.a":   "1",
+			"x.a.b": "2",
+		}))
+		var s struct {
+			Config conf.FlatMap `value:"${x}"`
+		}
+		err := conf.Bind(p, &s)
+		assert.That(t, err).Nil()
+		assert.That(t, s.Config).Equal(conf.FlatMap{
+			"a":   "1",
+			"a.b": "2",
+		})
+	})
+
+	t.Run("empty default", func(t *testing.T) {
+		p := flatten.NewPropertiesStorage(flatten.NewProperties(nil))
+		var s struct {
+			Config conf.FlatMap `value:"${x:=}"`
+		}
+		err := conf.Bind(p, &s)
+		assert.That(t, err).Nil()
+		assert.That(t, len(s.Config)).Equal(0)
+	})
+
+	t.Run("non-empty default returns error", func(t *testing.T) {
+		var s struct {
+			Config conf.FlatMap `value:"${x:=a:b}"`
+		}
+		err := conf.Bind(flatten.NewPropertiesStorage(flatten.NewProperties(nil)), &s)
+		assert.Error(t, err).Matches("map can't have a non-empty default value")
+	})
+
+	t.Run("missing property without default returns error", func(t *testing.T) {
+		var s struct {
+			Config conf.FlatMap `value:"${x}"`
+		}
+		err := conf.Bind(flatten.NewPropertiesStorage(flatten.NewProperties(nil)), &s)
+		assert.Error(t, err).Matches(`map property "x" does not exist`)
+	})
+
+	t.Run("property references in values", func(t *testing.T) {
+		p := flatten.NewPropertiesStorage(flatten.NewProperties(map[string]string{
+			"ref":     "hello",
+			"x.a.b":   "${ref}",
+			"x.a.d.e": "${ref}-world",
+		}))
+		var s struct {
+			Config conf.FlatMap `value:"${x}"`
+		}
+		err := conf.Bind(p, &s)
+		assert.That(t, err).Nil()
+		assert.That(t, s.Config).Equal(conf.FlatMap{
+			"a.b":   "hello",
+			"a.d.e": "hello-world",
+		})
+	})
+
+	t.Run("root-level flat map", func(t *testing.T) {
+		p := flatten.NewPropertiesStorage(flatten.NewProperties(map[string]string{
+			"a.b":   "1",
+			"c.d.e": "2",
+		}))
+		var s struct {
+			Config conf.FlatMap `value:"${ROOT}"`
+		}
+		err := conf.Bind(p, &s)
+		assert.That(t, err).Nil()
+		assert.That(t, s.Config).Equal(conf.FlatMap{
+			"a.b":   "1",
+			"c.d.e": "2",
+		})
+	})
+
+	t.Run("layered storage merges keys", func(t *testing.T) {
+		s := &flatten.LayeredStorage{}
+		layer1 := flatten.NewProperties(map[string]string{
+			"x.a.b": "1",
+		})
+		s.AddStorage(flatten.StorageAppFile, flatten.NewPropertiesStorage(layer1), "app")
+		layer2 := flatten.NewProperties(map[string]string{
+			"x.c.d": "2",
+		})
+		s.AddStorage(flatten.StorageDefault, flatten.NewPropertiesStorage(layer2), "default")
+		var cfg struct {
+			Config conf.FlatMap `value:"${x}"`
+		}
+		err := conf.Bind(s, &cfg)
+		assert.That(t, err).Nil()
+		assert.That(t, cfg.Config).Equal(conf.FlatMap{
+			"a.b": "1",
+			"c.d": "2",
+		})
+	})
+}
