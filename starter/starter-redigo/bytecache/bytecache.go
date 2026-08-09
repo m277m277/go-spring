@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package cache
+package bytecache
 
 import (
 	"context"
@@ -25,13 +25,12 @@ import (
 	"go-spring.org/spring/data/cache"
 )
 
-// NewCache wraps a *redis.Pool as a [cache.ByteCache], embedded in a
-// [cache.Cache] façade that supplies the typed Get/Set codec layer. The
-// "redigo" driver registered in the starter's root package wires it over the
-// pool bean selected by beanID; use it directly for programmatic construction
-// too.
-func NewCache(pool *redis.Pool) *cache.Cache {
-	return &cache.Cache{ByteCache: &redigoCache{pool}}
+// NewByteCache wraps a *redis.Pool as a [cache.ByteCache] - the raw
+// bytes-native primitives the "redigo" driver layers a typed [cache.Cache]
+// façade over. The driver registered in the starter's root package selects the
+// pool bean by beanID; call this directly to build a ByteCache for ad-hoc use.
+func NewByteCache(pool *redis.Pool) cache.ByteCache {
+	return &redigoCache{pool}
 }
 
 type redigoCache struct{ pool *redis.Pool }

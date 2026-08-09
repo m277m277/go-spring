@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package cache
+package bytecache
 
 import (
 	"context"
@@ -25,13 +25,13 @@ import (
 	"go-spring.org/spring/data/cache"
 )
 
-// NewCache wraps a *bigcache.BigCache as a [cache.ByteCache], embedded in a
-// [cache.Cache] façade that supplies the typed Get/Set codec layer. The
-// "bigcache" driver registered in the starter's root package wires it over the
-// BigCache bean selected by beanID; use it directly for programmatic
-// construction too.
-func NewCache(c *bigcache.BigCache) *cache.Cache {
-	return &cache.Cache{ByteCache: &bigcacheCache{c}}
+// NewByteCache wraps a *bigcache.BigCache as a [cache.ByteCache] - the raw
+// bytes-native primitives the "bigcache" driver layers a typed [cache.Cache]
+// façade over. The driver registered in the starter's root package selects the
+// BigCache bean by beanID; call this directly to build a ByteCache for ad-hoc
+// use.
+func NewByteCache(c *bigcache.BigCache) cache.ByteCache {
+	return &bigcacheCache{c}
 }
 
 type bigcacheCache struct{ c *bigcache.BigCache }

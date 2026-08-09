@@ -81,8 +81,7 @@ func (t *TokenSource) Expiry() time.Time {
 // newTokenSource builds a *TokenSource over an oauth2.TokenSource that mints and
 // refreshes bearer tokens via the client-credentials grant. The underlying
 // source caches the current token and refreshes it automatically once expired.
-func newTokenSource(cp *gs.ContextProvider, c Config) (*TokenSource, error) {
-	ctx := cp.Context
+func newTokenSource(ctx *gs.ContextProvider, c Config) (*TokenSource, error) {
 
 	cfg := &clientcredentials.Config{
 		ClientID:       c.ClientID,
@@ -93,9 +92,9 @@ func newTokenSource(cp *gs.ContextProvider, c Config) (*TokenSource, error) {
 		EndpointParams: c.endpointParams(),
 	}
 
-	log.Debugf(ctx, starterTag, "creating oauth2 token source clientID=%s tokenURL=%s", c.ClientID, c.TokenURL)
+	log.Debugf(ctx.Context, starterTag, "creating oauth2 token source clientID=%s tokenURL=%s", c.ClientID, c.TokenURL)
 
-	ctx = otelContext(c.Timeout)
+	ctx.Context = otelContext(c.Timeout)
 
-	return &TokenSource{src: cfg.TokenSource(ctx)}, nil
+	return &TokenSource{src: cfg.TokenSource(ctx.Context)}, nil
 }

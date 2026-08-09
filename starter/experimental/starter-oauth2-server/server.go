@@ -54,14 +54,13 @@ type AuthServer struct {
 
 // newAuthServer builds the server, failing fast on an ambiguous or unparsable
 // signing key.
-func newAuthServer(cp *gs.ContextProvider, c Config) (*AuthServer, error) {
-	ctx := cp.Context
-	sgn, err := newSigner(ctx, c)
+func newAuthServer(ctx *gs.ContextProvider, c Config) (*AuthServer, error) {
+	sgn, err := newSigner(ctx.Context, c)
 	if err != nil {
-		log.Errorf(ctx, starterTag, "create signer failed: %v", err)
+		log.Errorf(ctx.Context, starterTag, "create signer failed: %v", err)
 		return nil, err
 	}
-	log.Infof(ctx, starterTag, "oauth2 server created issuer=%s accessTokenTTL=%s refreshTokenTTL=%s clients=%d",
+	log.Infof(ctx.Context, starterTag, "oauth2 server created issuer=%s accessTokenTTL=%s refreshTokenTTL=%s clients=%d",
 		c.Issuer, c.AccessTokenTTL, c.RefreshTokenTTL, len(c.Clients))
 	return &AuthServer{cfg: c, signer: sgn, store: newStore()}, nil
 }

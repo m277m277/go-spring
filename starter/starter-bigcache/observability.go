@@ -14,11 +14,7 @@
  * limitations under the License.
  */
 
-// Package observe exposes a BigCache instance's built-in statistics (hits,
-// misses, collisions) and capacity as OpenTelemetry gauges, labeled by the
-// instance name. The gauges pull their values on collection - no per-operation
-// overhead and no background goroutine.
-package observe
+package StarterBigCache
 
 import (
 	"context"
@@ -29,10 +25,10 @@ import (
 	"go.opentelemetry.io/otel/metric"
 )
 
-// meterName is the OTel meter all bigcache instruments register under. It
+// metricsMeter is the OTel meter all bigcache instruments register under. It
 // follows the starter's module path, matching the convention used by other
 // starters (e.g. starter-gin's "go-spring.org/starter-gin").
-const meterName = "go-spring.io/starter/bigcache"
+const metricsMeter = "go-spring.io/starter/bigcache"
 
 // statReader reads one snapshot value from a BigCache instance.
 type statReader func(*bigcache.BigCache) int64
@@ -44,11 +40,11 @@ type statInstrument struct {
 	read statReader
 }
 
-// instruments lists the bigcache statistics surfaced as gauges. The five
+// statInstruments lists the bigcache statistics surfaced as gauges. The five
 // counters come from Stats() (cumulative); entries/capacity come from Len()/
 // Capacity() (current). All are gauges rather than counters because
 // [bigcache.BigCache.ResetStats] can reset the counters, breaking monotonicity.
-var instruments = []statInstrument{
+var statInstruments = []statInstrument{
 	{name: "bigcache.hits", desc: "Number of successfully found keys", read: func(c *bigcache.BigCache) int64 { return c.Stats().Hits }},
 	{name: "bigcache.misses", desc: "Number of not found keys", read: func(c *bigcache.BigCache) int64 { return c.Stats().Misses }},
 	{name: "bigcache.delete_hits", desc: "Number of successfully deleted keys", read: func(c *bigcache.BigCache) int64 { return c.Stats().DelHits }},
@@ -58,20 +54,20 @@ var instruments = []statInstrument{
 	{name: "bigcache.capacity", desc: "Maximum number of entries the cache can hold", read: func(c *bigcache.BigCache) int64 { return int64(c.Capacity()) }},
 }
 
-// RegisterMetrics registers OTel observable gauges that surface a BigCache
-// instance's statistics, labeled with the instance name so multiple instances
-// (e.g. "hot", "cold") are distinguishable in a metrics backend. Each gauge
-// pulls its value on collection via a callback, so there is no per-operation
-// overhead and no background goroutine.
+// registerMetrics registers OTel observable gauges that surface a BigCache
+// instance's statistics (hits, misses, collisions) and capacity, labeled with
+// the instance name so multiple instances (e.g. "hot", "cold") are
+// distinguishable in a metrics backend. Each gauge pulls its value on
+// collection via a callback - no per-operation overhead and no background
+// goroutine.
 //
 // When starter-otel is imported the gauges are exported through the global
 // meter provider it installs (prometheus pull, OTLP, ...); when it is absent
 // the OTel globals are no-ops, so this call is safe and cheap to always make.
-// Mirrors how starter-go-redis instruments its clients inside newClient.
-func RegisterMetrics(name string, c *bigcache.BigCache) {
-	meter := otel.Meter(meterName)
+func registerMetrics(name string, c *bigcache.BigCache) {
+	meter := otel.Meter(metricsMeter)
 	attrs := metric.WithAttributes(attribute.String("cache.name", name))
-	for _, inst := range instruments {
+	for _, inst := range statInstruments {
 		_, _ = meter.Int64ObservableGauge(inst.name,
 			metric.WithDescription(inst.desc),
 			metric.WithInt64Callback(func(_ context.Context, o metric.Int64Observer) error {

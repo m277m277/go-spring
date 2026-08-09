@@ -51,9 +51,8 @@ func init() {
 // the OTel globals starter-otel installs (a no-op when it is absent), which is
 // how trace context rides across service boundaries. stdlib/httpx then layers
 // discovery + load balancing and, when enabled, resilience on top of that base.
-func newClient(cp *gs.ContextProvider, c Config) (*http.Client, error) {
-	ctx := cp.Context
-	log.Debugf(ctx, starterTag, "creating http client, addr=%s service-name=%s timeout=%v", c.Addr, c.ServiceName, c.Timeout)
+func newClient(ctx *gs.ContextProvider, c Config) (*http.Client, error) {
+	log.Debugf(ctx.Context, starterTag, "creating http client, addr=%s service-name=%s timeout=%v", c.Addr, c.ServiceName, c.Timeout)
 
 	if err := c.validate(); err != nil {
 		return nil, err
@@ -61,10 +60,10 @@ func newClient(cp *gs.ContextProvider, c Config) (*http.Client, error) {
 	base := otelhttp.NewTransport(http.DefaultTransport)
 	rt, closeFn, err := httpx.NewTransport(c.toTransportConfig(base))
 	if err != nil {
-		log.Errorf(ctx, starterTag, "http-client: create transport failed: %v", err)
+		log.Errorf(ctx.Context, starterTag, "http-client: create transport failed: %v", err)
 		return nil, err
 	}
-	log.Infof(ctx, starterTag, "http client initialized, addr=%s service-name=%s", c.Addr, c.ServiceName)
+	log.Infof(ctx.Context, starterTag, "http client initialized, addr=%s service-name=%s", c.Addr, c.ServiceName)
 	return &http.Client{
 		Transport: &managedTransport{rt: rt, closeFn: closeFn},
 		Timeout:   c.Timeout,

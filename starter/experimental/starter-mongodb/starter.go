@@ -75,9 +75,8 @@ func init() {
 // take effect without rebuilding the client. In mesh mode a sidecar owns
 // discovery+LB, so the URI hosts are dialed directly. When c.ServiceName is
 // empty this dials the URI hosts directly, unchanged from before.
-func newClient(cp *gs.ContextProvider, c Config) (*mongo.Client, error) {
-	ctx := cp.Context
-	log.Debugf(ctx, starterTag, "creating mongodb client, uri=%s service-name=%s", c.URI, c.ServiceName)
+func newClient(ctx *gs.ContextProvider, c Config) (*mongo.Client, error) {
+	log.Debugf(ctx.Context, starterTag, "creating mongodb client, uri=%s service-name=%s", c.URI, c.ServiceName)
 
 	opts := options.Client().ApplyURI(c.URI)
 	opts.SetMonitor(newCommandMonitor())
@@ -104,7 +103,7 @@ func newClient(cp *gs.ContextProvider, c Config) (*mongo.Client, error) {
 	}
 	tlsCfg, err := c.TLS.Build()
 	if err != nil {
-		log.Errorf(ctx, starterTag, "mongodb: build TLS failed: %v", err)
+		log.Errorf(ctx.Context, starterTag, "mongodb: build TLS failed: %v", err)
 		return nil, errutil.Explain(err, "mongodb: build TLS")
 	}
 	if tlsCfg != nil {
@@ -119,12 +118,12 @@ func newClient(cp *gs.ContextProvider, c Config) (*mongo.Client, error) {
 		// URI hosts.
 		d, err := discovery.GetDiscovery(c.Discovery)
 		if err != nil {
-			log.Errorf(ctx, starterTag, "mongodb: get discovery backend failed: %v", err)
+			log.Errorf(ctx.Context, starterTag, "mongodb: get discovery backend failed: %v", err)
 			return nil, err
 		}
-		resolver, err = discovery.NewResolver(ctx, d, c.ServiceName, discovery.WithScheme(c.Scheme))
+		resolver, err = discovery.NewResolver(ctx.Context, d, c.ServiceName, discovery.WithScheme(c.Scheme))
 		if err != nil {
-			log.Errorf(ctx, starterTag, "mongodb: create resolver for %s failed: %v", c.ServiceName, err)
+			log.Errorf(ctx.Context, starterTag, "mongodb: create resolver for %s failed: %v", c.ServiceName, err)
 			return nil, err
 		}
 		nd := &net.Dialer{Timeout: c.ConnectTimeout}
@@ -135,7 +134,7 @@ func newClient(cp *gs.ContextProvider, c Config) (*mongo.Client, error) {
 
 	client, err := mongo.Connect(opts)
 	if err != nil {
-		log.Errorf(ctx, starterTag, "mongodb: connect failed: %v", err)
+		log.Errorf(ctx.Context, starterTag, "mongodb: connect failed: %v", err)
 		if resolver != nil {
 			_ = resolver.Stop()
 		}
@@ -143,10 +142,10 @@ func newClient(cp *gs.ContextProvider, c Config) (*mongo.Client, error) {
 	}
 
 	// Fail fast: verify the server is reachable before handing out the client.
-	pingCtx, cancel := pingContext(ctx, c.ConnectTimeout)
+	pingCtx, cancel := pingContext(ctx.Context, c.ConnectTimeout)
 	defer cancel()
 	if err := client.Ping(pingCtx, nil); err != nil {
-		log.Errorf(ctx, starterTag, "mongodb: ping failed uri=%s: %v", c.URI, err)
+		log.Errorf(ctx.Context, starterTag, "mongodb: ping failed uri=%s: %v", c.URI, err)
 		_ = client.Disconnect(context.Background())
 		if resolver != nil {
 			_ = resolver.Stop()
@@ -156,7 +155,7 @@ func newClient(cp *gs.ContextProvider, c Config) (*mongo.Client, error) {
 	if resolver != nil {
 		liveDialers.Store(client, resolver)
 	}
-	log.Infof(ctx, starterTag, "mongodb client initialized, uri=%s", c.URI)
+	log.Infof(ctx.Context, starterTag, "mongodb client initialized, uri=%s", c.URI)
 	return client, nil
 }
 

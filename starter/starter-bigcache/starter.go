@@ -25,8 +25,7 @@ import (
 	"go-spring.org/spring/conf"
 	"go-spring.org/spring/data/cache"
 	"go-spring.org/spring/gs"
-	cache2 "go-spring.org/starter-bigcache/cache"
-	observe "go-spring.org/starter-bigcache/observe"
+	"go-spring.org/starter-bigcache/bytecache"
 	"go-spring.org/stdlib/errutil"
 	"go-spring.org/stdlib/flatten"
 )
@@ -66,10 +65,12 @@ func init() {
 	//	spring.cache.<name>.driver = bigcache:<bigcache-instance-name>
 	//
 	// The beanID selects which BigCache bean to wrap; the implementation lives in
-	// starter-bigcache/cache.
+	// starter-bigcache/bytecache.
 	cache.RegisterDriver("bigcache", func(beanID string) gs.ModuleFunc {
 		return func(r gs.BeanProvider, p flatten.Storage) error {
-			r.Provide(cache2.NewCache, gs.TagArg(beanID)).Name(beanID)
+			r.Provide(func(c *bigcache.BigCache) *cache.Cache {
+				return &cache.Cache{ByteCache: bytecache.NewByteCache(c)}
+			}, gs.TagArg(beanID)).Name(beanID)
 			return nil
 		}
 	})
@@ -77,24 +78,23 @@ func init() {
 
 // newClient creates a new BigCache instance based on the provided configuration
 // and registers OTel gauges for its statistics, labeled by the instance name.
-func newClient(cp *gs.ContextProvider, name string, c Config) (*bigcache.BigCache, error) {
-	ctx := cp.Context
-	log.Debugf(ctx, starterTag, "creating bigcache instance, name=%s shards=%d max-size=%d", name, c.Shards, c.MaxEntrySize)
+func newClient(ctx *gs.ContextProvider, name string, c Config) (*bigcache.BigCache, error) {
+	log.Debugf(ctx.Context, starterTag, "creating bigcache instance, name=%s shards=%d max-size=%d", name, c.Shards, c.MaxEntrySize)
 
 	d, ok := driverRegistry[c.Driver]
 	if !ok {
-		log.Errorf(ctx, starterTag, "bigcache driver not found: %s", c.Driver)
+		log.Errorf(ctx.Context, starterTag, "bigcache driver not found: %s", c.Driver)
 		return nil, errutil.Explain(nil, "bigcache driver not found: %s", c.Driver)
 	}
-	client, err := d.CreateClient(ctx, c)
+	client, err := d.CreateClient(ctx.Context, c)
 	if err != nil {
-		log.Errorf(ctx, starterTag, "bigcache: create instance failed: %v", err)
+		log.Errorf(ctx.Context, starterTag, "bigcache: create instance failed: %v", err)
 		return nil, errutil.Explain(err, "failed to create bigcache instance")
 	}
 	// Surface hits/misses/collisions/capacity as OTel gauges. Safe no-op when
 	// starter-otel is absent (the OTel globals are no-ops then).
-	observe.RegisterMetrics(name, client)
-	log.Infof(ctx, starterTag, "bigcache instance initialized, name=%s shards=%d", name, c.Shards)
+	registerMetrics(name, client)
+	log.Infof(ctx.Context, starterTag, "bigcache instance initialized, name=%s shards=%d", name, c.Shards)
 	return client, nil
 }
 

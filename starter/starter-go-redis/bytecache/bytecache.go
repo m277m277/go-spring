@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package cache
+package bytecache
 
 import (
 	"context"
@@ -25,13 +25,13 @@ import (
 	"go-spring.org/spring/data/cache"
 )
 
-// NewCache wraps a *redis.Client as a [cache.ByteCache], embedded in a
-// [cache.Cache] façade that supplies the typed Get/Set codec layer. The
-// "go-redis" driver registered in the starter's root package wires it over the
-// client bean selected by beanID; use it directly for programmatic construction
-// too.
-func NewCache(c *redis.Client) *cache.Cache {
-	return &cache.Cache{ByteCache: &redisCache{c}}
+// NewByteCache wraps a *redis.Client as a [cache.ByteCache] - the raw
+// bytes-native primitives the "go-redis" driver layers a typed [cache.Cache]
+// façade over. The driver registered in the starter's root package selects the
+// client bean by beanID; call this directly to build a ByteCache for ad-hoc
+// use.
+func NewByteCache(c *redis.Client) cache.ByteCache {
+	return &redisCache{c}
 }
 
 type redisCache struct{ c *redis.Client }

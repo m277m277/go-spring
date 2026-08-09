@@ -75,48 +75,47 @@ func init() {
 // resolverDialer adapter, which implements mssql.Dialer. In mesh mode a sidecar
 // owns discovery+LB, so the configured Host is used as-is. When c.ServiceName
 // is empty this stays a plain DSN dial, unchanged from before.
-func newClient(cp *gs.ContextProvider, c Config) (*gorm.DB, error) {
-	ctx := cp.Context
+func newClient(ctx *gs.ContextProvider, c Config) (*gorm.DB, error) {
 	if c.Host == "" && c.ServiceName == "" {
 		return nil, errutil.Explain(nil, "gorm sqlserver: one of host or service-name must be set")
 	}
 
-	log.Debugf(ctx, starterTag, "creating gorm sqlserver client, host=%s service-name=%s db=%s", c.Host, c.ServiceName, c.DB)
+	log.Debugf(ctx.Context, starterTag, "creating gorm sqlserver client, host=%s service-name=%s db=%s", c.Host, c.ServiceName, c.DB)
 
 	if c.ServiceName == "" || mesh.Enabled() {
 		db, err := gorm.Open(sqlserver.Open(c.DSN()), gormConfig(c))
 		if err != nil {
-			log.Errorf(ctx, starterTag, "gorm sqlserver: open failed: %v", err)
+			log.Errorf(ctx.Context, starterTag, "gorm sqlserver: open failed: %v", err)
 			return nil, err
 		}
 		if err := db.Use(tracing.NewPlugin(tracing.WithDBSystem("microsoft.sql_server"))); err != nil {
-			log.Errorf(ctx, starterTag, "gorm sqlserver: install otel plugin failed: %v", err)
+			log.Errorf(ctx.Context, starterTag, "gorm sqlserver: install otel plugin failed: %v", err)
 			return nil, err
 		}
 		if err := applyPool(db, c); err != nil {
-			log.Errorf(ctx, starterTag, "gorm sqlserver: ping failed: %v", err)
+			log.Errorf(ctx.Context, starterTag, "gorm sqlserver: ping failed: %v", err)
 			if sqlDB, derr := db.DB(); derr == nil {
 				_ = sqlDB.Close()
 			}
 			return nil, err
 		}
-		log.Infof(ctx, starterTag, "gorm sqlserver client initialized, host=%s db=%s", c.Host, c.DB)
+		log.Infof(ctx.Context, starterTag, "gorm sqlserver client initialized, host=%s db=%s", c.Host, c.DB)
 		return db, nil
 	}
 
 	d, err := discovery.GetDiscovery(c.Discovery)
 	if err != nil {
-		log.Errorf(ctx, starterTag, "gorm sqlserver: get discovery backend failed: %v", err)
+		log.Errorf(ctx.Context, starterTag, "gorm sqlserver: get discovery backend failed: %v", err)
 		return nil, err
 	}
-	ld, err := discovery.NewResolver(ctx, d, c.ServiceName, discovery.WithScheme(c.Scheme))
+	ld, err := discovery.NewResolver(ctx.Context, d, c.ServiceName, discovery.WithScheme(c.Scheme))
 	if err != nil {
-		log.Errorf(ctx, starterTag, "gorm sqlserver: create resolver for %s failed: %v", c.ServiceName, err)
+		log.Errorf(ctx.Context, starterTag, "gorm sqlserver: create resolver for %s failed: %v", c.ServiceName, err)
 		return nil, err
 	}
 	msCfg, err := msdsn.Parse(c.DSN())
 	if err != nil {
-		log.Errorf(ctx, starterTag, "gorm sqlserver: parse DSN failed: %v", err)
+		log.Errorf(ctx.Context, starterTag, "gorm sqlserver: parse DSN failed: %v", err)
 		_ = ld.Stop()
 		return nil, err
 	}
@@ -126,25 +125,25 @@ func newClient(cp *gs.ContextProvider, c Config) (*gorm.DB, error) {
 
 	db, err := gorm.Open(sqlserver.New(sqlserver.Config{Conn: sqlDB}), gormConfig(c))
 	if err != nil {
-		log.Errorf(ctx, starterTag, "gorm sqlserver: open with discovery failed: %v", err)
+		log.Errorf(ctx.Context, starterTag, "gorm sqlserver: open with discovery failed: %v", err)
 		_ = ld.Stop()
 		_ = sqlDB.Close()
 		return nil, err
 	}
 	if err := db.Use(tracing.NewPlugin(tracing.WithDBSystem("microsoft.sql_server"))); err != nil {
-		log.Errorf(ctx, starterTag, "gorm sqlserver: install otel plugin failed: %v", err)
+		log.Errorf(ctx.Context, starterTag, "gorm sqlserver: install otel plugin failed: %v", err)
 		_ = ld.Stop()
 		_ = sqlDB.Close()
 		return nil, err
 	}
 	if err := applyPool(db, c); err != nil {
-		log.Errorf(ctx, starterTag, "gorm sqlserver: ping failed: %v", err)
+		log.Errorf(ctx.Context, starterTag, "gorm sqlserver: ping failed: %v", err)
 		_ = ld.Stop()
 		_ = sqlDB.Close()
 		return nil, err
 	}
 	liveDialers.Store(db, ld)
-	log.Infof(ctx, starterTag, "gorm sqlserver client initialized, service-name=%s db=%s", c.ServiceName, c.DB)
+	log.Infof(ctx.Context, starterTag, "gorm sqlserver client initialized, service-name=%s db=%s", c.ServiceName, c.DB)
 	return db, nil
 }
 

@@ -34,9 +34,8 @@ func init() {
 }
 
 // newClient creates and connects an MQTT client based on the provided configuration.
-func newClient(cp *gs.ContextProvider, c Config) (mqtt.Client, error) {
-	ctx := cp.Context
-	log.Debugf(ctx, starterTag, "creating mqtt client, broker=%s client-id=%s", c.Broker, c.ClientID)
+func newClient(ctx *gs.ContextProvider, c Config) (mqtt.Client, error) {
+	log.Debugf(ctx.Context, starterTag, "creating mqtt client, broker=%s client-id=%s", c.Broker, c.ClientID)
 
 	opts := mqtt.NewClientOptions().
 		AddBroker(c.Broker).
@@ -50,18 +49,18 @@ func newClient(cp *gs.ContextProvider, c Config) (mqtt.Client, error) {
 	// Bridge connection-lifecycle events into go-spring's log so the client's
 	// health (default auto-reconnect stays on) shows up alongside app logs.
 	opts.SetOnConnectHandler(func(_ mqtt.Client) {
-		log.Infof(ctx, log.TagAppDef, "mqtt connected to %q", c.Broker)
+		log.Infof(ctx.Context, log.TagAppDef, "mqtt connected to %q", c.Broker)
 	})
 	opts.SetConnectionLostHandler(func(_ mqtt.Client, err error) {
-		log.Warnf(ctx, log.TagAppDef, "mqtt connection lost: %v", err)
+		log.Warnf(ctx.Context, log.TagAppDef, "mqtt connection lost: %v", err)
 	})
 	opts.SetReconnectingHandler(func(_ mqtt.Client, _ *mqtt.ClientOptions) {
-		log.Infof(ctx, log.TagAppDef, "mqtt reconnecting to %q", c.Broker)
+		log.Infof(ctx.Context, log.TagAppDef, "mqtt reconnecting to %q", c.Broker)
 	})
 
 	tlsCfg, err := c.TLS.Build()
 	if err != nil {
-		log.Errorf(ctx, starterTag, "mqtt: build TLS failed: %v", err)
+		log.Errorf(ctx.Context, starterTag, "mqtt: build TLS failed: %v", err)
 		return nil, errutil.Explain(err, "mqtt: build TLS")
 	}
 	if tlsCfg != nil {
@@ -76,10 +75,10 @@ func newClient(cp *gs.ContextProvider, c Config) (mqtt.Client, error) {
 	token := client.Connect()
 	token.Wait()
 	if err := token.Error(); err != nil {
-		log.Errorf(ctx, starterTag, "mqtt: connect failed broker=%s: %v", c.Broker, err)
+		log.Errorf(ctx.Context, starterTag, "mqtt: connect failed broker=%s: %v", c.Broker, err)
 		return nil, err
 	}
-	log.Infof(ctx, starterTag, "mqtt client initialized, broker=%s", c.Broker)
+	log.Infof(ctx.Context, starterTag, "mqtt client initialized, broker=%s", c.Broker)
 	return client, nil
 }
 

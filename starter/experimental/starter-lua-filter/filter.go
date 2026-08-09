@@ -46,14 +46,13 @@ type Filter struct {
 
 // newFilter compiles the Lua script referenced by the config into a reusable
 // function prototype and prepares a pool of sandboxed VMs.
-func newFilter(cp *gs.ContextProvider, c Config) (*Filter, error) {
-	ctx := cp.Context
+func newFilter(ctx *gs.ContextProvider, c Config) (*Filter, error) {
 
 	proto, err := compileFile(c.Script)
 	if err != nil {
 		return nil, err
 	}
-	log.Infof(ctx, starterTag, "lua filter created script=%s", c.Script)
+	log.Infof(ctx.Context, starterTag, "lua filter created script=%s", c.Script)
 	f := &Filter{name: c.Script, script: c.Script}
 	f.proto.Store(proto)
 	f.pool.New = func() any {

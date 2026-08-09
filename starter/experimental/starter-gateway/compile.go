@@ -93,9 +93,9 @@ type RouteTable struct {
 // are populated by field injection after the constructor returns, so route
 // compilation is deferred to warmup() — called from GatewayServer.Run — where a
 // bad initial config fails startup.
-func newRouteTable(cp *gs.ContextProvider, m *Metrics) *RouteTable {
+func newRouteTable(ctx *gs.ContextProvider, m *Metrics) *RouteTable {
 	return &RouteTable{
-		ctx:     cp.Context,
+		ctx:     ctx.Context,
 		metrics: m,
 		dialers: map[string]*discovery.Resolver{},
 	}

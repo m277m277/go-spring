@@ -24,7 +24,7 @@ import (
 	"go-spring.org/spring/cloud/discovery"
 	"go-spring.org/spring/data/cache"
 	"go-spring.org/spring/gs"
-	cache2 "go-spring.org/starter-redigo/cache"
+	"go-spring.org/starter-redigo/bytecache"
 	"go-spring.org/stdlib/errutil"
 	"go-spring.org/stdlib/flatten"
 )
@@ -44,21 +44,22 @@ func init() {
 //	spring.cache.<name>.driver = redigo:<redigo-instance-name>
 //
 // The beanID selects which pool bean to wrap; the implementation lives in
-// starter-redigo/cache.
+// starter-redigo/bytecache.
 func init() {
 	cache.RegisterDriver("redigo", func(beanID string) gs.ModuleFunc {
 		return func(r gs.BeanProvider, p flatten.Storage) error {
-			r.Provide(cache2.NewCache, gs.TagArg(beanID)).Name(beanID)
+			r.Provide(func(pool *redis.Pool) *cache.Cache {
+				return &cache.Cache{ByteCache: bytecache.NewByteCache(pool)}
+			}, gs.TagArg(beanID)).Name(beanID)
 			return nil
 		}
 	})
 }
 
 // newClient creates a new Redis client based on the provided configuration.
-func newClient(cp *gs.ContextProvider, c Config) (*redis.Pool, error) {
-	ctx := cp.Context
+func newClient(ctx *gs.ContextProvider, c Config) (*redis.Pool, error) {
 
-	log.Debugf(ctx, starterTag, "creating redigo client, addr=%s service-name=%s", c.Addr, c.ServiceName)
+	log.Debugf(ctx.Context, starterTag, "creating redigo client, addr=%s service-name=%s", c.Addr, c.ServiceName)
 
 	if err := errutil.RequireAny("redis",
 		errutil.Field{Name: "addr", Value: c.Addr},
@@ -68,12 +69,12 @@ func newClient(cp *gs.ContextProvider, c Config) (*redis.Pool, error) {
 	}
 	d, ok := driverRegistry[c.Driver]
 	if !ok {
-		log.Errorf(ctx, starterTag, "redigo driver not found: %s", c.Driver)
+		log.Errorf(ctx.Context, starterTag, "redigo driver not found: %s", c.Driver)
 		return nil, errutil.Explain(nil, "redis driver not found: %s", c.Driver)
 	}
-	pool, err := d.CreateClient(ctx, c)
+	pool, err := d.CreateClient(ctx.Context, c)
 	if err != nil {
-		log.Errorf(ctx, starterTag, "redigo: create client failed: %v", err)
+		log.Errorf(ctx.Context, starterTag, "redigo: create client failed: %v", err)
 		return nil, errutil.Explain(err, "failed to create redis client")
 	}
 	// Fail fast: the redigo pool dials lazily, so borrow one connection and
@@ -82,11 +83,11 @@ func newClient(cp *gs.ContextProvider, c Config) (*redis.Pool, error) {
 	conn := pool.Get()
 	defer func() { _ = conn.Close() }()
 	if _, err := conn.Do("PING"); err != nil {
-		log.Errorf(ctx, starterTag, "redigo: startup ping failed: %v", err)
+		log.Errorf(ctx.Context, starterTag, "redigo: startup ping failed: %v", err)
 		_ = pool.Close()
 		return nil, errutil.Explain(err, "redis: startup ping failed")
 	}
-	log.Infof(ctx, starterTag, "redigo client initialized, addr=%s", c.Addr)
+	log.Infof(ctx.Context, starterTag, "redigo client initialized, addr=%s", c.Addr)
 	return pool, nil
 }
 

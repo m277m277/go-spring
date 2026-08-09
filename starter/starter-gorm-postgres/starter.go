@@ -58,13 +58,12 @@ func init() {
 // changes take effect without rebuilding the client. In mesh mode a sidecar
 // owns discovery+LB, so the configured Host is used as-is. When c.ServiceName
 // is empty this is a plain DSN dial, unchanged from before.
-func newClient(cp *gs.ContextProvider, c Config) (*gorm.DB, error) {
-	ctx := cp.Context
+func newClient(ctx *gs.ContextProvider, c Config) (*gorm.DB, error) {
 	if c.Host == "" && c.ServiceName == "" {
 		return nil, errutil.Explain(nil, "gorm postgres: one of host or service-name must be set")
 	}
 
-	log.Debugf(ctx, starterTag, "creating gorm postgres client, host=%s service-name=%s db=%s", c.Host, c.ServiceName, c.DB)
+	log.Debugf(ctx.Context, starterTag, "creating gorm postgres client, host=%s service-name=%s db=%s", c.Host, c.ServiceName, c.DB)
 
 	var (
 		db  *gorm.DB
@@ -75,23 +74,23 @@ func newClient(cp *gs.ContextProvider, c Config) (*gorm.DB, error) {
 	if c.ServiceName == "" || mesh.Enabled() {
 		db, err = gorm.Open(postgres.Open(c.DSN()), gormConfig(c))
 		if err != nil {
-			log.Errorf(ctx, starterTag, "gorm postgres: open failed: %v", err)
+			log.Errorf(ctx.Context, starterTag, "gorm postgres: open failed: %v", err)
 			return nil, err
 		}
 	} else {
 		d, err := discovery.GetDiscovery(c.Discovery)
 		if err != nil {
-			log.Errorf(ctx, starterTag, "gorm postgres: get discovery backend failed: %v", err)
+			log.Errorf(ctx.Context, starterTag, "gorm postgres: get discovery backend failed: %v", err)
 			return nil, err
 		}
-		ld, err = discovery.NewResolver(ctx, d, c.ServiceName, discovery.WithScheme(c.Scheme))
+		ld, err = discovery.NewResolver(ctx.Context, d, c.ServiceName, discovery.WithScheme(c.Scheme))
 		if err != nil {
-			log.Errorf(ctx, starterTag, "gorm postgres: create resolver for %s failed: %v", c.ServiceName, err)
+			log.Errorf(ctx.Context, starterTag, "gorm postgres: create resolver for %s failed: %v", c.ServiceName, err)
 			return nil, err
 		}
 		pgxCfg, err := pgx.ParseConfig(c.DSN())
 		if err != nil {
-			log.Errorf(ctx, starterTag, "gorm postgres: parse pgx config failed: %v", err)
+			log.Errorf(ctx.Context, starterTag, "gorm postgres: parse pgx config failed: %v", err)
 			_ = ld.Stop()
 			return nil, err
 		}
@@ -109,7 +108,7 @@ func newClient(cp *gs.ContextProvider, c Config) (*gorm.DB, error) {
 		sqlDB := stdlib.OpenDB(*pgxCfg)
 		db, err = gorm.Open(postgres.New(postgres.Config{Conn: sqlDB}), gormConfig(c))
 		if err != nil {
-			log.Errorf(ctx, starterTag, "gorm postgres: open with discovery failed: %v", err)
+			log.Errorf(ctx.Context, starterTag, "gorm postgres: open with discovery failed: %v", err)
 			_ = sqlDB.Close()
 			_ = ld.Stop()
 			return nil, err
@@ -117,7 +116,7 @@ func newClient(cp *gs.ContextProvider, c Config) (*gorm.DB, error) {
 	}
 
 	if err := db.Use(tracing.NewPlugin(tracing.WithDBSystem("postgresql"))); err != nil {
-		log.Errorf(ctx, starterTag, "gorm postgres: install otel plugin failed: %v", err)
+		log.Errorf(ctx.Context, starterTag, "gorm postgres: install otel plugin failed: %v", err)
 		if ld != nil {
 			_ = ld.Stop()
 		}
@@ -125,7 +124,7 @@ func newClient(cp *gs.ContextProvider, c Config) (*gorm.DB, error) {
 	}
 	// Fail fast: verify connectivity and apply pool settings at creation time.
 	if err := applyPool(db, c); err != nil {
-		log.Errorf(ctx, starterTag, "gorm postgres: ping failed: %v", err)
+		log.Errorf(ctx.Context, starterTag, "gorm postgres: ping failed: %v", err)
 		if ld != nil {
 			_ = ld.Stop()
 		}
@@ -137,7 +136,7 @@ func newClient(cp *gs.ContextProvider, c Config) (*gorm.DB, error) {
 	if ld != nil {
 		liveDialers.Store(db, ld)
 	}
-	log.Infof(ctx, starterTag, "gorm postgres client initialized, host=%s db=%s", c.Host, c.DB)
+	log.Infof(ctx.Context, starterTag, "gorm postgres client initialized, host=%s db=%s", c.Host, c.DB)
 	return db, nil
 }
 

@@ -51,16 +51,15 @@ type k8sLocker struct {
 // newK8sLocker builds a Locker from c, creating the shared clientset eagerly so
 // a missing ServiceAccount or bad kubeconfig fails at boot rather than on the
 // first Acquire.
-func newK8sLocker(cp *gs.ContextProvider, c Config) (*k8sLocker, error) {
-	ctx := cp.Context
-	log.Debugf(ctx, starterTag, "creating k8s locker, namespace=%s key-prefix=%s", c.Namespace, c.KeyPrefix)
+func newK8sLocker(ctx *gs.ContextProvider, c Config) (*k8sLocker, error) {
+	log.Debugf(ctx.Context, starterTag, "creating k8s locker, namespace=%s key-prefix=%s", c.Namespace, c.KeyPrefix)
 
 	client, err := buildClient(c)
 	if err != nil {
-		log.Errorf(ctx, starterTag, "lock-k8s: build client failed: %v", err)
+		log.Errorf(ctx.Context, starterTag, "lock-k8s: build client failed: %v", err)
 		return nil, err
 	}
-	log.Infof(ctx, starterTag, "k8s locker initialized, namespace=%s", c.Namespace)
+	log.Infof(ctx.Context, starterTag, "k8s locker initialized, namespace=%s", c.Namespace)
 	return newK8sLockerWithClient(client, c.Namespace, c.KeyPrefix), nil
 }
 

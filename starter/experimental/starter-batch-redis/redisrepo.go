@@ -58,7 +58,7 @@ type redisRepository struct {
 // starter-go-redis; this repository never closes it. Constructor validation is
 // deliberately minimal: the only unrecoverable configuration error is a nil
 // client, which would surface as a nil-deref on the first call otherwise.
-func newRedisRepository(cp *gs.ContextProvider, c Config, client *redis.Client) (batch.JobRepository, error) {
+func newRedisRepository(ctx *gs.ContextProvider, c Config, client *redis.Client) (batch.JobRepository, error) {
 	if client == nil {
 		return nil, errors.New("batch-redis: nil *redis.Client")
 	}

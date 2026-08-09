@@ -24,7 +24,7 @@ import (
 	"go-spring.org/spring/cloud/discovery"
 	"go-spring.org/spring/data/cache"
 	"go-spring.org/spring/gs"
-	cache2 "go-spring.org/starter-memcached/cache"
+	"go-spring.org/starter-memcached/bytecache"
 	"go-spring.org/stdlib/errutil"
 	"go-spring.org/stdlib/flatten"
 )
@@ -48,42 +48,43 @@ func init() {
 //	spring.cache.<name>.driver = memcached:<memcached-instance-name>
 //
 // The beanID selects which memcache client bean to wrap; the implementation
-// lives in starter-memcached/cache.
+// lives in starter-memcached/bytecache.
 func init() {
 	cache.RegisterDriver("memcached", func(beanID string) gs.ModuleFunc {
 		return func(r gs.BeanProvider, p flatten.Storage) error {
-			r.Provide(cache2.NewCache, gs.TagArg(beanID)).Name(beanID)
+			r.Provide(func(c *memcache.Client) *cache.Cache {
+				return &cache.Cache{ByteCache: bytecache.NewByteCache(c)}
+			}, gs.TagArg(beanID)).Name(beanID)
 			return nil
 		}
 	})
 }
 
 // newClient creates a new Memcached client based on the provided configuration.
-func newClient(cp *gs.ContextProvider, c Config) (*memcache.Client, error) {
-	ctx := cp.Context
-	log.Debugf(ctx, starterTag, "creating memcached client, servers=%v service-name=%s", c.Servers, c.ServiceName)
+func newClient(ctx *gs.ContextProvider, c Config) (*memcache.Client, error) {
+	log.Debugf(ctx.Context, starterTag, "creating memcached client, servers=%v service-name=%s", c.Servers, c.ServiceName)
 
 	if len(c.Servers) == 0 && c.ServiceName == "" {
 		return nil, errutil.Explain(nil, "memcached: one of servers or service-name must be set")
 	}
 	d, ok := driverRegistry[c.Driver]
 	if !ok {
-		log.Errorf(ctx, starterTag, "memcached driver not found: %s", c.Driver)
+		log.Errorf(ctx.Context, starterTag, "memcached driver not found: %s", c.Driver)
 		return nil, errutil.Explain(nil, "memcached driver not found: %s", c.Driver)
 	}
-	client, err := d.CreateClient(ctx, c)
+	client, err := d.CreateClient(ctx.Context, c)
 	if err != nil {
-		log.Errorf(ctx, starterTag, "memcached: create client failed: %v", err)
+		log.Errorf(ctx.Context, starterTag, "memcached: create client failed: %v", err)
 		return nil, errutil.Explain(err, "failed to create memcached client")
 	}
 	// Fail fast: probe every configured server with a PING at startup so a
 	// misconfigured or unreachable server surfaces during boot rather than on
 	// the first request.
 	if err := client.Ping(); err != nil {
-		log.Errorf(ctx, starterTag, "memcached: startup ping failed: %v", err)
+		log.Errorf(ctx.Context, starterTag, "memcached: startup ping failed: %v", err)
 		return nil, errutil.Explain(err, "memcached: startup ping failed")
 	}
-	log.Infof(ctx, starterTag, "memcached client initialized, servers=%v", c.Servers)
+	log.Infof(ctx.Context, starterTag, "memcached client initialized, servers=%v", c.Servers)
 	return client, nil
 }
 

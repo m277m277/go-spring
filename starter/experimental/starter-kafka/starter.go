@@ -53,9 +53,8 @@ const pingTimeout = 10 * time.Second
 // After the client is built it is pinged so a misconfigured broker list, bad
 // credentials or TLS mismatch fail fast at startup instead of surfacing on the
 // first produce/consume.
-func newClient(cp *gs.ContextProvider, c Config) (*kgo.Client, error) {
-	ctx := cp.Context
-	log.Debugf(ctx, starterTag, "creating kafka client, brokers=%s group=%s topic=%s", c.Brokers, c.Group, c.Topic)
+func newClient(ctx *gs.ContextProvider, c Config) (*kgo.Client, error) {
+	log.Debugf(ctx.Context, starterTag, "creating kafka client, brokers=%s group=%s topic=%s", c.Brokers, c.Group, c.Topic)
 
 	kt := kotel.NewKotel(
 		kotel.WithTracer(kotel.NewTracer()),
@@ -84,7 +83,7 @@ func newClient(cp *gs.ContextProvider, c Config) (*kgo.Client, error) {
 	if c.TLS.Enabled {
 		tc, err := c.TLS.Build()
 		if err != nil {
-			log.Errorf(ctx, starterTag, "kafka: build TLS failed: %v", err)
+			log.Errorf(ctx.Context, starterTag, "kafka: build TLS failed: %v", err)
 			return nil, errutil.Explain(err, "kafka: build TLS")
 		}
 		opts = append(opts, kgo.DialTLSConfig(tc))
@@ -98,18 +97,18 @@ func newClient(cp *gs.ContextProvider, c Config) (*kgo.Client, error) {
 
 	cl, err := kgo.NewClient(opts...)
 	if err != nil {
-		log.Errorf(ctx, starterTag, "kafka: create client failed: %v", err)
+		log.Errorf(ctx.Context, starterTag, "kafka: create client failed: %v", err)
 		return nil, errutil.Explain(err, "failed to create kafka client: %s", c.Brokers)
 	}
 
-	pingCtx, cancel := context.WithTimeout(ctx, pingTimeout)
+	pingCtx, cancel := context.WithTimeout(ctx.Context, pingTimeout)
 	defer cancel()
 	if err = cl.Ping(pingCtx); err != nil {
-		log.Errorf(ctx, starterTag, "kafka: ping failed: %v", err)
+		log.Errorf(ctx.Context, starterTag, "kafka: ping failed: %v", err)
 		cl.Close()
 		return nil, errutil.Explain(err, "failed to ping kafka: %s", c.Brokers)
 	}
-	log.Infof(ctx, starterTag, "kafka client initialized, brokers=%s", c.Brokers)
+	log.Infof(ctx.Context, starterTag, "kafka client initialized, brokers=%s", c.Brokers)
 	return cl, nil
 }
 

@@ -58,13 +58,12 @@ func init() {
 // client. In mesh mode a sidecar owns discovery+LB, so the configured Addr is
 // used as-is. When c.ServiceName is empty this is a plain DSN dial, unchanged
 // from before.
-func newClient(cp *gs.ContextProvider, c Config) (*gorm.DB, error) {
-	ctx := cp.Context
+func newClient(ctx *gs.ContextProvider, c Config) (*gorm.DB, error) {
 	if c.Addr == "" && c.ServiceName == "" {
 		return nil, errutil.Explain(nil, "gorm clickhouse: one of addr or service-name must be set")
 	}
 
-	log.Debugf(ctx, starterTag, "creating gorm clickhouse client, addr=%s service-name=%s db=%s", c.Addr, c.ServiceName, c.DB)
+	log.Debugf(ctx.Context, starterTag, "creating gorm clickhouse client, addr=%s service-name=%s db=%s", c.Addr, c.ServiceName, c.DB)
 
 	var (
 		db  *gorm.DB
@@ -81,7 +80,7 @@ func newClient(cp *gs.ContextProvider, c Config) (*gorm.DB, error) {
 	if !useNative {
 		db, err = gorm.Open(clickhouse.Open(c.DSN()), gormConfig(c))
 		if err != nil {
-			log.Errorf(ctx, starterTag, "gorm clickhouse: open failed: %v", err)
+			log.Errorf(ctx.Context, starterTag, "gorm clickhouse: open failed: %v", err)
 			return nil, err
 		}
 	} else {
@@ -98,7 +97,7 @@ func newClient(cp *gs.ContextProvider, c Config) (*gorm.DB, error) {
 		if c.TLS.Enabled {
 			tlsCfg, terr := c.TLS.Build()
 			if terr != nil {
-				log.Errorf(ctx, starterTag, "gorm clickhouse: build TLS failed: %v", terr)
+				log.Errorf(ctx.Context, starterTag, "gorm clickhouse: build TLS failed: %v", terr)
 				return nil, errutil.Explain(terr, "gorm-clickhouse: build TLS")
 			}
 			opts.TLS = tlsCfg
@@ -106,12 +105,12 @@ func newClient(cp *gs.ContextProvider, c Config) (*gorm.DB, error) {
 		if useDiscovery {
 			d, derr := discovery.GetDiscovery(c.Discovery)
 			if derr != nil {
-				log.Errorf(ctx, starterTag, "gorm clickhouse: get discovery backend failed: %v", derr)
+				log.Errorf(ctx.Context, starterTag, "gorm clickhouse: get discovery backend failed: %v", derr)
 				return nil, derr
 			}
-			ld, derr = discovery.NewResolver(ctx, d, c.ServiceName, discovery.WithScheme(c.Scheme))
+			ld, derr = discovery.NewResolver(ctx.Context, d, c.ServiceName, discovery.WithScheme(c.Scheme))
 			if derr != nil {
-				log.Errorf(ctx, starterTag, "gorm clickhouse: create resolver for %s failed: %v", c.ServiceName, derr)
+				log.Errorf(ctx.Context, starterTag, "gorm clickhouse: create resolver for %s failed: %v", c.ServiceName, derr)
 				return nil, derr
 			}
 			// ch.Options.DialContext is 2-arg: func(ctx, addr string) (net.Conn, error).
@@ -128,7 +127,7 @@ func newClient(cp *gs.ContextProvider, c Config) (*gorm.DB, error) {
 		sqlDB := ch.OpenDB(opts)
 		db, err = gorm.Open(clickhouse.New(clickhouse.Config{Conn: sqlDB}), gormConfig(c))
 		if err != nil {
-			log.Errorf(ctx, starterTag, "gorm clickhouse: open with native driver failed: %v", err)
+			log.Errorf(ctx.Context, starterTag, "gorm clickhouse: open with native driver failed: %v", err)
 			if ld != nil {
 				_ = ld.Stop()
 			}
@@ -137,7 +136,7 @@ func newClient(cp *gs.ContextProvider, c Config) (*gorm.DB, error) {
 		}
 	}
 	if err := db.Use(tracing.NewPlugin(tracing.WithDBSystem("clickhouse"))); err != nil {
-		log.Errorf(ctx, starterTag, "gorm clickhouse: install otel plugin failed: %v", err)
+		log.Errorf(ctx.Context, starterTag, "gorm clickhouse: install otel plugin failed: %v", err)
 		if ld != nil {
 			_ = ld.Stop()
 		}
@@ -145,7 +144,7 @@ func newClient(cp *gs.ContextProvider, c Config) (*gorm.DB, error) {
 	}
 	// Fail fast: verify connectivity and apply pool settings at creation time.
 	if err := applyPool(db, c); err != nil {
-		log.Errorf(ctx, starterTag, "gorm clickhouse: ping failed: %v", err)
+		log.Errorf(ctx.Context, starterTag, "gorm clickhouse: ping failed: %v", err)
 		if ld != nil {
 			_ = ld.Stop()
 		}
@@ -157,7 +156,7 @@ func newClient(cp *gs.ContextProvider, c Config) (*gorm.DB, error) {
 	if ld != nil {
 		liveDialers.Store(db, ld)
 	}
-	log.Infof(ctx, starterTag, "gorm clickhouse client initialized, addr=%s db=%s", c.Addr, c.DB)
+	log.Infof(ctx.Context, starterTag, "gorm clickhouse client initialized, addr=%s db=%s", c.Addr, c.DB)
 	return db, nil
 }
 

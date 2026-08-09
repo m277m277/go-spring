@@ -46,9 +46,8 @@ type etcdLocker struct {
 // mints one session per acquisition. It fails fast when the cluster is
 // unreachable within DialTimeout so a misconfigured application never boots
 // with a silently broken lock backend.
-func newEtcdLocker(cp *gs.ContextProvider, c Config) (*etcdLocker, error) {
-	ctx := cp.Context
-	log.Debugf(ctx, starterTag, "creating etcd locker, endpoints=%v key-prefix=%s", c.Endpoints, c.KeyPrefix)
+func newEtcdLocker(ctx *gs.ContextProvider, c Config) (*etcdLocker, error) {
+	log.Debugf(ctx.Context, starterTag, "creating etcd locker, endpoints=%v key-prefix=%s", c.Endpoints, c.KeyPrefix)
 
 	if len(c.Endpoints) == 0 {
 		return nil, errutil.Explain(nil, "lock-etcd: endpoints is required")
@@ -56,7 +55,7 @@ func newEtcdLocker(cp *gs.ContextProvider, c Config) (*etcdLocker, error) {
 
 	tlsCfg, err := c.TLS.Build()
 	if err != nil {
-		log.Errorf(ctx, starterTag, "lock-etcd: build TLS failed: %v", err)
+		log.Errorf(ctx.Context, starterTag, "lock-etcd: build TLS failed: %v", err)
 		return nil, errutil.Explain(err, "lock-etcd: build TLS")
 	}
 
@@ -68,22 +67,22 @@ func newEtcdLocker(cp *gs.ContextProvider, c Config) (*etcdLocker, error) {
 		TLS:         tlsCfg,
 	})
 	if err != nil {
-		log.Errorf(ctx, starterTag, "lock-etcd: create client failed: %v", err)
+		log.Errorf(ctx.Context, starterTag, "lock-etcd: create client failed: %v", err)
 		return nil, errutil.Explain(err, "lock-etcd: failed to create etcd client")
 	}
 
 	// Fail-fast readiness probe: a Status against the first endpoint proves
 	// the credentials and TLS material work, so a bad configuration surfaces
 	// at boot instead of on the first Acquire.
-	ctx, cancel := context.WithTimeout(ctx, c.DialTimeout)
+	pctx, cancel := context.WithTimeout(ctx.Context, c.DialTimeout)
 	defer cancel()
-	if _, err := cli.Status(ctx, c.Endpoints[0]); err != nil {
-		log.Errorf(ctx, starterTag, "lock-etcd: startup probe failed for %s: %v", c.Endpoints[0], err)
+	if _, err := cli.Status(pctx, c.Endpoints[0]); err != nil {
+		log.Errorf(pctx, starterTag, "lock-etcd: startup probe failed for %s: %v", c.Endpoints[0], err)
 		_ = cli.Close()
 		return nil, errutil.Explain(err, "lock-etcd: startup probe failed for %s", c.Endpoints[0])
 	}
 
-	log.Infof(ctx, starterTag, "etcd locker initialized, endpoints=%v", c.Endpoints)
+	log.Infof(pctx, starterTag, "etcd locker initialized, endpoints=%v", c.Endpoints)
 	return &etcdLocker{
 		client:    cli,
 		keyPrefix: c.KeyPrefix,

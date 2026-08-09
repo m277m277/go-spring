@@ -76,14 +76,13 @@ func init() {
 // the client. In mesh mode a sidecar owns discovery+LB, so the configured Addr
 // is used as-is. When c.ServiceName is empty this is a plain Addr dial,
 // unchanged from before.
-func newClient(cp *gs.ContextProvider, c Config) (*gorm.DB, error) {
-	ctx := cp.Context
+func newClient(ctx *gs.ContextProvider, c Config) (*gorm.DB, error) {
 
 	if c.Addr == "" && c.ServiceName == "" {
 		return nil, fmt.Errorf("gorm mysql: one of addr or service-name must be set")
 	}
 
-	log.Debugf(ctx, starterTag, "creating gorm mysql client, addr=%s service-name=%s db=%s", c.Addr, c.ServiceName, c.DB)
+	log.Debugf(ctx.Context, starterTag, "creating gorm mysql client, addr=%s service-name=%s db=%s", c.Addr, c.ServiceName, c.DB)
 
 	// Resolve the TLS DSN parameter. The shared TLS builder returns a fully
 	// materialized *tls.Config when TLS is enabled (empty CAFile falls back to
@@ -93,7 +92,7 @@ func newClient(cp *gs.ContextProvider, c Config) (*gorm.DB, error) {
 	var tlsName string
 	tlsCfg, err := c.TLS.Build()
 	if err != nil {
-		log.Errorf(ctx, starterTag, "gorm mysql: build TLS failed: %v", err)
+		log.Errorf(ctx.Context, starterTag, "gorm mysql: build TLS failed: %v", err)
 		return nil, errutil.Explain(err, "gorm-mysql: build TLS")
 	}
 	if tlsCfg != nil {
@@ -110,13 +109,13 @@ func newClient(cp *gs.ContextProvider, c Config) (*gorm.DB, error) {
 	if c.ServiceName != "" && !mesh.Enabled() {
 		d, err := discovery.GetDiscovery(c.Discovery)
 		if err != nil {
-			log.Errorf(ctx, starterTag, "gorm mysql: get discovery backend failed: %v", err)
+			log.Errorf(ctx.Context, starterTag, "gorm mysql: get discovery backend failed: %v", err)
 			deregisterTLS(tlsName)
 			return nil, err
 		}
-		ld, err := discovery.NewResolver(ctx, d, c.ServiceName, discovery.WithScheme(c.Scheme))
+		ld, err := discovery.NewResolver(ctx.Context, d, c.ServiceName, discovery.WithScheme(c.Scheme))
 		if err != nil {
-			log.Errorf(ctx, starterTag, "gorm mysql: create resolver for %s failed: %v", c.ServiceName, err)
+			log.Errorf(ctx.Context, starterTag, "gorm mysql: create resolver for %s failed: %v", c.ServiceName, err)
 			deregisterTLS(tlsName)
 			return nil, err
 		}
@@ -143,18 +142,18 @@ func newClient(cp *gs.ContextProvider, c Config) (*gorm.DB, error) {
 
 	db, err := gorm.Open(gormmysql.Open(dsn), gormConfig(c))
 	if err != nil {
-		log.Errorf(ctx, starterTag, "gorm mysql: open failed: %v", err)
+		log.Errorf(ctx.Context, starterTag, "gorm mysql: open failed: %v", err)
 		cleanup(conn, tlsName)
 		return nil, err
 	}
 	if err := db.Use(tracing.NewPlugin(tracing.WithDBSystem("mysql"))); err != nil {
-		log.Errorf(ctx, starterTag, "gorm mysql: install otel plugin failed: %v", err)
+		log.Errorf(ctx.Context, starterTag, "gorm mysql: install otel plugin failed: %v", err)
 		cleanup(conn, tlsName)
 		return nil, err
 	}
 	// Fail fast: verify connectivity and apply pool settings at creation time.
 	if err := applyPool(db, c); err != nil {
-		log.Errorf(ctx, starterTag, "gorm mysql: ping failed: %v", err)
+		log.Errorf(ctx.Context, starterTag, "gorm mysql: ping failed: %v", err)
 		cleanup(conn, tlsName)
 		if sqlDB, derr := db.DB(); derr == nil {
 			_ = sqlDB.Close()
@@ -162,7 +161,7 @@ func newClient(cp *gs.ContextProvider, c Config) (*gorm.DB, error) {
 		return nil, err
 	}
 	if err := applyResilience(c, db); err != nil {
-		log.Errorf(ctx, starterTag, "gorm mysql: resilience setup failed: %v", err)
+		log.Errorf(ctx.Context, starterTag, "gorm mysql: resilience setup failed: %v", err)
 		cleanup(conn, tlsName)
 		if sqlDB, derr := db.DB(); derr == nil {
 			_ = sqlDB.Close()
@@ -175,7 +174,7 @@ func newClient(cp *gs.ContextProvider, c Config) (*gorm.DB, error) {
 	if tlsName != "" {
 		tlsConfigs.Store(db, tlsName)
 	}
-	log.Infof(ctx, starterTag, "gorm mysql client initialized, addr=%s db=%s", c.Addr, c.DB)
+	log.Infof(ctx.Context, starterTag, "gorm mysql client initialized, addr=%s db=%s", c.Addr, c.DB)
 	return db, nil
 }
 

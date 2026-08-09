@@ -57,11 +57,10 @@ var resolvers sync.Map // *elasticsearch.Client -> *discovery.Resolver
 // only to keep the lifecycle uniform with the other client starters and is
 // stopped on shutdown. In mesh mode the sidecar owns discovery+LB, so the static
 // Addresses (or CloudID) are used unchanged. See Config.ServiceName.
-func newClient(cp *gs.ContextProvider, c Config) (*elasticsearch.Client, error) {
-	ctx := cp.Context
+func newClient(ctx *gs.ContextProvider, c Config) (*elasticsearch.Client, error) {
 	var resolver *discovery.Resolver
 	if c.ServiceName != "" && !mesh.Enabled() {
-		addrs, r, err := resolveAddresses(ctx, c)
+		addrs, r, err := resolveAddresses(ctx.Context, c)
 		if err != nil {
 			return nil, err
 		}
@@ -76,14 +75,14 @@ func newClient(cp *gs.ContextProvider, c Config) (*elasticsearch.Client, error) 
 		}
 		return nil, errutil.Explain(nil, "elasticsearch driver not found: %s", c.Driver)
 	}
-	client, err := d.CreateClient(ctx, c)
+	client, err := d.CreateClient(ctx.Context, c)
 	if err != nil {
 		if resolver != nil {
 			_ = resolver.Stop()
 		}
 		return nil, errutil.Explain(err, "failed to create elasticsearch client")
 	}
-	if err := HealthCheck(ctx, client); err != nil {
+	if err := HealthCheck(ctx.Context, client); err != nil {
 		_ = client.Close(context.Background())
 		if resolver != nil {
 			_ = resolver.Stop()

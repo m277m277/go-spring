@@ -29,7 +29,7 @@ import (
 	"go-spring.org/spring/conf"
 	"go-spring.org/spring/data/cache"
 	"go-spring.org/spring/gs"
-	cache2 "go-spring.org/starter-go-redis/cache"
+	"go-spring.org/starter-go-redis/bytecache"
 	health2 "go-spring.org/starter-go-redis/health"
 	"go-spring.org/stdlib/errutil"
 	"go-spring.org/stdlib/flatten"
@@ -80,11 +80,13 @@ func init() {
 //	spring.cache.<name>.driver = go-redis:<redis-instance-name>
 //
 // The beanID selects which client bean to wrap; the implementation lives in
-// starter-go-redis/cache.
+// starter-go-redis/bytecache.
 func init() {
 	cache.RegisterDriver("go-redis", func(beanID string) gs.ModuleFunc {
 		return func(r gs.BeanProvider, p flatten.Storage) error {
-			r.Provide(cache2.NewCache, gs.TagArg(beanID)).Name(beanID)
+			r.Provide(func(c *redis.Client) *cache.Cache {
+				return &cache.Cache{ByteCache: bytecache.NewByteCache(c)}
+			}, gs.TagArg(beanID)).Name(beanID)
 			return nil
 		}
 	})
@@ -95,83 +97,81 @@ func init() {
 // and connection-pool metrics through the OTel globals that starter-otel
 // installs; when starter-otel is absent those globals are no-ops, so this stays
 // a zero-config opt-in that needs no per-component adaptation.
-func newClient(cp *gs.ContextProvider, c Config) (*redis.Client, error) {
-	ctx := cp.Context
-	log.Debugf(ctx, starterTag, "creating redis client, addr=%s mode=%s", c.Addr, c.Mode)
+func newClient(ctx *gs.ContextProvider, c Config) (*redis.Client, error) {
+	log.Debugf(ctx.Context, starterTag, "creating redis client, addr=%s mode=%s", c.Addr, c.Mode)
 
 	if err := validateConfig(c); err != nil {
 		return nil, err
 	}
 	d, ok := driverRegistry[c.Driver]
 	if !ok {
-		log.Errorf(ctx, starterTag, "redis driver not found: %s", c.Driver)
+		log.Errorf(ctx.Context, starterTag, "redis driver not found: %s", c.Driver)
 		return nil, errutil.Explain(nil, "redis driver not found: %s", c.Driver)
 	}
-	client, err := d.CreateClient(ctx, c)
+	client, err := d.CreateClient(ctx.Context, c)
 	if err != nil {
-		log.Errorf(ctx, starterTag, "redis: create client failed: %v", err)
+		log.Errorf(ctx.Context, starterTag, "redis: create client failed: %v", err)
 		return nil, err
 	}
 	if err := instrument(client); err != nil {
-		log.Errorf(ctx, starterTag, "redis: instrument client failed: %v", err)
+		log.Errorf(ctx.Context, starterTag, "redis: instrument client failed: %v", err)
 		_ = client.Close()
 		return nil, err
 	}
-	if err := failFastPing(ctx, c, client); err != nil {
-		log.Errorf(ctx, starterTag, "redis: startup ping failed: %v", err)
+	if err := failFastPing(ctx.Context, c, client); err != nil {
+		log.Errorf(ctx.Context, starterTag, "redis: startup ping failed: %v", err)
 		_ = destroyClient(client)
 		return nil, err
 	}
 	if err := applyResilience(c, client); err != nil {
-		log.Errorf(ctx, starterTag, "redis: resilience setup failed: %v", err)
+		log.Errorf(ctx.Context, starterTag, "redis: resilience setup failed: %v", err)
 		_ = destroyClient(client)
 		return nil, err
 	}
-	log.Infof(ctx, starterTag, "redis client initialized, addr=%s mode=%s", c.Addr, c.Mode)
+	log.Infof(ctx.Context, starterTag, "redis client initialized, addr=%s mode=%s", c.Addr, c.Mode)
 	return client, nil
 }
 
 // newClusterClient creates a cluster Redis client (*redis.ClusterClient). The
 // driver must implement ClusterDriver; the redisotel hooks attach per-node via
 // ClusterClient.OnNewNode, so tracing/metrics cover every node discovered.
-func newClusterClient(cp *gs.ContextProvider, c Config) (*redis.ClusterClient, error) {
-	ctx := cp.Context
-	log.Debugf(ctx, starterTag, "creating redis cluster client, addrs=%v", c.Addrs)
+func newClusterClient(ctx *gs.ContextProvider, c Config) (*redis.ClusterClient, error) {
+	log.Debugf(ctx.Context, starterTag, "creating redis cluster client, addrs=%v", c.Addrs)
 
 	if err := validateConfig(c); err != nil {
 		return nil, err
 	}
 	d, ok := driverRegistry[c.Driver]
 	if !ok {
-		log.Errorf(ctx, starterTag, "redis driver not found: %s", c.Driver)
+		log.Errorf(ctx.Context, starterTag, "redis driver not found: %s", c.Driver)
 		return nil, errutil.Explain(nil, "redis driver not found: %s", c.Driver)
 	}
 	cd, ok := d.(ClusterDriver)
 	if !ok {
-		log.Errorf(ctx, starterTag, "redis driver %q does not support cluster mode", c.Driver)
+		log.Errorf(ctx.Context, starterTag, "redis driver %q does not support cluster mode", c.Driver)
 		return nil, errutil.Explain(nil, "redis driver %q does not support cluster mode", c.Driver)
 	}
-	client, err := cd.CreateClusterClient(ctx, c)
+	client, err := cd.CreateClusterClient(ctx.Context, c)
 	if err != nil {
-		log.Errorf(ctx, starterTag, "redis: create cluster client failed: %v", err)
+		log.Errorf(ctx.Context, starterTag, "redis: create cluster client failed: %v", err)
 		return nil, err
 	}
 	if err := instrument(client); err != nil {
-		log.Errorf(ctx, starterTag, "redis: instrument cluster client failed: %v", err)
+		log.Errorf(ctx.Context, starterTag, "redis: instrument cluster client failed: %v", err)
 		_ = client.Close()
 		return nil, err
 	}
-	if err := failFastPing(ctx, c, client); err != nil {
-		log.Errorf(ctx, starterTag, "redis: cluster startup ping failed: %v", err)
+	if err := failFastPing(ctx.Context, c, client); err != nil {
+		log.Errorf(ctx.Context, starterTag, "redis: cluster startup ping failed: %v", err)
 		_ = client.Close()
 		return nil, err
 	}
 	if err := applyResilience(c, client); err != nil {
-		log.Errorf(ctx, starterTag, "redis: cluster resilience setup failed: %v", err)
+		log.Errorf(ctx.Context, starterTag, "redis: cluster resilience setup failed: %v", err)
 		_ = destroyClusterClient(client)
 		return nil, err
 	}
-	log.Infof(ctx, starterTag, "redis cluster client initialized, addrs=%v", c.Addrs)
+	log.Infof(ctx.Context, starterTag, "redis cluster client initialized, addrs=%v", c.Addrs)
 	return client, nil
 }
 

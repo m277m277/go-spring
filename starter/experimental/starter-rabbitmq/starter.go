@@ -41,13 +41,12 @@ func init() {
 // Once the connection is up a probe channel is opened and closed to confirm
 // the AMQP layer is usable, then close/block notifiers are bridged into
 // go-spring's log so broker-driven events land alongside app logs.
-func newClient(cp *gs.ContextProvider, c Config) (*amqp.Connection, error) {
-	ctx := cp.Context
-	log.Debugf(ctx, starterTag, "creating rabbitmq connection, url=%s vhost=%s", c.URL, c.Vhost)
+func newClient(ctx *gs.ContextProvider, c Config) (*amqp.Connection, error) {
+	log.Debugf(ctx.Context, starterTag, "creating rabbitmq connection, url=%s vhost=%s", c.URL, c.Vhost)
 
 	tc, err := c.TLS.Build()
 	if err != nil {
-		log.Errorf(ctx, starterTag, "rabbitmq: build TLS failed: %v", err)
+		log.Errorf(ctx.Context, starterTag, "rabbitmq: build TLS failed: %v", err)
 		return nil, errutil.Explain(err, "rabbitmq: build TLS")
 	}
 	useTLS := tc != nil || strings.HasPrefix(strings.ToLower(c.URL), "amqps://")
@@ -66,14 +65,14 @@ func newClient(cp *gs.ContextProvider, c Config) (*amqp.Connection, error) {
 		conn, err = amqp.Dial(c.URL)
 	}
 	if err != nil {
-		log.Errorf(ctx, starterTag, "rabbitmq: dial failed url=%s: %v", c.URL, err)
+		log.Errorf(ctx.Context, starterTag, "rabbitmq: dial failed url=%s: %v", c.URL, err)
 		return nil, errutil.Explain(err, "failed to dial rabbitmq: %s", c.URL)
 	}
 
 	// Confirm the AMQP channel layer is usable, not just the TCP handshake.
 	ch, err := conn.Channel()
 	if err != nil {
-		log.Errorf(ctx, starterTag, "rabbitmq: open probe channel failed url=%s: %v", c.URL, err)
+		log.Errorf(ctx.Context, starterTag, "rabbitmq: open probe channel failed url=%s: %v", c.URL, err)
 		_ = conn.Close()
 		return nil, errutil.Explain(err, "failed to open probe channel: %s", c.URL)
 	}
@@ -89,24 +88,24 @@ func newClient(cp *gs.ContextProvider, c Config) (*amqp.Connection, error) {
 	go func() {
 		for e := range closeCh {
 			if e == nil {
-				log.Infof(ctx, log.TagAppDef, "rabbitmq connection closed: %s", c.URL)
+				log.Infof(ctx.Context, log.TagAppDef, "rabbitmq connection closed: %s", c.URL)
 				continue
 			}
-			log.Warnf(ctx, log.TagAppDef, "rabbitmq connection closed: code=%d reason=%q server=%t recover=%t",
+			log.Warnf(ctx.Context, log.TagAppDef, "rabbitmq connection closed: code=%d reason=%q server=%t recover=%t",
 				e.Code, e.Reason, e.Server, e.Recover)
 		}
 	}()
 	go func() {
 		for b := range blockCh {
 			if b.Active {
-				log.Warnf(ctx, log.TagAppDef, "rabbitmq connection blocked: %s", b.Reason)
+				log.Warnf(ctx.Context, log.TagAppDef, "rabbitmq connection blocked: %s", b.Reason)
 			} else {
-				log.Infof(ctx, log.TagAppDef, "rabbitmq connection unblocked")
+				log.Infof(ctx.Context, log.TagAppDef, "rabbitmq connection unblocked")
 			}
 		}
 	}()
 
-	log.Infof(ctx, starterTag, "rabbitmq connection initialized, url=%s", c.URL)
+	log.Infof(ctx.Context, starterTag, "rabbitmq connection initialized, url=%s", c.URL)
 	return conn, nil
 }
 

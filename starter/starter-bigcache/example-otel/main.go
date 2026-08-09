@@ -17,7 +17,7 @@
 // Package main is the observability example for starter-bigcache.
 //
 // It exercises a BigCache instance (SET hits + GET misses) so the OTel gauges
-// registered in starter-bigcache/observe report non-zero values, then scrapes
+// registered in starter-bigcache report non-zero values, then scrapes
 // the Prometheus pull exporter served by starter-otel at :9090/metrics and
 // verifies the bigcache.* metrics appear labeled with the instance name. No
 // external service is required - the prometheus exporter is in-process.
@@ -47,7 +47,7 @@ import (
 )
 
 // Service injects the "hot" BigCache instance. The bean is created by
-// starter-bigcache under ${spring.bigcache.hot}; starter-bigcache/observe
+// starter-bigcache under ${spring.bigcache.hot}; starter-bigcache
 // registers its OTel gauges (labeled cache.name="hot") as a side effect of
 // constructing the client.
 type Service struct {

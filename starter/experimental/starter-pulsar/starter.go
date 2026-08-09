@@ -47,9 +47,8 @@ func init() {
 // producer / consumer / lookup. When FailFast is enabled we issue one
 // TopicPartitions lookup against HealthCheckTopic so a bad URL, wrong token or
 // TLS mismatch fails at startup instead of on first message.
-func newClient(cp *gs.ContextProvider, c Config) (pulsar.Client, error) {
-	ctx := cp.Context
-	log.Debugf(ctx, starterTag, "creating pulsar client, url=%s fail-fast=%v", c.URL, c.FailFast)
+func newClient(ctx *gs.ContextProvider, c Config) (pulsar.Client, error) {
+	log.Debugf(ctx.Context, starterTag, "creating pulsar client, url=%s fail-fast=%v", c.URL, c.FailFast)
 
 	opts := pulsar.ClientOptions{
 		URL:                        c.URL,
@@ -86,19 +85,19 @@ func newClient(cp *gs.ContextProvider, c Config) (pulsar.Client, error) {
 
 	cl, err := pulsar.NewClient(opts)
 	if err != nil {
-		log.Errorf(ctx, starterTag, "pulsar: create client failed: %v", err)
+		log.Errorf(ctx.Context, starterTag, "pulsar: create client failed: %v", err)
 		if srv != nil {
-			_ = srv.Shutdown(ctx)
+			_ = srv.Shutdown(ctx.Context)
 		}
 		return nil, errutil.Explain(err, "failed to create pulsar client: %s", c.URL)
 	}
 
 	if c.FailFast {
 		if _, err = cl.TopicPartitions(c.HealthCheckTopic); err != nil {
-			log.Errorf(ctx, starterTag, "pulsar: fail-fast probe failed on %s (topic=%s): %v", c.URL, c.HealthCheckTopic, err)
+			log.Errorf(ctx.Context, starterTag, "pulsar: fail-fast probe failed on %s (topic=%s): %v", c.URL, c.HealthCheckTopic, err)
 			cl.Close()
 			if srv != nil {
-				_ = srv.Shutdown(ctx)
+				_ = srv.Shutdown(ctx.Context)
 			}
 			return nil, errutil.Explain(err, "pulsar broker probe failed on %s (topic=%s)", c.URL, c.HealthCheckTopic)
 		}
@@ -106,7 +105,7 @@ func newClient(cp *gs.ContextProvider, c Config) (pulsar.Client, error) {
 	if srv != nil {
 		metricsServers.Store(cl, srv)
 	}
-	log.Infof(ctx, starterTag, "pulsar client initialized, url=%s", c.URL)
+	log.Infof(ctx.Context, starterTag, "pulsar client initialized, url=%s", c.URL)
 	return cl, nil
 }
 

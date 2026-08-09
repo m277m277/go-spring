@@ -53,14 +53,13 @@ type Enforcer struct {
 // other instances trigger an automatic LoadPolicy, giving hot reload and
 // multi-instance synchronization. Adapter and watcher are both optional and
 // supplied by the application via RegisterAdapter / RegisterWatcher.
-func newEnforcer(cp *gs.ContextProvider, c Config) (*Enforcer, error) {
-	ctx := cp.Context
+func newEnforcer(ctx *gs.ContextProvider, c Config) (*Enforcer, error) {
 	var (
 		e   *casbin.Enforcer
 		err error
 	)
 
-	log.Debugf(ctx, starterTag, "creating casbin enforcer model=%s adapter=%s watcher=%s", c.Model, c.Adapter, c.Watcher)
+	log.Debugf(ctx.Context, starterTag, "creating casbin enforcer model=%s adapter=%s watcher=%s", c.Model, c.Adapter, c.Watcher)
 
 	if c.Adapter != "" {
 		a, ok := lookupAdapter(c.Adapter)
@@ -72,7 +71,7 @@ func newEnforcer(cp *gs.ContextProvider, c Config) (*Enforcer, error) {
 		e, err = casbin.NewEnforcer(c.Model, c.Policy)
 	}
 	if err != nil {
-		log.Errorf(ctx, starterTag, "create casbin enforcer failed: %v", err)
+		log.Errorf(ctx.Context, starterTag, "create casbin enforcer failed: %v", err)
 		return nil, errutil.Explain(err, "failed to create casbin enforcer")
 	}
 	e.EnableAutoSave(c.AutoSave)

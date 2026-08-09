@@ -66,10 +66,9 @@ func init() {
 // newConn dials NATS and, when configured, derives a JetStream context from the
 // same connection. Connection-layer events (async errors, disconnect, reconnect,
 // close) are bridged into go-spring's log so they show up alongside app logs.
-func newConn(cp *gs.ContextProvider, c Config) (*Conn, error) {
-	ctx := cp.Context
+func newConn(ctx *gs.ContextProvider, c Config) (*Conn, error) {
 
-	log.Debugf(ctx, starterTag, "creating nats connection, url=%s name=%s", c.URL, c.Name)
+	log.Debugf(ctx.Context, starterTag, "creating nats connection, url=%s name=%s", c.URL, c.Name)
 
 	opts := []nats.Option{
 		nats.Name(c.Name),
@@ -81,16 +80,16 @@ func newConn(cp *gs.ContextProvider, c Config) (*Conn, error) {
 			if sub != nil {
 				subj = sub.Subject
 			}
-			log.Errorf(ctx, log.TagAppDef, "nats async error on %q: %v", subj, err)
+			log.Errorf(ctx.Context, log.TagAppDef, "nats async error on %q: %v", subj, err)
 		}),
 		nats.DisconnectErrHandler(func(_ *nats.Conn, err error) {
-			log.Warnf(ctx, log.TagAppDef, "nats disconnected: %v", err)
+			log.Warnf(ctx.Context, log.TagAppDef, "nats disconnected: %v", err)
 		}),
 		nats.ReconnectHandler(func(nc *nats.Conn) {
-			log.Infof(ctx, log.TagAppDef, "nats reconnected to %q", nc.ConnectedUrl())
+			log.Infof(ctx.Context, log.TagAppDef, "nats reconnected to %q", nc.ConnectedUrl())
 		}),
 		nats.ClosedHandler(func(_ *nats.Conn) {
-			log.Infof(ctx, log.TagAppDef, "nats connection closed")
+			log.Infof(ctx.Context, log.TagAppDef, "nats connection closed")
 		}),
 	}
 	if c.Username != "" {
@@ -112,7 +111,7 @@ func newConn(cp *gs.ContextProvider, c Config) (*Conn, error) {
 	if c.TLS.Enabled {
 		tlsCfg, err := c.TLS.Build()
 		if err != nil {
-			log.Errorf(ctx, starterTag, "nats: build TLS failed: %v", err)
+			log.Errorf(ctx.Context, starterTag, "nats: build TLS failed: %v", err)
 			return nil, errutil.Explain(err, "nats: build TLS")
 		}
 		if tlsCfg != nil {
@@ -124,7 +123,7 @@ func newConn(cp *gs.ContextProvider, c Config) (*Conn, error) {
 
 	nc, err := nats.Connect(c.URL, opts...)
 	if err != nil {
-		log.Errorf(ctx, starterTag, "nats: connect failed url=%s: %v", c.URL, err)
+		log.Errorf(ctx.Context, starterTag, "nats: connect failed url=%s: %v", c.URL, err)
 		return nil, errutil.Explain(err, "failed to connect nats: %s", c.URL)
 	}
 
@@ -132,18 +131,18 @@ func newConn(cp *gs.ContextProvider, c Config) (*Conn, error) {
 	if c.JetStream.Enabled {
 		js, err := jetstream.New(nc)
 		if err != nil {
-			log.Errorf(ctx, starterTag, "nats: create jetstream context failed: %v", err)
+			log.Errorf(ctx.Context, starterTag, "nats: create jetstream context failed: %v", err)
 			nc.Close()
 			return nil, errutil.Explain(err, "failed to create jetstream context")
 		}
 		conn.JetStream = js
 	}
 	if err := applyResilience(c, conn); err != nil {
-		log.Errorf(ctx, starterTag, "nats: resilience setup failed: %v", err)
+		log.Errorf(ctx.Context, starterTag, "nats: resilience setup failed: %v", err)
 		nc.Close()
 		return nil, err
 	}
-	log.Infof(ctx, starterTag, "nats connection initialized, url=%s", c.URL)
+	log.Infof(ctx.Context, starterTag, "nats connection initialized, url=%s", c.URL)
 	return conn, nil
 }
 

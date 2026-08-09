@@ -49,8 +49,7 @@ func init() {
 // wrapped so downstream requests flow through the configured rate limiter,
 // circuit breaker and retry — the bearer token is already attached before the
 // resilience layer runs, so each protected attempt is a complete request.
-func newClient(cp *gs.ContextProvider, c Config) (*http.Client, error) {
-	ctx := cp.Context
+func newClient(ctx *gs.ContextProvider, c Config) (*http.Client, error) {
 
 	cfg := &clientcredentials.Config{
 		ClientID:       c.ClientID,
@@ -61,7 +60,7 @@ func newClient(cp *gs.ContextProvider, c Config) (*http.Client, error) {
 		EndpointParams: c.endpointParams(),
 	}
 
-	log.Debugf(ctx, starterTag, "creating oauth2 client clientID=%s tokenURL=%s timeout=%s resilience=%v", c.ClientID, c.TokenURL, c.Timeout, c.Resilience.Enabled)
+	log.Debugf(ctx.Context, starterTag, "creating oauth2 client clientID=%s tokenURL=%s timeout=%s resilience=%v", c.ClientID, c.TokenURL, c.Timeout, c.Resilience.Enabled)
 
 	client := cfg.Client(otelContext(c.Timeout))
 	if c.Timeout > 0 {

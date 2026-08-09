@@ -48,8 +48,8 @@ func init() {
 			// createPool returns Pool (interface), but gs.Provide registers
 			// the concrete type. Export(gs.As[Pool]()) makes it available
 			// for autowire by the Pool interface.
-			r.Provide(func(cp *gs.ContextProvider) (Pool, error) {
-				return createPool(cp.Context, name, c)
+			r.Provide(func(ctx *gs.ContextProvider) (Pool, error) {
+				return createPool(ctx.Context, name, c)
 			}).Name(name).Destroy(destroyPool)
 		}
 		return nil
