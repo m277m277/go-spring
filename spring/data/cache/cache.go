@@ -18,12 +18,13 @@
 // key/value caching, so a caching concern can be declared once and served by
 // any backend.
 //
-// A backend implements the single [Cache] interface: typed [Cache.Get]/
-// [Cache.Set] (values cross the bytes/any boundary through a pluggable [Codec],
-// default [JSONCodec]) plus raw [Cache.GetBytes]/[Cache.SetBytes] for callers
-// that already hold bytes. A missing key is reported as [ErrMiss], distinct
-// from a backend error, so callers fall through to the source of truth only on
-// a real miss.
+// A backend implements the single [ByteCache] interface: the raw
+// [ByteCache.GetBytes]/[ByteCache.SetBytes]/[ByteCache.Delete] primitives a
+// remote client maps 1:1 to its native API. A [Cache] struct wraps a ByteCache
+// and layers a pluggable [Codec] (default [JSONCodec]) on top, exposing typed
+// [Cache.Get]/[Cache.Set] that cross the bytes/any boundary. A missing key is
+// reported as [ErrMiss], distinct from a backend error, so callers fall through
+// to the source of truth only on a real miss.
 //
 // Backends are selected through a driver registry, mirroring the
 // [go-spring.org/spring/discovery] and resilience driver idioms:
@@ -78,31 +79,55 @@ func init() {
 	})
 }
 
-// Cache is the single interface a caching backend implements. Implementations
-// must be safe for concurrent use. A nil Cache is never valid; callers that
-// want "no cache" should skip the lookup entirely rather than pass nil.
-type Cache interface {
-	// Get decodes the value stored under key into val (which must be a
-	// pointer), using codec (default [JSONCodec]) to cross the bytes/any
-	// boundary. A missing key is reported as [ErrMiss]; any other error is a
-	// backend failure. On a miss the caller typically falls through to the
-	// source of truth.
-	Get(ctx context.Context, key string, val any, codec ...Codec) error
-
-	// GetBytes returns the raw bytes stored under key, bypassing the codec. A
-	// missing key is reported as (nil, [ErrMiss]).
+// ByteCache is the bytes-native interface a caching backend implements: the
+// raw primitives a remote client (Redis, memcached, bigcache) maps 1:1 to its
+// native API. Implementations must be safe for concurrent use. A nil ByteCache
+// is never valid; callers that want "no cache" should skip the lookup entirely
+// rather than pass nil.
+type ByteCache interface {
+	// GetBytes returns the raw bytes stored under key. A missing key is
+	// reported as (nil, [ErrMiss]).
 	GetBytes(ctx context.Context, key string) ([]byte, error)
 
-	// Set encodes val with codec (default [JSONCodec]) and stores it under key
-	// for ttl. A non-positive ttl means the entry does not expire.
-	Set(ctx context.Context, key string, val any, ttl time.Duration, codec ...Codec) error
-
-	// SetBytes stores the raw bytes under key for ttl, bypassing the codec. A
-	// non-positive ttl means the entry does not expire.
+	// SetBytes stores the raw bytes under key for ttl. A non-positive ttl
+	// means the entry does not expire.
 	SetBytes(ctx context.Context, key string, val []byte, ttl time.Duration) error
 
 	// Delete removes key. Deleting an absent key is not an error.
 	Delete(ctx context.Context, key string) error
+}
+
+// Cache is the typed façade over a [ByteCache]. It embeds a ByteCache and adds
+// [Cache.Get]/[Cache.Set], which cross the bytes/any boundary through a
+// pluggable [Codec] (default [JSONCodec]); the raw [ByteCache.GetBytes]/
+// [ByteCache.SetBytes]/[ByteCache.Delete] methods are promoted unchanged for
+// callers that already hold bytes. A zero Cache is not usable - its ByteCache
+// field must be set before any method is called. Since the embedded ByteCache
+// must be safe for concurrent use, a Cache wrapping it is too.
+type Cache struct {
+	ByteCache
+}
+
+// Get decodes the value stored under key into val (which must be a pointer),
+// using codec (default [JSONCodec]) to cross the bytes/any boundary. A missing
+// key is reported as [ErrMiss]; any other error is a backend failure. On a
+// miss the caller typically falls through to the source of truth.
+func (c Cache) Get(ctx context.Context, key string, val any, codec ...Codec) error {
+	b, err := c.GetBytes(ctx, key)
+	if err != nil {
+		return err
+	}
+	return ResolveCodec(codec).Unmarshal(b, val)
+}
+
+// Set encodes val with codec (default [JSONCodec]) and stores it under key for
+// ttl. A non-positive ttl means the entry does not expire.
+func (c Cache) Set(ctx context.Context, key string, val any, ttl time.Duration, codec ...Codec) error {
+	b, err := ResolveCodec(codec).Marshal(val)
+	if err != nil {
+		return err
+	}
+	return c.SetBytes(ctx, key, b, ttl)
 }
 
 // ErrMiss is returned by Get/GetBytes when the key is absent (a cache miss).
@@ -113,7 +138,9 @@ var ErrMiss = errors.New("cache: miss")
 // Driver builds the gs.ModuleFunc that provides a [Cache] bean for one backend
 // instance. The beanID selects which backend bean (e.g. a *redis.Client) the
 // cache wraps; a starter registers a Driver under a backend name via
-// [RegisterDriver].
+// [RegisterDriver]. The returned module constructs a [ByteCache] adapter
+// around the backend client and embeds it in a [Cache] struct to expose the
+// typed Get/Set surface.
 type Driver func(beanID string) gs.ModuleFunc
 
 var (

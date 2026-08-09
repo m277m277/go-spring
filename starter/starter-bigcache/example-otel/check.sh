@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 #
-# Smoke test for starter-bigcache. BigCache is a purely in-process cache with
-# no external service, so this just runs the example, which self-asserts and
-# exits non-zero on failure.
+# Smoke test for starter-bigcache/example-otel. The example generates BigCache
+# traffic, scrapes the Prometheus exporter at :9090/metrics, self-asserts the
+# bigcache.* gauges appear labeled with the instance name, and exits non-zero on
+# failure. No external service is required.
 #
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"

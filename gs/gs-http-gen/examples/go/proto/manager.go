@@ -595,7 +595,7 @@ func (x *ContactInfo) EncodeJSON(e jsonflow.Encoder) error {
 
 // Validate checks field values using generated validation expressions.
 func (x *ContactInfo) Validate() error {
-	ok, err := Email(Email)
+	ok, err := Email(x.Email)
 	if err != nil {
 		return errutil.Explain(err, "validate failed")
 	}

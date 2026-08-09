@@ -24,7 +24,6 @@ package StarterOTel
 
 import (
 	"context"
-	"net/http"
 
 	"go-spring.org/log"
 	"go-spring.org/spring/conf"
@@ -35,7 +34,6 @@ import (
 	"go-spring.org/stdlib/flatten"
 	runtimemetrics "go.opentelemetry.io/contrib/instrumentation/runtime"
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
 )
 
@@ -87,10 +85,12 @@ func setup(r gs.BeanProvider, p flatten.Storage) error {
 }
 
 // setupTrace builds the TracerProvider and propagator from the trace config,
-// installs them as OTel globals, registers the provider as a process-global
-// stopper (flushed at shutdown via gs.RegisterStopper), and wires outbound
-// trace-context propagation through the discovery seam. It is a no-op when
-// tracing is disabled or exporter is "none".
+// installs them as OTel globals, and registers the provider as a
+// process-global stopper (flushed at shutdown via gs.RegisterStopper). Once
+// the global propagator is set, every instrumented client (otelhttp,
+// otelgrpc, ...) propagates the active trace context on outbound requests
+// automatically - no per-component wiring. It is a no-op when tracing is
+// disabled or exporter is "none".
 func setupTrace(cfg trace.TraceConfig, res *resource.Resource) error {
 	if !cfg.Enable || cfg.Exporter == "none" {
 		return nil
@@ -111,18 +111,6 @@ func setupTrace(cfg trace.TraceConfig, res *resource.Resource) error {
 	// The provider is a process-global resource, so register it as a global
 	// stopper (not a bean destroyer) to flush buffered spans at shutdown.
 	gs.RegisterStopper("otel-trace", tp.Shutdown)
-	// Propagate trace context on outbound requests via the discovery seam.
-	// The injector is backed by the global OTel propagator just installed
-	// from ${spring.observability.trace.propagator} (W3C traceparent and/or
-	// B3), so outbound requests carry the active trace context and a
-	// downstream service - or mesh sidecar (Istio/Envoy) on the path -
-	// joins the same trace instead of starting a new one. starter-otel owns
-	// the propagator, so installing the injector here lights up outbound
-	// propagation (via TraceRoundTripper) everywhere with no per-component
-	// wiring.
-	SetTraceInjector(func(ctx context.Context, header http.Header) {
-		otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(header))
-	})
 
 	log.Infof(context.Background(), starterTag, "trace provider initialized exporter=%s propagator=%s", cfg.Exporter, cfg.Propagator)
 	return nil

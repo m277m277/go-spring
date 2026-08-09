@@ -67,20 +67,3 @@ type ObserverConfig struct {
 type TracingConfig struct {
 	Enabled bool `value:"${enabled:=true}"`
 }
-
-// ttlSeconds returns the session TTL in whole seconds, clamped to a minimum of
-// one second. The etcd concurrency package refuses TTLs below one second.
-func (c Config) ttlSeconds() int {
-	d := c.TTL
-	if d <= 0 {
-		d = 30 * time.Second
-	}
-	s := int(d / time.Second)
-	if d%time.Second != 0 {
-		s++
-	}
-	if s < 1 {
-		s = 1
-	}
-	return s
-}

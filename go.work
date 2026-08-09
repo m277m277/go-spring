@@ -55,6 +55,7 @@ use (
 	./starter/experimental/starter-batch/example
 	./starter/starter-bigcache
 	./starter/starter-bigcache/example
+	./starter/starter-bigcache/example-otel
 	./starter/experimental/starter-casbin
 	./starter/experimental/starter-casbin/example
 	./starter/experimental/starter-config-bus

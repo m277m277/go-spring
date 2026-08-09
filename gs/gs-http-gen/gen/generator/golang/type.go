@@ -434,7 +434,7 @@ func genValidateWithCustomFunc(fieldValue, receiverType, fieldName string, expr 
 
 	case validate.UnaryExpr:
 		// Negation of a custom function
-		funcCall, err := compileBoolExpr(fieldName, x.Expr)
+		funcCall, err := compileBoolExpr(fieldValue, x.Expr)
 		if err != nil {
 			return "", err
 		}
@@ -448,17 +448,17 @@ func genValidateWithCustomFunc(fieldValue, receiverType, fieldName string, expr 
 
 	case *validate.FuncCall:
 		// Single custom function call
-		return genFuncAsSingleStmt(fieldName, x)
+		return genFuncAsSingleStmt(fieldValue, x)
 
 	case *validate.InnerExpr:
-		return genValidateWithCustomFunc(fieldName, receiverType, fieldName, x.Expr)
+		return genValidateWithCustomFunc(fieldValue, receiverType, fieldName, x.Expr)
 
 	case validate.PrimaryExpr:
 		if x.Inner != nil {
-			return genValidateWithCustomFunc(fieldName, receiverType, fieldName, x.Inner)
+			return genValidateWithCustomFunc(fieldValue, receiverType, fieldName, x.Inner)
 		}
 		if x.Call != nil {
-			return genValidateWithCustomFunc(fieldName, receiverType, fieldName, x.Call)
+			return genValidateWithCustomFunc(fieldValue, receiverType, fieldName, x.Call)
 		}
 	}
 

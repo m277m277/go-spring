@@ -132,9 +132,16 @@ func parseSource(source string) (configSource, error) {
 	return cs, nil
 }
 
+// clientKey builds a cache key for a client from the connection tuple, matching
+// the etcd/nacos config-providers so the (client, key) dedup in registerWatch
+// composes consistently across the family.
+func clientKey(cs configSource) string {
+	return cs.address + "|" + cs.scheme + "|" + cs.token + "|" + cs.datacenter
+}
+
 // clientFor returns a cached client for the source, creating one if necessary.
 func (c *consulCtrl) clientFor(cs configSource) (*api.Client, error) {
-	key := cs.address + "|" + cs.scheme + "|" + cs.token + "|" + cs.datacenter
+	key := clientKey(cs)
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -219,7 +226,7 @@ func (c *consulCtrl) Load(optional bool, source string) (map[string]string, erro
 // registerWatch spawns a background goroutine that runs a Consul blocking
 // query against the given KV path. Deduplicated across repeated Load calls.
 func (c *consulCtrl) registerWatch(cli *api.Client, cs configSource) {
-	lk := cs.address + "|" + cs.scheme + "|" + cs.token + "|" + cs.datacenter + "|" + cs.kvPath
+	lk := clientKey(cs) + "|" + cs.kvPath
 
 	c.mu.Lock()
 	if c.listened == nil {

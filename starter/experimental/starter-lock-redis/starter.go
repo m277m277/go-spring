@@ -74,7 +74,11 @@ func init() {
 			b.SetFileLine(file, line)
 
 			if c.Observer.Tracing.Enabled {
-				w := r.Provide(wrapLockerBean, gs.ValueArg(c), gs.TagArg(c.Client)).
+				// Wrap the LOCKER bean (named `name`), not the redis client —
+				// wrapLockerBean's inner param is lock.Locker. Binding by c.Client
+				// (the *redis.Client bean name) was a copy-paste from newRedisLocker
+				// above and would fail wiring when tracing is enabled.
+				w := r.Provide(wrapLockerBean, gs.ValueArg(c), gs.TagArg(name)).
 					Name(name + "-observed").
 					Export(gs.As[lock.Locker]())
 				w.SetFileLine(file, line)

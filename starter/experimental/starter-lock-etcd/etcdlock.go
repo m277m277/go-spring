@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"time"
 
 	"go-spring.org/log"
 	"go-spring.org/spring/experimental/cloud/lock"
@@ -36,7 +37,7 @@ import (
 type etcdLocker struct {
 	client    *clientv3.Client
 	keyPrefix string
-	ttlSecs   int
+	defaults  lock.Defaults
 
 	closeOnce sync.Once
 }
@@ -86,7 +87,10 @@ func newEtcdLocker(cp *gs.ContextProvider, c Config) (*etcdLocker, error) {
 	return &etcdLocker{
 		client:    cli,
 		keyPrefix: c.KeyPrefix,
-		ttlSecs:   c.ttlSeconds(),
+		// etcd manages lease keep-alive and blocking acquire internally, so only
+		// TTL is a meaningful starter-level default here; renew/retry stay at the
+		// lock package's per-call defaults.
+		defaults: lock.Defaults{TTL: c.TTL},
 	}, nil
 }
 
@@ -94,8 +98,8 @@ func newEtcdLocker(cp *gs.ContextProvider, c Config) (*etcdLocker, error) {
 // fresh session so this hold's lease and Lost() channel are isolated from any
 // other outstanding hold.
 func (l *etcdLocker) Acquire(ctx context.Context, key string, opts ...lock.Option) (lock.Lock, error) {
-	o := lock.Apply(opts...)
-	sess, mu, err := l.newMutex(key)
+	o := lock.Resolve(l.defaults, opts...)
+	sess, mu, err := l.newMutex(key, o)
 	if err != nil {
 		return nil, err
 	}
@@ -110,8 +114,8 @@ func (l *etcdLocker) Acquire(ctx context.Context, key string, opts ...lock.Optio
 // signals contention with a sentinel ErrLocked, which is translated to ok=false
 // so callers can distinguish it from a real backend error.
 func (l *etcdLocker) TryAcquire(ctx context.Context, key string, opts ...lock.Option) (lock.Lock, bool, error) {
-	o := lock.Apply(opts...)
-	sess, mu, err := l.newMutex(key)
+	o := lock.Resolve(l.defaults, opts...)
+	sess, mu, err := l.newMutex(key, o)
 	if err != nil {
 		return nil, false, err
 	}
@@ -137,14 +141,32 @@ func (l *etcdLocker) Close() error {
 }
 
 // newMutex opens a fresh concurrency.Session (its own lease with automatic
-// keepalive) and a Mutex bound to the prefixed key.
-func (l *etcdLocker) newMutex(key string) (*concurrency.Session, *concurrency.Mutex, error) {
-	sess, err := concurrency.NewSession(l.client, concurrency.WithTTL(l.ttlSecs))
+// keepalive, TTL drawn from the resolved per-acquisition options) and a Mutex
+// bound to the prefixed key.
+func (l *etcdLocker) newMutex(key string, o lock.Options) (*concurrency.Session, *concurrency.Mutex, error) {
+	sess, err := concurrency.NewSession(l.client, concurrency.WithTTL(ttlSeconds(o.TTL)))
 	if err != nil {
 		return nil, nil, errutil.Explain(err, "lock-etcd: failed to create session")
 	}
 	mu := concurrency.NewMutex(sess, l.keyPrefix+key)
 	return sess, mu, nil
+}
+
+// ttlSeconds converts a lease duration to the whole-second TTL the etcd
+// concurrency package requires, rounding sub-second values up and clamping to a
+// one-second floor.
+func ttlSeconds(d time.Duration) int {
+	if d <= 0 {
+		d = 30 * time.Second
+	}
+	s := int(d / time.Second)
+	if d%time.Second != 0 {
+		s++
+	}
+	if s < 1 {
+		s = 1
+	}
+	return s
 }
 
 // etcdLock is the [lock.Lock] handle for a single acquisition. It closes its

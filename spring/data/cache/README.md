@@ -7,10 +7,9 @@ wires the backend.
 
 ## Features
 
-- One `Cache` interface every backend implements: typed `Get`/`Set` (values
-  cross the bytes/any boundary through a pluggable `Codec`, default
-  `JSONCodec`) plus raw `GetBytes`/`SetBytes` for callers that already hold
-  bytes.
+- A `ByteCache` interface every backend implements (raw `GetBytes`/`SetBytes`/
+  `Delete`); a `Cache` struct wraps it and adds typed `Get`/`Set` through a
+  pluggable `Codec` (default `JSONCodec`), promoting the raw methods unchanged.
 - `ErrMiss` — a missing key is a sentinel, distinct from a backend error, so a
   caller falls through to the source of truth only on a real miss.
 - A driver registry (`RegisterDriver`/`GetDriver`) mirroring the discovery and

@@ -18,12 +18,15 @@ package StarterBigCache
 
 import (
 	"context"
+	"runtime"
 
 	"github.com/allegro/bigcache/v3"
 	"go-spring.org/log"
+	"go-spring.org/spring/conf"
 	"go-spring.org/spring/data/cache"
 	"go-spring.org/spring/gs"
 	cache2 "go-spring.org/starter-bigcache/cache"
+	observe "go-spring.org/starter-bigcache/observe"
 	"go-spring.org/stdlib/errutil"
 	"go-spring.org/stdlib/flatten"
 )
@@ -31,23 +34,39 @@ import (
 var starterTag = log.RegisterInfraTag("bigcache", "")
 
 func init() {
-	// Register multiple BigCache instances as a group.
-	// Each instance is created according to the configuration in "${spring.bigcache}".
-	// This allows defining multiple in-memory caches dynamically.
+	// Register multiple BigCache instances as a group, one per entry under
+	// "${spring.bigcache}". A gs.Module (rather than gs.Group) is used so each
+	// instance's name is available to label its OTel metrics - and to attach
+	// the file:line of this registration to the bean for diagnostics.
 	//
 	// BigCache spawns a background eviction goroutine, so Close must be called
-	// on shutdown to release it — the destroy callback handles that.
-	gs.Group("${spring.bigcache}", newClient, destroyClient)
-}
+	// on shutdown to release it - the destroy callback handles that.
+	_, file, line, _ := runtime.Caller(0)
+	gs.Module(gs.OnProperty("spring.bigcache"), func(r gs.BeanProvider, p flatten.Storage) error {
+		var m map[string]Config
+		if err := conf.Bind(p, &m, "${spring.bigcache}"); err != nil {
+			return err
+		}
+		for name, c := range m {
+			// IndexArg places name (index 1) and c (index 2) explicitly, leaving
+			// index 0 (*gs.ContextProvider) to be autowired - the documented
+			// pattern for a ctor whose first param is ContextProvider.
+			b := r.Provide(newClient,
+				gs.IndexArg(1, gs.ValueArg(name)),
+				gs.IndexArg(2, gs.ValueArg(c)),
+			).Name(name).Destroy(destroyClient)
+			b.SetFileLine(file, line)
+		}
+		return nil
+	})
 
-// init registers the "bigcache" cache driver so a *bigcache.BigCache registered
-// under ${spring.bigcache} can be exposed as a cache.Cache via:
-//
-//	spring.cache.<name>.driver = bigcache:<bigcache-instance-name>
-//
-// The beanID selects which BigCache bean to wrap; the implementation lives in
-// starter-bigcache/cache.
-func init() {
+	// init registers the "bigcache" cache driver so a *bigcache.BigCache registered
+	// under ${spring.bigcache} can be exposed as a cache.Cache via:
+	//
+	//	spring.cache.<name>.driver = bigcache:<bigcache-instance-name>
+	//
+	// The beanID selects which BigCache bean to wrap; the implementation lives in
+	// starter-bigcache/cache.
 	cache.RegisterDriver("bigcache", func(beanID string) gs.ModuleFunc {
 		return func(r gs.BeanProvider, p flatten.Storage) error {
 			r.Provide(cache2.NewCache, gs.TagArg(beanID)).Name(beanID)
@@ -56,10 +75,11 @@ func init() {
 	})
 }
 
-// newClient creates a new BigCache instance based on the provided configuration.
-func newClient(cp *gs.ContextProvider, c Config) (*bigcache.BigCache, error) {
+// newClient creates a new BigCache instance based on the provided configuration
+// and registers OTel gauges for its statistics, labeled by the instance name.
+func newClient(cp *gs.ContextProvider, name string, c Config) (*bigcache.BigCache, error) {
 	ctx := cp.Context
-	log.Debugf(ctx, starterTag, "creating bigcache instance, shards=%d max-size=%d", c.Shards, c.MaxEntrySize)
+	log.Debugf(ctx, starterTag, "creating bigcache instance, name=%s shards=%d max-size=%d", name, c.Shards, c.MaxEntrySize)
 
 	d, ok := driverRegistry[c.Driver]
 	if !ok {
@@ -71,7 +91,10 @@ func newClient(cp *gs.ContextProvider, c Config) (*bigcache.BigCache, error) {
 		log.Errorf(ctx, starterTag, "bigcache: create instance failed: %v", err)
 		return nil, errutil.Explain(err, "failed to create bigcache instance")
 	}
-	log.Infof(ctx, starterTag, "bigcache instance initialized, shards=%d", c.Shards)
+	// Surface hits/misses/collisions/capacity as OTel gauges. Safe no-op when
+	// starter-otel is absent (the OTel globals are no-ops then).
+	observe.RegisterMetrics(name, client)
+	log.Infof(ctx, starterTag, "bigcache instance initialized, name=%s shards=%d", name, c.Shards)
 	return client, nil
 }
 

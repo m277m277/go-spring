@@ -19,6 +19,7 @@ package log
 import (
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -44,11 +45,15 @@ func TestParseBufferFullPolicy(t *testing.T) {
 
 type CountAppender struct {
 	Appender
-	count int
+	// count is read by the test goroutine while the async logger's background
+	// goroutine calls Append (which writes it), so it must be atomic — a plain
+	// int is a data race under -race even though the 100ms sleep happens to
+	// mask it in practice.
+	count atomic.Int64
 }
 
 func (c *CountAppender) Append(e *Event) {
-	c.count++
+	c.count.Add(1)
 	c.Appender.Append(e)
 }
 
@@ -119,7 +124,7 @@ func TestLoggerConfig(t *testing.T) {
 			l.Append(&Event{Level: InfoLevel})
 		}
 
-		assert.That(t, a.count).Equal(5)
+		assert.That(t, a.count.Load()).Equal(int64(5))
 
 		l.Stop()
 		a.Stop()
@@ -345,7 +350,7 @@ func TestAsyncLoggerConfig(t *testing.T) {
 		}
 
 		time.Sleep(100 * time.Millisecond)
-		assert.That(t, a.count).Equal(5)
+		assert.That(t, a.count.Load()).Equal(int64(5))
 
 		l.Stop()
 		a.Stop()

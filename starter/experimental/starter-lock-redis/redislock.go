@@ -88,43 +88,23 @@ func newRedisLocker(cp *gs.ContextProvider, c Config, client *redis.Client) (*re
 // key applies KeyPrefix so multiple apps can safely share a Redis instance.
 func (l *redisLocker) key(k string) string { return l.cfg.KeyPrefix + k }
 
-// applyDefaults folds the starter-level defaults into caller-supplied options
-// so both "user gave nothing" and "user gave WithTTL only" see consistent
-// values. lock.Apply then normalizes anything still zero to package defaults.
-func (l *redisLocker) applyDefaults(opts []lock.Option) []lock.Option {
-	var seen struct{ ttl, renew, retry bool }
-	for _, fn := range opts {
-		var probe lock.Options
-		fn(&probe)
-		if probe.TTL != 0 {
-			seen.ttl = true
-		}
-		if probe.RenewInterval != 0 {
-			seen.renew = true
-		}
-		if probe.RetryInterval != 0 {
-			seen.retry = true
-		}
+// defaults translates the starter config into the lock package's three-tier
+// default layer (per-call Option > starter Defaults > package default). lock.Resolve
+// injects these beneath caller-supplied opts, so this starter's ttl / renew-interval
+// / retry-interval act as overridable defaults rather than fixed values.
+func (l *redisLocker) defaults() lock.Defaults {
+	return lock.Defaults{
+		TTL:           l.cfg.TTL,
+		RenewInterval: l.cfg.RenewInterval,
+		RetryInterval: l.cfg.RetryInterval,
 	}
-	out := make([]lock.Option, 0, len(opts)+3)
-	if !seen.ttl && l.cfg.TTL > 0 {
-		out = append(out, lock.WithTTL(l.cfg.TTL))
-	}
-	if !seen.renew && l.cfg.RenewInterval != 0 {
-		out = append(out, lock.WithRenewInterval(l.cfg.RenewInterval))
-	}
-	if !seen.retry && l.cfg.RetryInterval > 0 {
-		out = append(out, lock.WithRetryInterval(l.cfg.RetryInterval))
-	}
-	out = append(out, opts...)
-	return out
 }
 
 // TryAcquire attempts a single SET key token NX PX ttl. On success it registers
 // a handle and, when auto-renew is enabled, spawns a renewLoop goroutine to
 // extend the lease until Unlock or Locker.Close.
 func (l *redisLocker) TryAcquire(ctx context.Context, key string, opts ...lock.Option) (lock.Lock, bool, error) {
-	o := lock.Apply(l.applyDefaults(opts)...)
+	o := lock.Resolve(l.defaults(), opts...)
 	fullKey := l.key(key)
 
 	ok, err := l.client.SetNX(ctx, fullKey, o.Token, o.TTL).Result()
@@ -153,7 +133,7 @@ func (l *redisLocker) TryAcquire(ctx context.Context, key string, opts ...lock.O
 // MemoryLocker contract: contention returns after a bounded sleep, backend
 // errors surface immediately.
 func (l *redisLocker) Acquire(ctx context.Context, key string, opts ...lock.Option) (lock.Lock, error) {
-	o := lock.Apply(l.applyDefaults(opts)...)
+	o := lock.Resolve(l.defaults(), opts...)
 	for {
 		held, ok, err := l.TryAcquire(ctx, key, opts...)
 		if err != nil {

@@ -50,7 +50,7 @@ const (
 type consulLocker struct {
 	client    *api.Client
 	keyPrefix string
-	ttl       time.Duration
+	defaults  lock.Defaults
 	closeOnce sync.Once
 }
 
@@ -96,17 +96,6 @@ func newConsulLocker(cp *gs.ContextProvider, c Config) (*consulLocker, error) {
 		return nil, errutil.Explain(err, "lock-consul: create client for %s failed", c.Address)
 	}
 
-	ttl := c.TTL
-	if ttl <= 0 {
-		ttl = 30 * time.Second
-	}
-	if ttl < minSessionTTL {
-		ttl = minSessionTTL
-	}
-	if ttl > maxSessionTTL {
-		ttl = maxSessionTTL
-	}
-
 	kp := c.KeyPrefix
 	if kp == "" {
 		kp = "lock/"
@@ -115,7 +104,11 @@ func newConsulLocker(cp *gs.ContextProvider, c Config) (*consulLocker, error) {
 	return &consulLocker{
 		client:    cli,
 		keyPrefix: kp,
-		ttl:       ttl,
+		// Consul manages session renewal internally and blocks in its own acquire
+		// loop, so only TTL is a meaningful starter-level default here. The
+		// consul [10s, 86400s] floor is applied per acquisition in buildLock, so
+		// both the starter default and a per-call WithTTL get clamped the same way.
+		defaults: lock.Defaults{TTL: c.TTL},
 	}, nil
 }
 
@@ -123,7 +116,7 @@ func newConsulLocker(cp *gs.ContextProvider, c Config) (*consulLocker, error) {
 // non-retriable error. Contended acquisitions wait inside api.Lock's own
 // blocking-query loop; we cancel it by closing stopCh from a ctx watcher.
 func (l *consulLocker) Acquire(ctx context.Context, key string, opts ...lock.Option) (lock.Lock, error) {
-	o := lock.Apply(opts...)
+	o := lock.Resolve(l.defaults, opts...)
 	al, err := l.buildLock(key, o, false)
 	if err != nil {
 		return nil, err
@@ -150,7 +143,7 @@ func (l *consulLocker) Acquire(ctx context.Context, key string, opts ...lock.Opt
 // TryAcquire makes a single non-blocking attempt. ok=false with nil error is
 // ordinary contention; err is reserved for genuine backend failures.
 func (l *consulLocker) TryAcquire(ctx context.Context, key string, opts ...lock.Option) (lock.Lock, bool, error) {
-	o := lock.Apply(opts...)
+	o := lock.Resolve(l.defaults, opts...)
 	al, err := l.buildLock(key, o, true)
 	if err != nil {
 		return nil, false, err
@@ -190,9 +183,12 @@ func (l *consulLocker) Close() error {
 // buildLock constructs a per-acquisition *api.Lock with the shared client. The
 // tryOnce flag switches between blocking and single-shot semantics.
 func (l *consulLocker) buildLock(key string, o lock.Options, tryOnce bool) (*api.Lock, error) {
+	// o.TTL is already resolved (per-call WithTTL > starter default > package
+	// default) by lock.Resolve. Clamp into consul's accepted [10s, 86400s] window
+	// so neither a sub-floor per-call TTL nor the 30s package default is rejected.
 	ttl := o.TTL
 	if ttl < minSessionTTL {
-		ttl = l.ttl
+		ttl = minSessionTTL
 	}
 	if ttl > maxSessionTTL {
 		ttl = maxSessionTTL

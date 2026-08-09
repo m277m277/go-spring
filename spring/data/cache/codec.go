@@ -46,8 +46,8 @@ func (JSONCodec) Unmarshal(data []byte, v any) error {
 }
 
 // ResolveCodec returns the codec to use for a Get/Set call: the first provided
-// codec, or [JSONCodec] when none is given. Backends call it to apply the
-// default consistently instead of re-deriving it.
+// codec, or [JSONCodec] when none is given. The [Cache] struct calls it to
+// apply the default consistently instead of re-deriving it.
 func ResolveCodec(codec []Codec) Codec {
 	if len(codec) > 0 && codec[0] != nil {
 		return codec[0]

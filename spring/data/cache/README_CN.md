@@ -6,9 +6,9 @@
 
 ## 特性
 
-- 唯一的 `Cache` 接口,所有后端都实现它:类型化的 `Get`/`Set`(值通过可插拔
-  `Codec`、默认 `JSONCodec` 跨越 字节/any 边界)+ 裸字节的 `GetBytes`/`SetBytes`
-  (调用方已持有字节时用)。
+- 所有后端都实现的 `ByteCache` 接口(裸 `GetBytes`/`SetBytes`/`Delete`);`Cache`
+  结构体包裹它,通过可插拔 `Codec`(默认 `JSONCodec`)加类型化的 `Get`/`Set`,
+  裸方法原样提升。
 - `ErrMiss` —— key 不存在是哨兵错误,与后端故障区分,调用方只在真正 miss 时才
   回源。
 - 驱动注册表(`RegisterDriver`/`GetDriver`),与 discovery / resilience 的 driver

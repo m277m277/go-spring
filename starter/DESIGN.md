@@ -45,7 +45,7 @@ Web (`gin`, `echo`, `hertz`, ...) and RPC (`grpc`, `kitex`, `thrift`,
 `dubbo`, ...) starters own a network listener and plug into the Go-Spring server
 lifecycle by exporting a `gs.Server` bean.
 
-- **Each server binds its own port, and the port must be explicitly configured.** A server starter reads a distinct address from its own `Config` (e.g. `${spring.grpc.server}` → `addr`). No default value is set — the `addr` tag is written as `value:"${addr}"` without `:=`. The port configuration itself is the server bean's startup gate: the bean is only created when `OnProperty` detects the address is configured (`Condition(gs.OnProperty("spring.<x>.server.addr"))`). Two server starters in one process must not share a port; the application assigns non-conflicting addresses. Contributor starters (§2.3) deliberately do *not* open a port — they mount onto a server the app already runs. The pprof server is the exception and uses a unified default port `:6060`.
+- **Each server binds its own port, and the port must be explicitly configured.** A server starter reads a distinct address from its own `Config` (e.g. `${spring.grpc.server}` → `addr`). No default value is set — the `addr` tag is written as `value:"${addr}"` without `:=`. The port configuration itself is the server bean's startup gate: the bean is only created when `OnProperty` detects the address is configured (`Condition(gs.OnProperty("spring.<x>.server.addr"))`). Two server starters in one process must not share a port; the application assigns non-conflicting addresses. Contributor starters (§2.3) deliberately do *not* open a port — they mount onto a server the app already runs. The pprof server is the exception and uses a unified default port `:9981`.
 - **Listen early, serve on the ready signal.** `Run(ctx, sig)` binds the
   listener immediately so a port conflict fails startup, then blocks on
   `<-sig.TriggerAndWait()` before `Serve`. This guarantees the socket is bound
@@ -146,12 +146,20 @@ application can load configuration from it at startup and hot-reload at runtime.
   `optional`-and-missing early return. Otherwise an app that starts before the
   key exists never registers a watch, and a later publish never triggers a
   reload. Dedup listeners per `(client, key)`.
-- **Hot-reload reuses the framework refresh, via a `Rooter` bridge.** A
-  `configRefreshBridge` bean injects `*gs.PropertiesRefresher` and stores its
-  `RefreshProperties` into the provider's `refreshHook` (an `atomic.Pointer`).
-  On a remote change the listener calls the hook, which reloads every source
-  (re-running the provider) and re-binds all `gs.Dync[T]` fields through the
-  two-phase, atomic commit in `gs_dync`. Bind live keys to `gs.Dync[T]`.
+- **Hot-reload reuses the framework refresh, via a `Rooter` bridge.** The
+  provider's controller singleton is exported both as a `conf.RegisterProvider`
+  target and as a `gs.Rooter` bean (`gs.Provide(ctrl).Export(gs.As[gs.Rooter]())`),
+  which makes the IoC container collect it into `app.Rooters` and autowire its
+  `*gs.PropertiesRefresher` field. On a remote change the watch/listener calls
+  the controller's `TriggerRefresh`, which calls `RefreshProperties` — this
+  reloads every source (re-running the provider) and re-binds all `gs.Dync[T]`
+  fields through the two-phase, atomic commit in `gs_dync`. Bind live keys to
+  `gs.Dync[T]`. The autowired refresher field is a plain pointer, not an
+  `atomic.Pointer`: the container autowires by field assignment (no setter), and
+  the cross-goroutine read from the watch callback is safe because
+  `TriggerRefresh` nil-checks the field and `RefreshProperties` is itself gated
+  by the app's `started` atomic flag (set only after wiring completes), so a
+  pre-wiring fire is a no-op.
 - **Content parsing reuses core readers.** Decode remote bytes with the
   `spring/conf/reader/{prop,yaml,toml,json}` `Read` functions keyed by a
   `format` query param, then `flatten.Flatten` before returning
@@ -266,7 +274,7 @@ application can load configuration from it at startup and hot-reload at runtime.
 4. Client? → `gs.Group` multi-instance, driver registry, required address with
    fail-fast, startup probe, per-instance `Destroy`.
 5. Server? → own port, listen-early/serve-on-ready, graceful `Stop`,
-   app-supplied register bean, enabled-by-default toggle.
+   app-supplied register bean, port-as-startup-gate (no `enabled` toggle — see §2.1).
 6. Config-provider? → `provider.go` with `conf.RegisterProvider` (no `config.go`,
    no bean), parse params from the source string, cache the client, register the
    listener unconditionally before the fetch, bridge `PropertiesRefresher` into

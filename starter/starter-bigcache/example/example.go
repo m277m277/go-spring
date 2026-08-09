@@ -25,27 +25,13 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/allegro/bigcache/v3"
 	"go-spring.org/log"
 	"go-spring.org/spring/gs"
-	StarterBigCache "go-spring.org/starter-bigcache"
 )
-
-// removed counts entries evicted from any DefaultDriver-built cache. It proves
-// the OnRemove hook registered via SetOnRemove is wired through the starter.
-var removed int64
-
-func init() {
-	// Register a global eviction/expiry callback. It must be set before the
-	// container starts, since the callback is captured when each cache is built.
-	StarterBigCache.SetOnRemove(func(key string, entry []byte) {
-		atomic.AddInt64(&removed, 1)
-	})
-}
 
 type Service struct {
 	Hot   *bigcache.BigCache `autowire:"hot"`
@@ -167,11 +153,6 @@ func runTest(s *Service) {
 			os.Exit(1)
 		}
 	}
-	if atomic.LoadInt64(&removed) == 0 {
-		log.Errorf(ctx, log.TagAppDef, "expected OnRemove to fire on eviction, got 0")
-		os.Exit(1)
-	}
-	fmt.Println("OnRemove fired:", atomic.LoadInt64(&removed), "times")
 
 	syscall.Kill(os.Getpid(), syscall.SIGTERM)
 }

@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 
 	"go-spring.org/spring/experimental/cloud/lock"
@@ -136,6 +137,26 @@ func TestAcquireBlocksUntilReleased(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("Acquire did not return after release")
 	}
+}
+
+// TestPerCallTTLFlowsIntoLease proves the cross-backend contract that a
+// per-acquisition lock.WithTTL reaches the backend: the value must land in the
+// Lease's leaseDurationSeconds rather than being silently replaced by a fixed
+// starter default (the bug the etcd backend used to have before lock.Resolve).
+func TestPerCallTTLFlowsIntoLease(t *testing.T) {
+	ctx := context.Background()
+	l := newTestLocker()
+	defer func() { assert.Error(t, l.Close()).Nil() }()
+
+	held, ok, err := l.TryAcquire(ctx, "job", lock.WithTTL(42*time.Second))
+	assert.Error(t, err).Nil()
+	assert.That(t, ok).True()
+	defer func() { _ = held.Unlock(ctx) }()
+
+	lease, err := l.client.CoordinationV1().Leases("default").Get(ctx, "lock-job", metav1.GetOptions{})
+	assert.Error(t, err).Nil()
+	assert.That(t, lease.Spec.LeaseDurationSeconds != nil).True()
+	assert.Number(t, *lease.Spec.LeaseDurationSeconds).Equal(int32(42))
 }
 
 // TestElectionElectsOneLeader proves stdlib/lock's Election runs unchanged on

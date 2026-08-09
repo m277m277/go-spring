@@ -3,8 +3,8 @@
 
 `lock` is the zero-dependency stdlib abstraction for distributed locking and
 leader election. Backends live in starters (`starter-lock-redis`,
-`starter-lock-etcd`, `starter-lock-consul`); the bundled `MemoryLocker` keeps
-stdlib self-testing without dependencies.
+`starter-lock-etcd`, `starter-lock-consul`, `starter-lock-k8s`); the bundled
+`MemoryLocker` keeps stdlib self-testing without dependencies.
 
 ## 1. Responsibilities & Boundaries
 
@@ -25,9 +25,16 @@ stdlib self-testing without dependencies.
   (Redis conn, etcd client, ...) rather than a declarative policy. The seam
   is the `Locker` bean type: each starter builds its client and exports one
   `Locker`; switching backend = blank-import swap, no change to business code.
-- `Options` (functional, applied via `Apply`) normalizes TTL / RenewInterval
-  / RetryInterval / Token. `RenewInterval` special values: `0` → TTL/3;
-  negative → auto-renew disabled.
+- `Options` (functional) normalizes TTL / RenewInterval / RetryInterval /
+  Token. `RenewInterval` special values: `0` → TTL/3; negative → auto-renew
+  disabled. Timing comes from three layers, resolved once by `Resolve` so every
+  backend composes them identically:
+  **per-acquisition `Option` > starter `Defaults` > package default.** Backends
+  build a `Defaults` from their config and call `Resolve` (not `Apply`) at the
+  top of `Acquire`/`TryAcquire`, so a starter-level `ttl` is an *overridable
+  default* and a per-call `WithTTL` always wins. A backend that exposes no
+  starter-level knobs passes a zero `Defaults` (pure per-call + package default,
+  identical to `Apply`); this is the K8s backend's chosen shape.
 - `Lock.Lost()` is the mandatory contract for lease-based backends; a critical
   section must select on it to abort when the lease is gone.
 - `Election` is built on `Locker.Acquire` + `Lock.Lost()`: acquire the shared
@@ -50,6 +57,12 @@ stdlib self-testing without dependencies.
   goroutine, then unlocks — always in that order — before recampaigning.
 - **`NewElection` panics on missing Locker/Key** because a misconfigured
   election can never elect anyone; fail-fast at construction.
+- **Timing precedence is uniform across backends**: per-acquisition `Option` >
+  starter `Defaults` > package default, resolved by `Resolve`. A backend must
+  never apply a starter-level timing value as a fixed override that ignores a
+  per-call `Option` — that breaks "switch backend, behaviour unchanged", the
+  whole point of the seam. (`RenewInterval` keeps its sign semantics through the
+  layering: a caller's explicit negative disables renew and is preserved.)
 
 ## 4. Trade-offs / Alternatives Rejected
 
@@ -62,5 +75,19 @@ stdlib self-testing without dependencies.
 - **No re-entrant locks**. Every `Acquire` returns a new fencing token; a
   holder that recurses must build re-entrance on top (or not need it —
   distributed re-entrance is a footgun).
-- **No Kubernetes Lease backend yet**. Deferred; the seam admits it later
-  without churn.
+- **Kubernetes Lease backend exists** (`starter-lock-k8s`). It maps each lock
+  to a `coordination.k8s.io/Lease` and needs no external middleware beyond the
+  in-cluster control plane; by design it exposes no starter-level timing config,
+  running pure per-call `Options` (a zero `Defaults`) so its knobs match the
+  other backends.
+- **The OTel tracing wrapper is duplicated per backend, not extracted into this
+  package.** `lock/` is zero-dependency by contract (§1), so it cannot import
+  OTel; each backend therefore ships a near-identical `observability.go` that
+  differs only in tracer name and the `lock.system` attribute. A shared
+  `Tracing(inner, system)` wrapper is the right shape but needs its own module
+  (e.g. `spring/experimental/cloud/lock/otel`, with its own go.mod that may pull
+  OTel) so the four backends import it instead of copying. The duplication is
+  accepted for now — the copy is small and stable — but it is exactly what let
+  the redis backend bind the wrong bean into its traced wrapper (fixed
+  2026-08-08). That is the signal that the shared module is worth creating; do it
+  once a second such wrapper or a third tracing field appears.

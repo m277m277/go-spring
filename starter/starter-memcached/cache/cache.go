@@ -25,11 +25,13 @@ import (
 	"go-spring.org/spring/data/cache"
 )
 
-// NewCache wraps a *memcache.Client as a cache.Cache. The "memcached" driver
-// registered in the starter's root package wires it over the memcache client
-// bean selected by beanID; use it directly for programmatic construction too.
-func NewCache(c *memcache.Client) cache.Cache {
-	return &memcachedCache{c}
+// NewCache wraps a *memcache.Client as a [cache.ByteCache], embedded in a
+// [cache.Cache] façade that supplies the typed Get/Set codec layer. The
+// "memcached" driver registered in the starter's root package wires it over the
+// memcache client bean selected by beanID; use it directly for programmatic
+// construction too.
+func NewCache(c *memcache.Client) *cache.Cache {
+	return &cache.Cache{ByteCache: &memcachedCache{c}}
 }
 
 type memcachedCache struct{ c *memcache.Client }
@@ -48,22 +50,9 @@ func toExp(ttl time.Duration) int32 {
 	return exp
 }
 
-// Get decodes the value under key into val (a pointer) using codec (default
-// JSON). A missing key is reported as [cache.ErrMiss].
-func (m *memcachedCache) Get(ctx context.Context, key string, val any, codec ...cache.Codec) error {
-	item, err := m.c.Get(key)
-	if errors.Is(err, memcache.ErrCacheMiss) {
-		return cache.ErrMiss
-	}
-	if err != nil {
-		return err
-	}
-	return cache.ResolveCodec(codec).Unmarshal(item.Value, val)
-}
-
 // GetBytes returns the raw bytes under key. A missing key is reported as
 // (nil, [cache.ErrMiss]).
-func (m *memcachedCache) GetBytes(ctx context.Context, key string) ([]byte, error) {
+func (m *memcachedCache) GetBytes(_ context.Context, key string) ([]byte, error) {
 	item, err := m.c.Get(key)
 	if errors.Is(err, memcache.ErrCacheMiss) {
 		return nil, cache.ErrMiss
@@ -74,24 +63,15 @@ func (m *memcachedCache) GetBytes(ctx context.Context, key string) ([]byte, erro
 	return item.Value, nil
 }
 
-// Set encodes val with codec (default JSON) and stores it under key for ttl.
-// ttl is in seconds (sub-second rounded up to 1s); a non-positive ttl means the
-// entry never expires.
-func (m *memcachedCache) Set(ctx context.Context, key string, val any, ttl time.Duration, codec ...cache.Codec) error {
-	data, err := cache.ResolveCodec(codec).Marshal(val)
-	if err != nil {
-		return err
-	}
-	return m.c.Set(&memcache.Item{Key: key, Value: data, Expiration: toExp(ttl)})
-}
-
-// SetBytes stores the raw bytes under key for ttl (see Set for ttl semantics).
-func (m *memcachedCache) SetBytes(ctx context.Context, key string, val []byte, ttl time.Duration) error {
+// SetBytes stores the raw bytes under key for ttl. ttl is in seconds
+// (sub-second rounded up to 1s); a non-positive ttl means the entry never
+// expires.
+func (m *memcachedCache) SetBytes(_ context.Context, key string, val []byte, ttl time.Duration) error {
 	return m.c.Set(&memcache.Item{Key: key, Value: val, Expiration: toExp(ttl)})
 }
 
 // Delete removes key. Deleting an absent key is not an error.
-func (m *memcachedCache) Delete(ctx context.Context, key string) error {
+func (m *memcachedCache) Delete(_ context.Context, key string) error {
 	err := m.c.Delete(key)
 	if errors.Is(err, memcache.ErrCacheMiss) {
 		return nil

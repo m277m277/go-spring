@@ -238,7 +238,7 @@ func TestJWKSRSAPublishesKey(t *testing.T) {
 	der := x509.MarshalPKCS1PrivateKey(key)
 	pemBytes := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: der})
 
-	s, err := newAuthServer(Config{
+	s, err := newAuthServer(&gs.ContextProvider{Context: context.Background()}, Config{
 		PrivateKey:     string(pemBytes),
 		KeyID:          "k1",
 		AccessTokenTTL: time.Hour,
@@ -258,10 +258,10 @@ func TestJWKSRSAPublishesKey(t *testing.T) {
 }
 
 func TestSigningKeyFailFast(t *testing.T) {
-	if _, err := newAuthServer(Config{}); err == nil {
+	if _, err := newAuthServer(&gs.ContextProvider{Context: context.Background()}, Config{}); err == nil {
 		t.Fatal("no signing key should fail")
 	}
-	if _, err := newAuthServer(Config{Secret: "s", PrivateKey: "p"}); err == nil {
+	if _, err := newAuthServer(&gs.ContextProvider{Context: context.Background()}, Config{Secret: "s", PrivateKey: "p"}); err == nil {
 		t.Fatal("two signing keys should fail")
 	}
 }
