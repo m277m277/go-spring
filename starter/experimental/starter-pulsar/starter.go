@@ -47,7 +47,7 @@ func init() {
 // producer / consumer / lookup. When FailFast is enabled we issue one
 // TopicPartitions lookup against HealthCheckTopic so a bad URL, wrong token or
 // TLS mismatch fails at startup instead of on first message.
-func newClient(ctx *gs.ContextProvider, c Config) (pulsar.Client, error) {
+func newClient(ctx *gs.ContextProvider, name string, c Config) (pulsar.Client, error) {
 	log.Debugf(ctx.Context, starterTag, "creating pulsar client, url=%s fail-fast=%v", c.URL, c.FailFast)
 
 	opts := pulsar.ClientOptions{

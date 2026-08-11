@@ -17,12 +17,8 @@
 package metric
 
 import (
-	"fmt"
-	"sort"
-	"strings"
-	"sync"
-
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go-spring.org/starter-otel/internal/registry"
 )
 
 // MeterExporterFactory builds a metric reader (and, for pull-based exporters,
@@ -33,54 +29,28 @@ import (
 // the built-ins; NewMeterProvider looks it up by cfg.Exporter.
 type MeterExporterFactory func(cfg MetricsConfig) (reader sdkmetric.Reader, pull *PromServe, err error)
 
-var (
-	exporterMu  sync.RWMutex
-	exporterReg = map[string]MeterExporterFactory{}
-)
+// exporters is the shared generic registry (see internal/registry). It holds
+// the bookkeeping that used to be duplicated byte-for-byte with the trace
+// registry; only the factory type and category string differ.
+var exporters = registry.New[MeterExporterFactory]("metric")
 
 // RegisterMeterExporter makes a metric exporter factory available under name.
 // It panics on empty name, nil factory, or a duplicate - mirroring the
 // driver-registry idiom used elsewhere (discovery.Register, starter-go-redis
-// RegisterDriver) so a mis-wired or duplicate registration fails loudly at init.
+// RegisterDriver, resilience.RegisterDriver) so a mis-wired or duplicate
+// registration fails loudly at init.
 func RegisterMeterExporter(name string, f MeterExporterFactory) {
-	if name == "" {
-		panic("metric: register meter exporter with empty name")
-	}
 	if f == nil {
 		panic("metric: register nil meter exporter factory for " + name)
 	}
-	exporterMu.Lock()
-	defer exporterMu.Unlock()
-	if _, ok := exporterReg[name]; ok {
-		panic("metric: meter exporter already registered: " + name)
-	}
-	exporterReg[name] = f
+	exporters.Register(name, f)
 }
 
 func lookupMeterExporter(name string) (MeterExporterFactory, bool) {
-	exporterMu.RLock()
-	defer exporterMu.RUnlock()
-	f, ok := exporterReg[name]
-	return f, ok
-}
-
-// registeredMeterExporters returns the sorted names of all registered metric
-// exporters, for inclusion in "unknown exporter" error messages.
-func registeredMeterExporters() []string {
-	exporterMu.RLock()
-	defer exporterMu.RUnlock()
-	names := make([]string, 0, len(exporterReg))
-	for n := range exporterReg {
-		names = append(names, n)
-	}
-	sort.Strings(names)
-	return names
+	return exporters.Lookup(name)
 }
 
 // unknownExporterErr builds the error returned when cfg.Exporter names no
 // registered metric exporter, listing the available ones so the misconfig is
 // self-diagnosing.
-func unknownExporterErr(name string) error {
-	return fmt.Errorf("observability: unknown metrics exporter %q (registered: %s)",
-		name, strings.Join(registeredMeterExporters(), ", "))
-}
+func unknownExporterErr(name string) error { return exporters.UnknownErr(name) }

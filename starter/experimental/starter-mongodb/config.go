@@ -19,6 +19,7 @@ package StarterMongoDB
 import (
 	"time"
 
+	observe "go-spring.org/observe"
 	"go-spring.org/spring/experimental/cloud/tlsconf"
 )
 
@@ -93,4 +94,9 @@ type Config struct {
 	// naming service once via discovery.Register; the default backend name is
 	// "default".
 	Discovery string `value:"${discovery:=default}"`
+
+	// Observability configures the per-command instrumentation emitted by the
+	// command monitor: trace span + duration/in-flight metric + access log
+	// (off/brief/detailed). Defaults to "brief".
+	Observability observe.LogConfig `value:"${observability:=}"`
 }

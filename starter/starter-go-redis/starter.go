@@ -128,6 +128,8 @@ func newClient(ctx *gs.ContextProvider, c Config) (*redis.Client, error) {
 		_ = destroyClient(client)
 		return nil, err
 	}
+	// Attach the access-log Hook (trace+metric come from redisotel above).
+	applyObservability(c, client)
 	log.Infof(ctx.Context, starterTag, "redis client initialized, addr=%s mode=%s", c.Addr, c.Mode)
 	return client, nil
 }
@@ -171,6 +173,8 @@ func newClusterClient(ctx *gs.ContextProvider, c Config) (*redis.ClusterClient, 
 		_ = destroyClusterClient(client)
 		return nil, err
 	}
+	// Attach the access-log Hook (trace+metric come from redisotel above).
+	applyObservability(c, client)
 	log.Infof(ctx.Context, starterTag, "redis cluster client initialized, addrs=%v", c.Addrs)
 	return client, nil
 }

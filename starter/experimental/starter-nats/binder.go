@@ -56,10 +56,9 @@ type publisher struct {
 
 func (p *publisher) Publish(ctx context.Context, msg *messaging.Message) error {
 	nm := &nats.Msg{Subject: p.subject, Data: msg.Payload, Header: toNatsHeader(msg.Headers)}
-	_, span := StartPublishSpan(ctx, nm)
-	err := p.conn.PublishMsg(nm)
-	EndSpan(span, err)
-	return err
+	// Conn.PublishMsg emits the producer span + metric + access log and injects
+	// the W3C trace context into nm.Header for subscribers.
+	return p.conn.PublishMsg(nm)
 }
 
 func (p *publisher) Close() error { return nil }
@@ -76,9 +75,13 @@ type subscriber struct {
 
 func (s *subscriber) Subscribe(_ context.Context, handler messaging.Handler) error {
 	cb := func(nm *nats.Msg) {
-		ctx, span := StartConsumeSpan(context.Background(), nm)
+		// startConsume extracts the upstream trace, opens a consumer span +
+		// metric + access log; nil-safe when observability is off.
+		ctx, sp := s.conn.startConsume(context.Background(), s.subject, nm)
 		err := handler(ctx, fromNatsMsg(nm))
-		EndSpan(span, err)
+		if sp != nil {
+			sp.End(err)
+		}
 	}
 	var (
 		sub *nats.Subscription

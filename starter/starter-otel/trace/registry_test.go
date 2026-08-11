@@ -39,11 +39,7 @@ func TestRegisterSpanExporter(t *testing.T) {
 	RegisterSpanExporter(name, func(_ TraceConfig) (sdktrace.SpanExporter, error) {
 		return noopExporter{}, nil
 	})
-	t.Cleanup(func() {
-		exporterMu.Lock()
-		delete(exporterReg, name)
-		exporterMu.Unlock()
-	})
+	t.Cleanup(func() { exporters.Delete(name) })
 
 	// Registered exporter resolves: NewTracerProvider must not error on lookup.
 	tp, err := NewTracerProvider(TraceConfig{Exporter: name, SamplerRatio: 1}, mustResource(t))

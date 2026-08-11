@@ -22,59 +22,38 @@ import (
 	"sync"
 
 	"go.mongodb.org/mongo-driver/v2/event"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/trace"
+	observe "go-spring.org/observe"
 )
 
-// tracerName identifies spans emitted by this starter.
-const tracerName = "go-spring.org/starter-mongodb"
-
-// newCommandMonitor returns an event.CommandMonitor that emits one client span
-// per MongoDB command through the OpenTelemetry global TracerProvider, bridging
-// MongoDB into go-spring's unified observability.
+// newCommandMonitor returns an event.CommandMonitor that drives the shared
+// observe kit for every MongoDB command: a trace span, a duration/in-flight
+// metric, and an access log (off/brief/detailed). A command's observation is
+// opened in Started and closed in Succeeded/Failed; events are correlated by
+// (connection id, request id), which the driver guarantees is unique for an
+// in-flight command.
 //
-// Why hand-rolled: the official otelmongo instrumentation
-// (go.opentelemetry.io/contrib/.../mongo/otelmongo) targets the v1 mongo driver
-// and its event.CommandMonitor type is incompatible with the v2 driver this
-// starter uses, so SetMonitor(otelmongo.NewMonitor()) does not compile. The
-// bridge is therefore implemented directly here against the v2 event API.
-//
-// It keeps the same zero-config contract as the other starters: spans go
-// through the OTel global provider that starter-otel installs, and when
-// starter-otel is absent that global is a no-op, so this costs nothing and
-// needs no per-app wiring.
-//
-// A command's span is opened in Started and closed in Succeeded/Failed. Events
-// are correlated by (connection id, request id), which the driver guarantees is
-// unique for an in-flight command.
-func newCommandMonitor() *event.CommandMonitor {
-	var spans sync.Map // string(spanKey) -> trace.Span
+// Why hand-rolled against the v2 event API (not otelmongo): the official
+// otelmongo instrumentation targets the v1 mongo driver and its CommandMonitor
+// type is incompatible with the v2 driver this starter uses. The bridge here
+// delegates the three signals to the observe kit so MongoDB shares the same
+// vocabulary (db.client.operation.duration, db.system=mongodb, ...) as every
+// other client starter.
+func newCommandMonitor(obs *observe.Observer) *event.CommandMonitor {
+	var inFlight sync.Map // spanKey -> *observe.Span
 
 	return &event.CommandMonitor{
 		Started: func(ctx context.Context, e *event.CommandStartedEvent) {
-			tracer := otel.GetTracerProvider().Tracer(tracerName)
-			_, span := tracer.Start(ctx, e.CommandName,
-				trace.WithSpanKind(trace.SpanKindClient),
-				trace.WithAttributes(
-					attribute.String("db.system", "mongodb"),
-					attribute.String("db.name", e.DatabaseName),
-					attribute.String("db.operation", e.CommandName),
-				),
-			)
-			spans.Store(spanKey(e.ConnectionID, e.RequestID), span)
+			_, sp := obs.Start(ctx, e.CommandName, e.DatabaseName)
+			inFlight.Store(spanKey(e.ConnectionID, e.RequestID), sp)
 		},
 		Succeeded: func(_ context.Context, e *event.CommandSucceededEvent) {
-			if v, ok := spans.LoadAndDelete(spanKey(e.ConnectionID, e.RequestID)); ok {
-				v.(trace.Span).End()
+			if v, ok := inFlight.LoadAndDelete(spanKey(e.ConnectionID, e.RequestID)); ok {
+				v.(*observe.Span).End(nil)
 			}
 		},
 		Failed: func(_ context.Context, e *event.CommandFailedEvent) {
-			if v, ok := spans.LoadAndDelete(spanKey(e.ConnectionID, e.RequestID)); ok {
-				span := v.(trace.Span)
-				span.SetStatus(codes.Error, e.Failure.Error())
-				span.End()
+			if v, ok := inFlight.LoadAndDelete(spanKey(e.ConnectionID, e.RequestID)); ok {
+				v.(*observe.Span).End(e.Failure)
 			}
 		},
 	}

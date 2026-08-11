@@ -19,8 +19,8 @@ package StarterElasticsearch
 import (
 	"context"
 
-	"github.com/elastic/elastic-transport-go/v8/elastictransport"
 	"github.com/elastic/go-elasticsearch/v8"
+	observe "go-spring.org/observe"
 )
 
 var driverRegistry = map[string]Driver{}
@@ -101,6 +101,12 @@ type Config struct {
 
 	// Driver specifies which Elasticsearch driver to use, defaults to DefaultDriver.
 	Driver string `value:"${driver:=DefaultDriver}"`
+
+	// Observability configures the per-request metric + access log emitted by the
+	// observe HTTP round-tripper (trace spans come from the transport
+	// instrumentation; the kit fills metric+log, off/brief/detailed). Defaults to
+	// "brief".
+	Observability observe.LogConfig `value:"${observability:=}"`
 }
 
 // Driver interface defines how to create an Elasticsearch client.
@@ -139,6 +145,7 @@ func (DefaultDriver) CreateClient(ctx context.Context, c Config) (*elasticsearch
 		CompressRequestBody:    c.CompressRequestBody,
 		EnableMetrics:          c.EnableMetrics,
 		EnableDebugLogger:      c.EnableDebugLogger,
-		Instrumentation:        elastictransport.NewOtelInstrumentation(nil, false, ""),
+		Instrumentation:        newOtelInstrumentation(),
+		Transport:              newObserveTransport(c.Observability),
 	})
 }

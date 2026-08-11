@@ -89,7 +89,7 @@ func init() {
 // newMailer builds a Mailer from config. It fails fast on a missing host or an
 // unknown auth/TLS mode, and probes the server once at startup so a
 // misconfiguration surfaces at boot rather than on the first send.
-func newMailer(ctx *gs.ContextProvider, c Config) (*Mailer, error) {
+func newMailer(ctx *gs.ContextProvider, name string, c Config) (*Mailer, error) {
 	if err := errutil.RequireField("mail", "host", c.Host); err != nil {
 		return nil, err
 	}

@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	observe "go-spring.org/observe"
 	"go-spring.org/spring/cloud/discovery"
 	"go-spring.org/spring/cloud/mesh"
 	"go-spring.org/spring/experimental/cloud/resilience"
@@ -145,56 +146,26 @@ type Config struct {
 	// attached so every command flows through the selected resilience driver.
 	// Retry is best left to go-redis's own MaxRetries, so leave resilience
 	// max-retries at 0 to avoid re-sending non-idempotent commands.
-	Resilience ResilienceConfig `value:"${resilience:=}"`
+	Resilience resilience.Config `value:"${resilience:=}"`
+
+	// Observability configures the per-command access log attached as a Hook.
+	// go-redis already emits trace+metric via redisotel, so the kit only fills the
+	// access-log gap (off/brief/detailed). Defaults to "brief"; set "off" to
+	// silence the access log entirely.
+	Observability observe.LogConfig `value:"${observability:=}"`
 
 	// Driver specifies which Redis driver to use, defaults to DefaultDriver.
 	Driver string `value:"${driver:=DefaultDriver}"`
 }
 
-// ResilienceConfig binds the backend-neutral resilience knobs exposed by
-// stdlib/resilience. Driver selects which registered backend enforces them:
-// "default" (bundled, zero-dependency) or "sentinel" (recommended, enabled by
-// blank-importing starter-resilience). Switching backends is a one-line config
-// change — no code touches the hook seam.
-type ResilienceConfig struct {
-	// Enabled attaches the resilience hook. When false the client is unchanged.
-	Enabled bool `value:"${enabled:=false}"`
-
-	// Driver names the registered resilience backend to use.
-	Driver string `value:"${driver:=default}"`
-
-	// RateLimit caps sustained throughput in commands per second (0 disables).
-	RateLimit float64 `value:"${rate-limit:=0}"`
-
-	// Burst is the momentary allowance above RateLimit (0 = driver default).
-	Burst int `value:"${burst:=0}"`
-
-	// ErrorThreshold is the consecutive-failure count that trips the breaker
-	// open (0 disables circuit breaking). redis.Nil (cache miss) never counts.
-	ErrorThreshold int `value:"${error-threshold:=0}"`
-
-	// OpenDuration is how long the breaker stays open before a trial command.
-	OpenDuration time.Duration `value:"${open-duration:=0}"`
-
-	// MaxRetries is the number of extra attempts after a failure. Keep 0 for
-	// Redis; go-redis already retries via its own MaxRetries.
-	MaxRetries int `value:"${max-retries:=0}"`
-
-	// AttemptTimeout bounds each individual attempt (0 = no per-attempt bound).
-	AttemptTimeout time.Duration `value:"${attempt-timeout:=0}"`
-}
-
-// policy maps the bound config onto the backend-neutral resilience.Policy.
-func (r ResilienceConfig) policy() resilience.Policy {
-	return resilience.Policy{
-		RateLimit:      r.RateLimit,
-		Burst:          r.Burst,
-		ErrorThreshold: r.ErrorThreshold,
-		OpenDuration:   r.OpenDuration,
-		MaxRetries:     r.MaxRetries,
-		Timeout:        r.AttemptTimeout,
-	}
-}
+// Resilience binds the backend-neutral resilience knobs shared by every client
+// starter (see [resilience.Config]). Driver selects which registered backend
+// enforces them: "default" (bundled, zero-dependency) or "sentinel"
+// (recommended, enabled by blank-importing starter-resilience). Switching
+// backends is a one-line config change — no code touches the hook seam.
+//
+// Keep resilience MaxRetries at 0 for Redis: go-redis already retries via its
+// own MaxRetries, and re-sending non-idempotent commands is unsafe.
 
 // Driver interface defines how to create a single/sentinel Redis client, whose
 // bean type is *redis.Client.

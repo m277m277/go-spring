@@ -114,13 +114,15 @@ type RouteRaw struct {
 
 // policyRaw is a named resilience policy under spring.gateway.resilience.<name>.
 // It mirrors resilience.Policy so routes can share pooled breaker/limiter state
-// by referencing a policy name.
+// by referencing a policy name. Keys use the same kebab-case style as the client
+// starters (starter-go-redis, starter-http-client, ...) so the whole framework
+// reads resilience config one way.
 type policyRaw struct {
-	RateLimit      float64       `value:"${rateLimit:=0}"`
+	RateLimit      float64       `value:"${rate-limit:=0}"`
 	Burst          int           `value:"${burst:=0}"`
-	ErrorThreshold int           `value:"${errorThreshold:=0}"`
-	OpenDuration   time.Duration `value:"${openDuration:=0}"`
-	MaxConcurrent  int           `value:"${maxConcurrent:=0}"`
-	MaxRetries     int           `value:"${maxRetries:=0}"`
-	Timeout        time.Duration `value:"${timeout:=0}"`
+	ErrorThreshold int           `value:"${error-threshold:=0}"`
+	OpenDuration   time.Duration `value:"${open-duration:=0}"`
+	MaxConcurrent  int           `value:"${max-concurrent:=0}"`
+	MaxRetries     int           `value:"${max-retries:=0}"`
+	Timeout        time.Duration `value:"${attempt-timeout:=0}"`
 }

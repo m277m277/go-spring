@@ -51,7 +51,7 @@ func init() {
 // startup instead of surfacing on the first produce/consume. A defensive
 // non-empty Brokers() check guards against future sarama changes that might
 // otherwise swallow a fully empty cluster.
-func newClient(ctx *gs.ContextProvider, c Config) (sarama.Client, error) {
+func newClient(ctx *gs.ContextProvider, name string, c Config) (sarama.Client, error) {
 	log.Debugf(ctx.Context, starterTag, "creating kafka sarama client, brokers=%s", c.Brokers)
 
 	cfg := sarama.NewConfig()

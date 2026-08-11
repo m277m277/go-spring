@@ -5,10 +5,17 @@ go 1.26
 require (
 	github.com/go-sql-driver/mysql v1.9.3
 	go-spring.org/spring v1.3.4
+	go-spring.org/observe v0.0.0
+	go-spring.org/observe-gorm v0.0.0
 	go-spring.org/stdlib v0.1.7
 	gorm.io/driver/mysql v1.6.0
 	gorm.io/gorm v1.31.1
-	gorm.io/plugin/opentelemetry v0.1.16
+)
+
+// Local, not-yet-published observe kit and gorm bridge. Removed once tagged.
+replace (
+	go-spring.org/observe => ../../observe
+	go-spring.org/observe-gorm => ../../observe-gorm
 )
 
 require (

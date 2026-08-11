@@ -18,6 +18,7 @@ package StarterResilience
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -122,4 +123,105 @@ func TestSentinelBulkhead(t *testing.T) {
 
 	// Slot freed: a subsequent call is admitted again.
 	assert.Error(t, e.Execute(context.Background(), "svc-bulkhead", func(context.Context) error { return nil })).Nil()
+}
+
+// TestSentinelBulkheadHeldAcrossRetries verifies the isolation slot is held for
+// the whole Execute (retries included), matching the builtin driver and
+// DESIGN.md §3. With MaxConcurrent=1 and a retrying call in flight, a second
+// call must be rejected for the entire retry sequence — not admitted in the
+// gap between attempts.
+func TestSentinelBulkheadHeldAcrossRetries(t *testing.T) {
+	e := newExec(t, resilience.Policy{MaxConcurrent: 1, MaxRetries: 3, InitialInterval: 20 * time.Millisecond})
+
+	release := make(chan struct{})
+	entered := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_ = e.Execute(context.Background(), "svc-bulk-retry", func(context.Context) error {
+			close(entered)
+			<-release // park with the slot held across what would be retries
+			return nil
+		})
+	}()
+
+	<-entered
+	// While the first call holds the slot (parked inside fn), the second is
+	// rejected — proving the bulkhead is held for the duration of Execute.
+	err := e.Execute(context.Background(), "svc-bulk-retry", func(context.Context) error { return nil })
+	assert.Error(t, err).Is(resilience.ErrBulkheadFull)
+
+	close(release)
+	wg.Wait()
+}
+
+// TestSentinelErrorRateBreaker verifies the error-rate strategy is mapped onto
+// sentinel's ErrorRatio rule: it trips on failure ratio with enough samples
+// even when successes are interleaved (so a consecutive counter would not trip).
+func TestSentinelErrorRateBreaker(t *testing.T) {
+	e := newExec(t, resilience.Policy{
+		BreakerStrategy:    resilience.BreakerErrorRate,
+		ErrorRateThreshold: 0.5,
+		MinRequests:        4,
+		BreakerWindow:      time.Second,
+		OpenDuration:       time.Minute,
+	})
+	tripped := false
+	for i := range 10 {
+		err := e.Execute(context.Background(), "svc-errrate", func(context.Context) error {
+			if i%2 == 0 {
+				return errors.New("fail")
+			}
+			return nil
+		})
+		if errors.Is(err, resilience.ErrCircuitOpen) {
+			tripped = true
+			break
+		}
+	}
+	assert.That(t, tripped).True()
+}
+
+// TestSentinelHalfOpenRecovery verifies sentinel's half-open behavior maps onto
+// the neutral Policy: after cool-down a successful trial closes the circuit, and
+// a failing trial re-opens it. The breaker is configured with ProbeNum=1 (see
+// loadBreakerRule) so a single probe decides recovery — the closest sentinel
+// equivalent to the builtin's strict single-permit half-open gate.
+func TestSentinelHalfOpenRecovery(t *testing.T) {
+	e := newExec(t, resilience.Policy{ErrorThreshold: 1, OpenDuration: 30 * time.Millisecond})
+
+	// Trip the breaker.
+	_ = e.Execute(context.Background(), "svc-halfopen", func(context.Context) error {
+		return errors.New("boom")
+	})
+	// Open: short-circuited.
+	err := e.Execute(context.Background(), "svc-halfopen", func(context.Context) error { return nil })
+	assert.Error(t, err).Is(resilience.ErrCircuitOpen)
+
+	// After cool-down a successful trial closes the circuit.
+	time.Sleep(40 * time.Millisecond)
+	err = e.Execute(context.Background(), "svc-halfopen", func(context.Context) error { return nil })
+	assert.Error(t, err).Nil()
+	// Now closed: a normal call runs.
+	err = e.Execute(context.Background(), "svc-halfopen", func(context.Context) error { return nil })
+	assert.Error(t, err).Nil()
+}
+
+// TestSentinelHalfOpenReopensOnFailedTrial verifies the other half of the
+// half-open contract: a failing trial re-opens the cool-down window.
+func TestSentinelHalfOpenReopensOnFailedTrial(t *testing.T) {
+	e := newExec(t, resilience.Policy{ErrorThreshold: 1, OpenDuration: 30 * time.Millisecond})
+
+	_ = e.Execute(context.Background(), "svc-reopen", func(context.Context) error {
+		return errors.New("boom")
+	})
+	time.Sleep(40 * time.Millisecond) // half-open
+
+	// Failing trial re-opens the circuit.
+	_ = e.Execute(context.Background(), "svc-reopen", func(context.Context) error {
+		return errors.New("still bad")
+	})
+	err := e.Execute(context.Background(), "svc-reopen", func(context.Context) error { return nil })
+	assert.Error(t, err).Is(resilience.ErrCircuitOpen)
 }

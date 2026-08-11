@@ -25,6 +25,7 @@ import (
 	"github.com/apache/pulsar-client-go/pulsar"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	observe "go-spring.org/observe"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -130,4 +131,37 @@ func EndSpan(span trace.Span, err error) {
 		span.SetStatus(codes.Error, err.Error())
 	}
 	span.End()
+}
+
+// --- binder auto path (kit-backed) -------------------------------------------
+//
+// The messaging.Binder drives produce/consume through the observe kit (3 signals)
+// via these package-level observers. Pulsar's own Prometheus metrics (see
+// newMetricsServer above) are separate and stay — they are library-native
+// connection/producer stats, while the kit covers per-message span+metric+log.
+// The bean is a raw pulsar.Client (no wrapper to carry per-instance config), so
+// the binder path uses a default "brief" level; the manual helpers above remain
+// for apps that want explicit control.
+
+var (
+	defaultPubObs = observe.NewProducer("pulsar", observe.LogConfig{Level: observe.DefaultBrief})
+	defaultSubObs = observe.NewConsumer("pulsar", observe.LogConfig{Level: observe.DefaultBrief})
+)
+
+// startProduce opens a producer observation and injects W3C trace context into
+// msg.Properties. topic is the producer's destination (the binder passes it).
+func startProduce(ctx context.Context, topic string, msg *pulsar.ProducerMessage) (context.Context, *observe.Span) {
+	ctx, sp := defaultPubObs.Start(ctx, "publish", topic)
+	if msg.Properties == nil {
+		msg.Properties = make(map[string]string)
+	}
+	otel.GetTextMapPropagator().Inject(ctx, propagation.MapCarrier(msg.Properties))
+	return ctx, sp
+}
+
+// startConsume extracts the upstream trace from the message properties and opens
+// a consumer observation. For the binder's consume loop.
+func startConsume(ctx context.Context, msg pulsar.Message) (context.Context, *observe.Span) {
+	ctx = otel.GetTextMapPropagator().Extract(ctx, propagation.MapCarrier(msg.Properties()))
+	return defaultSubObs.Start(ctx, "consume", msg.Topic())
 }

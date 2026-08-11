@@ -23,16 +23,22 @@
 package prometheus
 
 import (
+	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go-spring.org/log"
 	"go-spring.org/starter-otel/metric"
 	otelprom "go.opentelemetry.io/otel/exporters/prometheus"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 )
+
+// logTag identifies logs emitted by the prometheus scrape server.
+var logTag = log.RegisterInfraTag("starter_otel", "prometheus")
 
 func init() {
 	metric.RegisterMeterExporter("prometheus", newPrometheus)
@@ -51,24 +57,40 @@ func newPrometheus(cfg metric.MetricsConfig) (sdkmetric.Reader, *metric.PromServ
 	}
 	ps := &metric.PromServe{Handler: promhttp.HandlerFor(reg, promhttp.HandlerOpts{})}
 	if cfg.Port > 0 {
-		ps.Server = serveMetrics(fmt.Sprintf(":%d", cfg.Port), cfg.Path, ps.Handler)
+		srv, err := serveMetrics(fmt.Sprintf(":%d", cfg.Port), cfg.Path, ps.Handler)
+		if err != nil {
+			// The dedicated server failed to bind (port in use / permission).
+			// Surface it rather than silently running a dead /metrics: a bind
+			// failure must stop setup so the operator fixes the port.
+			return nil, nil, fmt.Errorf("observability: start prometheus scrape server: %w", err)
+		}
+		ps.Server = srv
 	}
 	return exp, ps, nil
 }
 
 // serveMetrics starts a standalone HTTP server rendering the Prometheus scrape
-// handler on path. It runs on its own listener (decoupled from any component's
-// transport), mirroring the dedicated :9090 the dubbo/kratos examples expose.
-// The same handler is also contributed to the actuator (see NewEndpoint), so
-// this dedicated server is optional and skipped when port<=0.
-func serveMetrics(addr, path string, handler http.Handler) *http.Server {
+// handler on path. It binds the listener synchronously so a bind failure (port
+// already in use, permission denied) is returned immediately and surfaces
+// through setupMetrics rather than being swallowed — the dedicated server would
+// otherwise appear healthy while /metrics is dead. The server runs on its own
+// listener (decoupled from any component's transport), mirroring the dedicated
+// :9090 the dubbo/kratos examples expose. The same handler is also contributed
+// to the actuator (see NewEndpoint), so this dedicated server is optional and
+// skipped when port<=0.
+func serveMetrics(addr, path string, handler http.Handler) (*http.Server, error) {
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return nil, err
+	}
 	mux := http.NewServeMux()
 	mux.Handle(path, handler)
 	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+	log.Infof(context.Background(), logTag, "prometheus scrape server listening on %s path=%s", ln.Addr(), path)
 	go func() {
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			_ = err
+		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
+			log.Errorf(context.Background(), logTag, "prometheus scrape server stopped: %v", err)
 		}
 	}()
-	return srv
+	return srv, nil
 }

@@ -63,41 +63,18 @@ type Config struct {
 
 	// Resilience optionally protects outbound requests with rate limiting,
 	// circuit breaking and retry. Disabled by default.
-	Resilience ResilienceConfig `value:"${resilience:=}"`
+	Resilience resilience.Config `value:"${resilience:=}"`
 }
 
 // ResilienceConfig binds the backend-neutral resilience knobs exposed by
-// stdlib/resilience. Driver selects which registered backend enforces them:
-// "default" (bundled) or "sentinel" (blank-import starter-resilience). It
-// mirrors the shape used by starter-oauth2-client so the two client families
-// read the same in configuration.
-type ResilienceConfig struct {
-	// Enabled turns the resilience transport on. When false the client is
-	// returned unwrapped.
-	Enabled bool `value:"${enabled:=false}"`
-
-	// Driver names the registered resilience backend to use.
-	Driver string `value:"${driver:=default}"`
-
-	// RateLimit caps sustained throughput in requests per second (0 disables).
-	RateLimit float64 `value:"${rate-limit:=0}"`
-
-	// Burst is the momentary allowance above RateLimit (0 = driver default).
-	Burst int `value:"${burst:=0}"`
-
-	// ErrorThreshold is the consecutive-failure count that trips the breaker
-	// open (0 disables circuit breaking).
-	ErrorThreshold int `value:"${error-threshold:=0}"`
-
-	// OpenDuration is how long the breaker stays open before a trial request.
-	OpenDuration time.Duration `value:"${open-duration:=0}"`
-
-	// MaxRetries is the number of extra attempts after the first failure.
-	MaxRetries int `value:"${max-retries:=0}"`
-
-	// AttemptTimeout bounds each individual attempt (0 = no per-attempt bound).
-	AttemptTimeout time.Duration `value:"${attempt-timeout:=0}"`
-}
+// Resilience binds the backend-neutral resilience knobs shared by every client
+// starter (see [resilience.Config]). Driver selects which registered backend
+// enforces them: "default" (bundled) or "sentinel" (blank-import
+// starter-resilience). It mirrors the shape used by starter-oauth2-client so the
+// two client families read the same in configuration.
+//
+// Keep MaxRetries at 0 unless requests are idempotent: the client may issue
+// POSTs and other non-idempotent verbs, and a retry re-sends them.
 
 // validate enforces the addr-or-service-name fail-fast rule shared by client
 // starters: exactly one addressing mode, and discovery is mandatory when
@@ -129,14 +106,7 @@ func (c Config) toTransportConfig(base http.RoundTripper) httpx.Config {
 	}
 	if c.Resilience.Enabled {
 		cfg.ResilienceDriver = c.Resilience.Driver
-		cfg.ResiliencePolicy = resilience.Policy{
-			RateLimit:      c.Resilience.RateLimit,
-			Burst:          c.Resilience.Burst,
-			ErrorThreshold: c.Resilience.ErrorThreshold,
-			OpenDuration:   c.Resilience.OpenDuration,
-			MaxRetries:     c.Resilience.MaxRetries,
-			Timeout:        c.Resilience.AttemptTimeout,
-		}
+		cfg.ResiliencePolicy = c.Resilience.Policy()
 	}
 	return cfg
 }

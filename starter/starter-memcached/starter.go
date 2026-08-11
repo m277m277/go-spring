@@ -18,12 +18,15 @@ package StarterMemcached
 
 import (
 	"context"
+	"runtime"
 
-	"github.com/bradfitz/gomemcache/memcache"
 	"go-spring.org/log"
+	"go-spring.org/spring/cloud/actuator/health"
 	"go-spring.org/spring/cloud/discovery"
+	"go-spring.org/spring/conf"
 	"go-spring.org/spring/data/cache"
 	"go-spring.org/spring/gs"
+	health2 "go-spring.org/starter-memcached/health"
 	"go-spring.org/starter-memcached/bytecache"
 	"go-spring.org/stdlib/errutil"
 	"go-spring.org/stdlib/flatten"
@@ -32,14 +35,31 @@ import (
 var starterTag = log.RegisterInfraTag("memcached", "")
 
 func init() {
-	// Register multiple Memcached clients as a group.
-	// Each instance is created according to the configuration in "${spring.memcached}".
-	// This allows defining multiple memcached instances dynamically.
+	// Register multiple Memcached clients as a group, one per entry under
+	// "${spring.memcached}". A gs.Module (rather than gs.Group) is used so each
+	// instance's client bean can be paired with a health.Indicator registered
+	// under the same name — and to attach the file:line of this registration to
+	// the bean for diagnostics.
 	//
 	// The memcache client keeps a lazy connection pool and exposes no Close
 	// method, so the destroy callback only stops any discovery Resolver watch
 	// behind the client (added when ServiceName is set).
-	gs.Group("${spring.memcached}", newClient, destroyClient)
+	_, file, line, _ := runtime.Caller(0)
+	gs.Module(gs.OnProperty("spring.memcached"), func(r gs.BeanProvider, p flatten.Storage) error {
+		var m map[string]Config
+		if err := conf.Bind(p, &m, "${spring.memcached}"); err != nil {
+			return err
+		}
+		for name, c := range m {
+			b := r.Provide(newClient, gs.ValueArg(c)).Name(name).Destroy(destroyClient)
+			b.SetFileLine(file, line)
+			// Contribute a health indicator for this instance, injecting the
+			// client just registered above by name.
+			h := r.Provide(func(c *obsClient) health.Indicator { return health2.NewClientHealth(name, c.Client) }, gs.TagArg(name)).Export(gs.As[health.Indicator]())
+			h.SetFileLine(file, line)
+		}
+		return nil
+	})
 }
 
 // init registers the "memcached" cache driver so a *memcache.Client registered
@@ -52,16 +72,17 @@ func init() {
 func init() {
 	cache.RegisterDriver("memcached", func(beanID string) gs.ModuleFunc {
 		return func(r gs.BeanProvider, p flatten.Storage) error {
-			r.Provide(func(c *memcache.Client) *cache.Cache {
-				return &cache.Cache{ByteCache: bytecache.NewByteCache(c)}
+			r.Provide(func(c *obsClient) *cache.Cache {
+				return &cache.Cache{ByteCache: bytecache.NewByteCache(c.Client)}
 			}, gs.TagArg(beanID)).Name(beanID)
 			return nil
 		}
 	})
 }
 
-// newClient creates a new Memcached client based on the provided configuration.
-func newClient(ctx *gs.ContextProvider, c Config) (*memcache.Client, error) {
+// newClient creates a new Memcached client based on the provided configuration,
+// wrapped so every operation flows through the observe kit (trace+metric+log).
+func newClient(ctx *gs.ContextProvider, c Config) (*obsClient, error) {
 	log.Debugf(ctx.Context, starterTag, "creating memcached client, servers=%v service-name=%s", c.Servers, c.ServiceName)
 
 	if len(c.Servers) == 0 && c.ServiceName == "" {
@@ -85,14 +106,14 @@ func newClient(ctx *gs.ContextProvider, c Config) (*memcache.Client, error) {
 		return nil, errutil.Explain(err, "memcached: startup ping failed")
 	}
 	log.Infof(ctx.Context, starterTag, "memcached client initialized, servers=%v", c.Servers)
-	return client, nil
+	return newObsClient(client, c.Observability), nil
 }
 
 // destroyClient stops any discovery Resolver watch behind the client. The
 // memcache client itself keeps a lazy connection pool with no Close method, so
 // nothing is closed here — only the background watch (if any) is released.
-func destroyClient(client *memcache.Client) error {
-	if v, ok := resolvers.LoadAndDelete(client); ok {
+func destroyClient(client *obsClient) error {
+	if v, ok := resolvers.LoadAndDelete(client.Client); ok {
 		_ = v.(*discovery.Resolver).Stop()
 		log.Debugf(context.Background(), starterTag, "memcached client destroyed, discovery resolver stopped")
 	}

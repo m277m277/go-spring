@@ -41,7 +41,7 @@ func init() {
 // Once the connection is up a probe channel is opened and closed to confirm
 // the AMQP layer is usable, then close/block notifiers are bridged into
 // go-spring's log so broker-driven events land alongside app logs.
-func newClient(ctx *gs.ContextProvider, c Config) (*amqp.Connection, error) {
+func newClient(ctx *gs.ContextProvider, name string, c Config) (*amqp.Connection, error) {
 	log.Debugf(ctx.Context, starterTag, "creating rabbitmq connection, url=%s vhost=%s", c.URL, c.Vhost)
 
 	tc, err := c.TLS.Build()

@@ -45,7 +45,7 @@ func applyResilience(c Config, client redis.UniversalClient) error {
 	if err != nil {
 		return err
 	}
-	exec, err := drv.NewExecutor(c.Resilience.policy())
+	exec, err := drv.NewExecutor(c.Resilience.Policy())
 	if err != nil {
 		return err
 	}
@@ -63,20 +63,14 @@ func closeResilience(client redis.UniversalClient) {
 
 // resourceLabel derives a stable, human-readable resilience resource key for a
 // client, so limiter and breaker state is scoped per Redis instance rather than
-// per command. It falls back across the mode-specific address fields.
+// per command. It falls back across the mode-specific address fields via the
+// shared [resilience.ResourceLabel] helper.
 func resourceLabel(c Config) string {
-	switch {
-	case c.ServiceName != "":
-		return "redis:" + c.ServiceName
-	case c.MasterName != "":
-		return "redis:" + c.MasterName
-	case c.Addr != "":
-		return "redis:" + c.Addr
-	case len(c.Addrs) > 0:
-		return "redis:" + c.Addrs[0]
-	default:
-		return "redis"
+	first := ""
+	if len(c.Addrs) > 0 {
+		first = c.Addrs[0]
 	}
+	return resilience.ResourceLabel("redis", c.ServiceName, c.MasterName, c.Addr, first)
 }
 
 // resilienceHook routes every Redis command (and pipeline) through the executor.

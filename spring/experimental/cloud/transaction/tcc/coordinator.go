@@ -311,7 +311,7 @@ func containsName(names []string, name string) bool {
 // reuses [resilience.Policy] so TCC phase retries and outbound resilience share
 // one knob set instead of duplicating retry logic here.
 func runWithPolicy(ctx context.Context, p RetryPolicy, resource string, fn func(context.Context) error) error {
-	if p == (RetryPolicy{}) {
+	if p.IsZero() {
 		return fn(ctx)
 	}
 	drv, err := resilience.MustGetDriver("default")

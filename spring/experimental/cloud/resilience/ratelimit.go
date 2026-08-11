@@ -216,8 +216,8 @@ func (l *builtinRateLimiter) window(key string) *slidingWindow {
 	return w
 }
 
-// allowN consumes n tokens if at least n are available. It extends the bucket
-// used by the executor (allow consumes exactly one) for multi-unit checks.
+// allowN consumes n tokens if at least n are available. It is the single token
+// consumer: the executor passes 1, the standalone RateLimiter passes n.
 func (b *tokenBucket) allowN(n float64) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()

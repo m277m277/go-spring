@@ -45,7 +45,7 @@ func applyResilience(c Config, db *gorm.DB) error {
 	if err != nil {
 		return err
 	}
-	exec, err := drv.NewExecutor(c.Resilience.policy())
+	exec, err := drv.NewExecutor(c.Resilience.Policy())
 	if err != nil {
 		return err
 	}
@@ -128,14 +128,7 @@ func runGuard(ctx context.Context, exec resilience.Executor, resource string, ca
 
 // resourceLabel derives a stable, human-readable resilience resource key for a
 // client, so limiter and breaker state is scoped per DB instance rather than
-// per statement.
+// per statement. It uses the shared [resilience.ResourceLabel] helper.
 func resourceLabel(c Config) string {
-	switch {
-	case c.ServiceName != "":
-		return "gorm:mysql:" + c.ServiceName
-	case c.Addr != "":
-		return "gorm:mysql:" + c.Addr
-	default:
-		return "gorm:mysql"
-	}
+	return resilience.ResourceLabel("gorm:mysql", c.ServiceName, c.Addr)
 }

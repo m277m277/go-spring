@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/gomodule/redigo/redis"
+	observe "go-spring.org/observe"
 	"go-spring.org/spring/cloud/discovery"
 	"go-spring.org/spring/cloud/mesh"
 	"go-spring.org/spring/experimental/cloud/tlsconf"
@@ -95,6 +96,13 @@ type Config struct {
 	// false (the default) the client dials in plaintext. Field layout matches
 	// starter-go-redis so the two starters stay interchangeable.
 	TLS tlsconf.TLSConfig `value:"${tls}"`
+
+	// Observability configures the transparent instrumentation applied to every
+	// command on this pool: a trace span, a duration/in-flight metric, and an
+	// access log (off/brief/detailed) via the shared observe kit. Trace+metric
+	// ride the OTel globals starter-otel installs (no-ops without it); the access
+	// log defaults to "brief".
+	Observability observe.LogConfig `value:"${observability:=}"`
 
 	// Driver specifies which Redis driver to use, defaults to DefaultDriver.
 	Driver string `value:"${driver:=DefaultDriver}"`

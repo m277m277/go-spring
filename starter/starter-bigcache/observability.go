@@ -20,6 +20,7 @@ import (
 	"context"
 
 	"github.com/allegro/bigcache/v3"
+	observe "go-spring.org/observe"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -28,7 +29,7 @@ import (
 // metricsMeter is the OTel meter all bigcache instruments register under. It
 // follows the starter's module path, matching the convention used by other
 // starters (e.g. starter-gin's "go-spring.org/starter-gin").
-const metricsMeter = "go-spring.io/starter/bigcache"
+const metricsMeter = "go-spring.org/starter-bigcache"
 
 // statReader reads one snapshot value from a BigCache instance.
 type statReader func(*bigcache.BigCache) int64
@@ -76,4 +77,44 @@ func registerMetrics(name string, c *bigcache.BigCache) {
 			}),
 		)
 	}
+}
+
+// --- per-operation observe wrapper -------------------------------------------
+//
+// obsBigCache wraps *bigcache.BigCache so Get/Set/Delete flow through the shared
+// observe kit (trace span + duration/in-flight metric + access log), in addition
+// to the cache-stat gauges above. bigcache is an in-process heap cache with no
+// network, so the spans are root spans (no caller context to link) and the
+// durations are sub-microsecond - the value is per-key access visibility and a
+// uniform signal vocabulary with the other client starters. It embeds the real
+// client, so Reset/Stats/Len/Capacity/Close are promoted unchanged.
+
+type obsBigCache struct {
+	*bigcache.BigCache
+	obs *observe.Observer
+}
+
+func newObsBigCache(c *bigcache.BigCache, cfg observe.LogConfig) *obsBigCache {
+	return &obsBigCache{BigCache: c, obs: observe.NewClient("bigcache", cfg)}
+}
+
+func (c *obsBigCache) Get(key string) ([]byte, error) {
+	_, sp := c.obs.Start(context.Background(), "get", key)
+	v, err := c.BigCache.Get(key)
+	sp.End(err)
+	return v, err
+}
+
+func (c *obsBigCache) Set(key string, entry []byte) error {
+	_, sp := c.obs.Start(context.Background(), "set", key)
+	err := c.BigCache.Set(key, entry)
+	sp.End(err)
+	return err
+}
+
+func (c *obsBigCache) Delete(key string) error {
+	_, sp := c.obs.Start(context.Background(), "delete", key)
+	err := c.BigCache.Delete(key)
+	sp.End(err)
+	return err
 }

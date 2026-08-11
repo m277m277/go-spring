@@ -20,6 +20,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"go-spring.org/log"
+	observe "go-spring.org/observe"
 	"go-spring.org/spring/experimental/cloud/resilience"
 	"go-spring.org/spring/gs"
 	"go-spring.org/stdlib/errutil"
@@ -38,6 +39,11 @@ import (
 type Conn struct {
 	*nats.Conn
 	JetStream jetstream.JetStream
+
+	// pubObs/subObs drive the observe kit (trace+metric+log) for publishes and
+	// consumes. nil-safe: when nil the instrumented methods delegate unchanged.
+	pubObs   *observe.Observer
+	subObs   *observe.Observer
 
 	// exec is nil unless Config.Resilience.Enabled; when set, the guarded
 	// methods route through it. resource is the stable per-instance key so the
@@ -66,7 +72,7 @@ func init() {
 // newConn dials NATS and, when configured, derives a JetStream context from the
 // same connection. Connection-layer events (async errors, disconnect, reconnect,
 // close) are bridged into go-spring's log so they show up alongside app logs.
-func newConn(ctx *gs.ContextProvider, c Config) (*Conn, error) {
+func newConn(ctx *gs.ContextProvider, name string, c Config) (*Conn, error) {
 
 	log.Debugf(ctx.Context, starterTag, "creating nats connection, url=%s name=%s", c.URL, c.Name)
 
@@ -128,6 +134,11 @@ func newConn(ctx *gs.ContextProvider, c Config) (*Conn, error) {
 	}
 
 	conn := &Conn{Conn: nc}
+	// Attach the observe kit (trace+metric+log) for publishes and consumes.
+	// Nil-safe: when the level is "off" the observers are still set (the kit
+	// honors Level), so PublishMsg/startConsume route through them.
+	conn.pubObs = observe.NewProducer("nats", c.Observability)
+	conn.subObs = observe.NewConsumer("nats", c.Observability)
 	if c.JetStream.Enabled {
 		js, err := jetstream.New(nc)
 		if err != nil {

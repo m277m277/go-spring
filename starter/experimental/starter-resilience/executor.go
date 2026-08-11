@@ -41,6 +41,13 @@ type sentinelExecutor struct {
 	loaded map[string]bool
 }
 
+// isoSuffix namespaces the bulkhead (isolation) resource so an Entry that holds
+// the concurrency slot across all retries does not collide with the per-attempt
+// Entry sentinel uses for flow + circuit breaking. sentinel evaluates every rule
+// type registered under a resource on each Entry for that resource, so the two
+// concerns must live under distinct resource names to be acquired independently.
+const isoSuffix = "$bulkhead"
+
 func newSentinelExecutor(p resilience.Policy) (resilience.Executor, error) {
 	if p.RateLimit < 0 {
 		return nil, fmt.Errorf("resilience: negative rate limit %v", p.RateLimit)
@@ -48,8 +55,11 @@ func newSentinelExecutor(p resilience.Policy) (resilience.Executor, error) {
 	return &sentinelExecutor{policy: p, loaded: map[string]bool{}}, nil
 }
 
-// ensureRules loads flow and circuit-breaker rules for resource once, translating
-// the neutral Policy knobs into sentinel's own rule shapes.
+// ensureRules loads flow, circuit-breaker and isolation rules for resource once,
+// translating the neutral Policy knobs into sentinel's own rule shapes. The
+// breaker rule is selected by [resilience.Policy.BreakerStrategy] so the driver
+// matches the builtin's semantics, and both strategies set ProbeNum=1 for an
+// exactly-one-trial half-open (aligning with the builtin's single-permit gate).
 func (e *sentinelExecutor) ensureRules(resource string) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -69,37 +79,74 @@ func (e *sentinelExecutor) ensureRules(resource string) error {
 		}
 	}
 
-	if e.policy.ErrorThreshold > 0 {
-		openMs := uint32(e.policy.OpenDuration.Milliseconds())
-		if openMs == 0 {
-			openMs = 5000
-		}
-		if _, err := circuitbreaker.LoadRulesOfResource(resource, []*circuitbreaker.Rule{{
-			Resource:         resource,
-			Strategy:         circuitbreaker.ErrorCount,
-			RetryTimeoutMs:   openMs,
-			MinRequestAmount: 1,
-			StatIntervalMs:   1000,
-			Threshold:        float64(e.policy.ErrorThreshold),
-		}}); err != nil {
-			return fmt.Errorf("resilience: load breaker rule for %q: %w", resource, err)
+	if e.policy.BreakerActive() {
+		if err := e.loadBreakerRule(resource); err != nil {
+			return err
 		}
 	}
 
 	if e.policy.MaxConcurrent > 0 {
-		// sentinel's isolation slot tracks in-flight concurrency per resource via
-		// the Entry/Exit pair below, so the neutral bulkhead maps straight onto a
-		// concurrency rule with no extra bookkeeping on our side.
-		if _, err := isolation.LoadRulesOfResource(resource, []*isolation.Rule{{
-			Resource:   resource,
+		// The isolation rule lives under the bulkhead-suffixed resource so it is
+		// acquired once for the whole Execute (see Execute below) and held across
+		// retries, matching the builtin's bulkhead-scope contract (DESIGN.md §3).
+		isoResource := resource + isoSuffix
+		if _, err := isolation.LoadRulesOfResource(isoResource, []*isolation.Rule{{
+			Resource:   isoResource,
 			MetricType: isolation.Concurrency,
 			Threshold:  uint32(e.policy.MaxConcurrent),
 		}}); err != nil {
-			return fmt.Errorf("resilience: load isolation rule for %q: %w", resource, err)
+			return fmt.Errorf("resilience: load isolation rule for %q: %w", isoResource, err)
 		}
 	}
 
 	e.loaded[resource] = true
+	return nil
+}
+
+// loadBreakerRule registers a circuit-breaker rule under resource, choosing
+// sentinel's strategy from [resilience.Policy.BreakerStrategy]. Both strategies
+// share the same stat window and a single half-open probe so they align with
+// the builtin driver rather than silently diverging.
+func (e *sentinelExecutor) loadBreakerRule(resource string) error {
+	openMs := uint32(e.policy.OpenDuration.Milliseconds())
+	if openMs == 0 {
+		openMs = 5000
+	}
+	winMs := uint32(e.policy.BreakerWindow.Milliseconds())
+	if winMs == 0 {
+		winMs = 1000
+	}
+
+	var rule *circuitbreaker.Rule
+	switch e.policy.ResolvedBreakerStrategy() {
+	case resilience.BreakerErrorRate:
+		minReq := uint64(e.policy.MinRequests)
+		if minReq == 0 {
+			minReq = 1
+		}
+		rule = &circuitbreaker.Rule{
+			Resource:         resource,
+			Strategy:         circuitbreaker.ErrorRatio,
+			RetryTimeoutMs:   openMs,
+			MinRequestAmount: minReq,
+			StatIntervalMs:   winMs,
+			Threshold:        e.policy.ErrorRateThreshold,
+			ProbeNum:         1,
+		}
+	default: // BreakerConsecutive
+		rule = &circuitbreaker.Rule{
+			Resource:         resource,
+			Strategy:         circuitbreaker.ErrorCount,
+			RetryTimeoutMs:   openMs,
+			MinRequestAmount: 1,
+			StatIntervalMs:   winMs,
+			Threshold:        float64(e.policy.ErrorThreshold),
+			ProbeNum:         1,
+		}
+	}
+	if _, err := circuitbreaker.LoadRulesOfResource(resource, []*circuitbreaker.Rule{rule}); err != nil {
+		return fmt.Errorf("resilience: load breaker rule for %q: %w", resource, err)
+	}
 	return nil
 }
 
@@ -108,15 +155,35 @@ func (e *sentinelExecutor) Execute(ctx context.Context, resource string, fn func
 		return err
 	}
 
+	// Bulkhead: one Entry under the suffixed resource, held for the whole
+	// Execute (retries included) via defer. This restores the bulkhead-scope
+	// invariant the builtin upholds and DESIGN.md §3 documents.
+	if e.policy.MaxConcurrent > 0 {
+		isoEntry, blockErr := sentinel.Entry(resource+isoSuffix, sentinel.WithTrafficType(base.Outbound))
+		if blockErr != nil {
+			return mapBlockError(blockErr)
+		}
+		defer isoEntry.Exit()
+	}
+
+	// MaxDuration caps the whole call across retries, mirroring the builtin.
+	budgetCtx := ctx
+	if e.policy.MaxDuration > 0 {
+		var cancel context.CancelFunc
+		budgetCtx, cancel = context.WithTimeout(ctx, e.policy.MaxDuration)
+		defer cancel()
+	}
+
 	attempts := e.policy.MaxRetries + 1
 	var err error
-	for range attempts {
+	for i := range attempts {
+		// Per-attempt Entry drives sentinel's flow and circuit-breaking rules.
 		entry, blockErr := sentinel.Entry(resource, sentinel.WithTrafficType(base.Outbound))
 		if blockErr != nil {
 			return mapBlockError(blockErr)
 		}
 
-		err = e.runOnce(ctx, fn)
+		err = e.runOnce(budgetCtx, fn)
 		if err != nil {
 			sentinel.TraceError(entry, err)
 		}
@@ -125,14 +192,24 @@ func (e *sentinelExecutor) Execute(ctx context.Context, resource string, fn func
 		if err == nil {
 			return nil
 		}
-		if ctx.Err() != nil {
+		if budgetCtx.Err() != nil {
+			break
+		}
+		if !e.policy.ShouldRetry(err) {
+			break
+		}
+		if i == attempts-1 {
+			break
+		}
+		if !resilience.SleepFor(budgetCtx, e.policy.Backoff(i)) {
 			break
 		}
 	}
 	return err
 }
 
-// runOnce applies the per-attempt timeout, if any, around fn.
+// runOnce applies the per-attempt timeout, if any, around fn. The ctx it
+// receives is already bounded by the Execute-level MaxDuration budget.
 func (e *sentinelExecutor) runOnce(ctx context.Context, fn func(context.Context) error) error {
 	if e.policy.Timeout <= 0 {
 		return fn(ctx)
@@ -145,7 +222,8 @@ func (e *sentinelExecutor) runOnce(ctx context.Context, fn func(context.Context)
 func (e *sentinelExecutor) Close() error { return nil }
 
 // mapBlockError translates sentinel's block reason into the framework's neutral
-// sentinel errors so callers depend only on go-spring.org/spring/resilience.
+// sentinel errors so callers depend only on
+// go-spring.org/spring/experimental/cloud/resilience.
 func mapBlockError(b *base.BlockError) error {
 	switch b.BlockType() {
 	case base.BlockTypeCircuitBreaking:

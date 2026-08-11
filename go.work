@@ -43,6 +43,8 @@ use (
 	./log/benchmarks/logs
 	./scripts/bomtool
 	./spring
+	./observe
+	./observe-gorm
 	./spring/experimental/cloud/event/example
 	./starter/experimental/starter-actuator
 	./starter/experimental/starter-actuator/example
@@ -53,17 +55,12 @@ use (
 	./starter/experimental/starter-batch
 	./starter/experimental/starter-batch-redis
 	./starter/experimental/starter-batch/example
-	./starter/starter-bigcache
-	./starter/starter-bigcache/example
-	./starter/starter-bigcache/example-otel
 	./starter/experimental/starter-casbin
 	./starter/experimental/starter-casbin/example
 	./starter/experimental/starter-config-bus
 	./starter/experimental/starter-config-bus/example
 	./starter/experimental/starter-config-consul
 	./starter/experimental/starter-config-consul/example
-	./starter/starter-config-etcd
-	./starter/starter-config-etcd/example
 	./starter/experimental/starter-config-k8s
 	./starter/experimental/starter-config-k8s/example
 	./starter/experimental/starter-config-nacos
@@ -130,9 +127,6 @@ use (
 	./starter/experimental/starter-mail
 	./starter/experimental/starter-mail/example
 	./starter/experimental/starter-mail/example-otel
-	./starter/starter-memcached
-	./starter/starter-memcached/example
-	./starter/starter-memcached/example-otel
 	./starter/experimental/starter-mesh
 	./starter/experimental/starter-mesh/example
 	./starter/experimental/starter-migration-gorm
@@ -161,8 +155,6 @@ use (
 	./starter/experimental/starter-rabbitmq/example-otel
 	./starter/experimental/starter-registry-consul
 	./starter/experimental/starter-registry-consul/example
-	./starter/starter-registry-etcd
-	./starter/starter-registry-etcd/example
 	./starter/experimental/starter-registry-nacos
 	./starter/experimental/starter-registry-nacos/example
 	./starter/experimental/starter-registry-zookeeper
@@ -196,6 +188,11 @@ use (
 	./starter/experimental/starter-trpc/example-otel
 	./starter/experimental/starter-validation
 	./starter/experimental/starter-validation/example
+	./starter/starter-bigcache
+	./starter/starter-bigcache/example
+	./starter/starter-bigcache/example-otel
+	./starter/starter-config-etcd
+	./starter/starter-config-etcd/example
 	./starter/starter-config-file
 	./starter/starter-config-file/example
 	./starter/starter-config-file/example-configtree
@@ -216,6 +213,9 @@ use (
 	./starter/starter-gorm-postgres
 	./starter/starter-gorm-postgres/example
 	./starter/starter-gorm-postgres/example-otel
+	./starter/starter-memcached
+	./starter/starter-memcached/example
+	./starter/starter-memcached/example-otel
 	./starter/starter-otel
 	./starter/starter-otel/example
 	./starter/starter-pprof
@@ -223,6 +223,8 @@ use (
 	./starter/starter-redigo
 	./starter/starter-redigo/example
 	./starter/starter-redigo/example-otel
+	./starter/starter-registry-etcd
+	./starter/starter-registry-etcd/example
 	./starter/starter-websocket
 	./starter/starter-websocket-coder
 	./starter/starter-websocket-coder/example

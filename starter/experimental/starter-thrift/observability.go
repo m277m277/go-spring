@@ -18,6 +18,7 @@ package StarterThrift
 
 import (
 	"context"
+	"time"
 
 	"github.com/apache/thrift/lib/go/thrift"
 	"go.opentelemetry.io/otel"
@@ -36,14 +37,47 @@ const meterName = "go-spring.org/starter-thrift"
 // observedProcessor wraps a thrift.TProcessor, adding OTel tracing and metrics
 // around every call. When starter-otel is not imported, the OTel globals are
 // no-ops so the wrapper adds negligible overhead.
+//
+// Metric instruments are created once at WrapProcessor time (server setup, runs
+// single-threaded) and stored on the struct, avoiding any lazy init on the hot
+// path — the previous package-level metricsInit flag was a data race on first
+// concurrent use.
 type observedProcessor struct {
-	inner thrift.TProcessor
+	inner           thrift.TProcessor
+	requestCounter  metric.Int64Counter
+	requestDuration metric.Float64Histogram
+	requestInflight metric.Int64UpDownCounter
 }
 
 // WrapProcessor returns a TProcessor that wraps each Process call with an OTel
-// span and records request metrics (count, duration).
+// span and records request metrics (count, duration). Metric names follow the
+// OTel stable RPC semantic conventions (rpc.server.request.duration); the
+// request_count counter and active_requests gauge are kept as complementary
+// dimensions (not redundant with the duration histogram).
 func WrapProcessor(inner thrift.TProcessor) thrift.TProcessor {
-	return &observedProcessor{inner: inner}
+	meter := otel.GetMeterProvider().Meter(meterName)
+	requestCounter, _ := meter.Int64Counter(
+		"rpc.server.request_count",
+		metric.WithDescription("Number of Thrift RPC requests received"),
+		metric.WithUnit("{request}"),
+	)
+	requestDuration, _ := meter.Float64Histogram(
+		"rpc.server.request.duration",
+		metric.WithDescription("Duration of Thrift RPC requests"),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1, 2.5, 5, 7.5, 10),
+	)
+	requestInflight, _ := meter.Int64UpDownCounter(
+		"rpc.server.active_requests",
+		metric.WithDescription("Number of Thrift RPC requests currently in-flight"),
+		metric.WithUnit("{request}"),
+	)
+	return &observedProcessor{
+		inner:           inner,
+		requestCounter:  requestCounter,
+		requestDuration: requestDuration,
+		requestInflight: requestInflight,
+	}
 }
 
 func (p *observedProcessor) Process(ctx context.Context, in, out thrift.TProtocol) (bool, thrift.TException) {
@@ -53,12 +87,15 @@ func (p *observedProcessor) Process(ctx context.Context, in, out thrift.TProtoco
 	// by Thrift transport and is out of scope for this starter.
 	ctx, span := otel.Tracer(tracerName).Start(ctx, "thrift.process",
 		trace.WithSpanKind(trace.SpanKindServer),
+		trace.WithAttributes(
+			attribute.String("rpc.system", "thrift"),
+		),
 	)
 	defer span.End()
 
-	start := observeStart(ctx)
+	start, attrs := p.observeStart(ctx)
 	ok, ex := p.inner.Process(ctx, in, out)
-	observeEnd(ctx, start, ex)
+	p.observeEnd(ctx, start, attrs, ex)
 
 	if ex != nil {
 		span.SetAttributes(
@@ -79,57 +116,34 @@ func (p *observedProcessor) AddToProcessorMap(key string, fn thrift.TProcessorFu
 }
 
 // --- metrics helpers ---
+//
+// Instruments live on the observedProcessor (created once at WrapProcessor
+// time), so these helpers require no lazy init and no synchronization.
 
-var (
-	requestCounter  metric.Int64Counter
-	requestDuration metric.Float64Histogram
-	requestInflight metric.Int64UpDownCounter
-	metricsInit     bool
-)
-
-func initMetrics() {
-	if metricsInit {
-		return
-	}
-	meter := otel.GetMeterProvider().Meter(meterName)
-	requestCounter, _ = meter.Int64Counter(
-		"rpc.server.request_count",
-		metric.WithDescription("Number of Thrift RPC requests received"),
-		metric.WithUnit("{request}"),
-	)
-	requestDuration, _ = meter.Float64Histogram(
-		"rpc.server.request_duration",
-		metric.WithDescription("Duration of Thrift RPC requests"),
-		metric.WithUnit("s"),
-	)
-	requestInflight, _ = meter.Int64UpDownCounter(
-		"rpc.server.active_requests",
-		metric.WithDescription("Number of Thrift RPC requests currently in-flight"),
-		metric.WithUnit("{request}"),
-	)
-	metricsInit = true
-}
-
-func observeStart(ctx context.Context) metric.MeasurementOption {
-	initMetrics()
+func (p *observedProcessor) observeStart(ctx context.Context) (time.Time, metric.MeasurementOption) {
 	attrs := metric.WithAttributes(
 		attribute.String("rpc.system", "thrift"),
 	)
-	requestInflight.Add(ctx, 1, attrs)
-	return attrs
+	p.requestInflight.Add(ctx, 1, attrs)
+	return time.Now(), attrs
 }
 
-func observeEnd(ctx context.Context, start metric.MeasurementOption, ex thrift.TException) {
-	code := "0"
-	if ex != nil {
-		code = "error"
-	}
-	requestCounter.Add(ctx, 1,
-		metric.WithAttributes(
-			attribute.String("rpc.system", "thrift"),
-			attribute.String("rpc.status_code", code),
-		),
+func (p *observedProcessor) observeEnd(ctx context.Context, start time.Time, attrs metric.MeasurementOption, ex thrift.TException) {
+	// Per the cross-RPC convention (rpc.grpc.status_code, rpc.trpc.status_code),
+	// each RPC system names its status attribute "<rpc>.<system>.status_code".
+	status := metric.WithAttributes(
+		attribute.String("rpc.system", "thrift"),
+		attribute.String("rpc.thrift.status_code", statusOf(ex)),
 	)
-	requestInflight.Add(ctx, -1, start)
-	// duration is recorded by the span timing — separate metric can be added later
+	p.requestCounter.Add(ctx, 1, status)
+	p.requestDuration.Record(ctx, time.Since(start).Seconds(), status)
+	p.requestInflight.Add(ctx, -1, attrs)
+}
+
+// statusOf maps a thrift exception to a coarse status string for metric dims.
+func statusOf(ex thrift.TException) string {
+	if ex != nil {
+		return "error"
+	}
+	return "ok"
 }

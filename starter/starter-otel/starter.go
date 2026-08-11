@@ -24,6 +24,7 @@ package StarterOTel
 
 import (
 	"context"
+	"sync"
 
 	"go-spring.org/log"
 	"go-spring.org/spring/conf"
@@ -40,6 +41,15 @@ import (
 var (
 	// starterTag identifies logs emitted by the otel starter.
 	starterTag = log.RegisterInfraTag("starter_otel", "")
+
+	// runtimeOnce guards runtimemetrics.Start, which is not idempotent: the OTel
+	// contrib runtime instrumentation registers fresh async callbacks on the
+	// MeterProvider each call, so a second invocation (e.g. across gs.RunTest
+	// re-runs against the same provider) would create duplicate instruments.
+	// The first error is sticky so a later re-run does not silently lose the
+	// original failure.
+	runtimeOnce sync.Once
+	runtimeErr  error
 )
 
 func init() {
@@ -136,15 +146,18 @@ func setupMetrics(r gs.BeanProvider, cfg metric.MetricsConfig, res *resource.Res
 	// Feed Go runtime metrics (GC, heap, goroutines, GOMAXPROCS, ...) into
 	// the MeterProvider we just built. The instrumentation registers async
 	// callbacks on this provider; they are torn down by mp.Shutdown above,
-	// so there is no separate stop hook to manage.
+	// so there is no separate stop hook to manage. startRuntime is guarded so
+	// a re-run of setup (e.g. across gs.RunTest) does not register duplicate
+	// callbacks on an already-instrumented provider.
 	if cfg.Runtime.Enable {
 		opts := []runtimemetrics.Option{runtimemetrics.WithMeterProvider(mp)}
 		if cfg.Runtime.MinReadMemStatsInterval > 0 {
 			opts = append(opts, runtimemetrics.WithMinimumReadMemStatsInterval(cfg.Runtime.MinReadMemStatsInterval))
 		}
-		if err := runtimemetrics.Start(opts...); err != nil {
+		if err := startRuntime(opts); err != nil {
 			return err
 		}
+		log.Infof(context.Background(), starterTag, "runtime metrics enabled")
 	}
 	// Pull-based (prometheus) exporter: contribute the scrape handler as an
 	// endpoint.Endpoint so starter-actuator, if present, serves /metrics on
@@ -162,4 +175,17 @@ func setupMetrics(r gs.BeanProvider, cfg metric.MetricsConfig, res *resource.Res
 
 	log.Infof(context.Background(), starterTag, "metrics provider initialized exporter=%s runtime_metrics=%v", cfg.Exporter, cfg.Runtime.Enable)
 	return nil
+}
+
+// startRuntime starts the OTel Go-runtime metrics instrumentation exactly
+// once per process. runtimemetrics.Start registers async callbacks on the
+// MeterProvider and is not idempotent, so a second call (e.g. across gs.RunTest
+// re-runs) would register duplicate instruments. The first call's outcome is
+// sticky: a later re-run reuses it rather than silently masking the original
+// error or re-registering callbacks.
+func startRuntime(opts []runtimemetrics.Option) error {
+	runtimeOnce.Do(func() {
+		runtimeErr = runtimemetrics.Start(opts...)
+	})
+	return runtimeErr
 }

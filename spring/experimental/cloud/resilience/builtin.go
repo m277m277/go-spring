@@ -72,12 +72,12 @@ func (e *builtinExecutor) state(resource string) *resourceState {
 		}
 		s.bucket = newTokenBucket(e.policy.RateLimit, burst)
 	}
-	if e.policy.ErrorThreshold > 0 {
+	if e.policy.BreakerActive() {
 		open := e.policy.OpenDuration
 		if open <= 0 {
 			open = 5 * time.Second
 		}
-		s.breaker = &circuitBreaker{threshold: e.policy.ErrorThreshold, openFor: open}
+		s.breaker = newCircuitBreaker(e.policy, open)
 	}
 	if e.policy.MaxConcurrent > 0 {
 		// A buffered channel is a non-blocking counting semaphore: a full buffer
@@ -103,17 +103,28 @@ func (e *builtinExecutor) Execute(ctx context.Context, resource string, fn func(
 		}
 	}
 
+	// MaxDuration caps the whole call across retries. It only tightens the
+	// caller's own context; per-attempt Timeout is applied inside runOnce
+	// against budgetCtx, so the effective per-attempt bound is min(Timeout,
+	// remaining MaxDuration).
+	budgetCtx := ctx
+	if e.policy.MaxDuration > 0 {
+		var cancel context.CancelFunc
+		budgetCtx, cancel = context.WithTimeout(ctx, e.policy.MaxDuration)
+		defer cancel()
+	}
+
 	attempts := e.policy.MaxRetries + 1
 	var err error
-	for range attempts {
-		if s.bucket != nil && !s.bucket.allow() {
+	for i := range attempts {
+		if s.bucket != nil && !s.bucket.allowN(1) {
 			return ErrRateLimited
 		}
 		if s.breaker != nil && !s.breaker.allow() {
 			return ErrCircuitOpen
 		}
 
-		err = e.runOnce(ctx, fn)
+		err = e.runOnce(budgetCtx, fn)
 
 		if s.breaker != nil {
 			s.breaker.record(err == nil)
@@ -121,14 +132,27 @@ func (e *builtinExecutor) Execute(ctx context.Context, resource string, fn func(
 		if err == nil {
 			return nil
 		}
-		if ctx.Err() != nil {
+		// A cancelled/Expired budget (caller cancel or MaxDuration) ends the
+		// loop before the predicate is consulted: there is no budget left for
+		// another attempt regardless of why the last one failed.
+		if budgetCtx.Err() != nil {
 			break
+		}
+		if !e.policy.ShouldRetry(err) {
+			break
+		}
+		if i == attempts-1 {
+			break // last attempt — no backoff sleep after it
+		}
+		if !SleepFor(budgetCtx, e.policy.Backoff(i)) {
+			break // backoff interrupted by ctx cancellation
 		}
 	}
 	return err
 }
 
-// runOnce applies the per-attempt timeout, if any, around fn.
+// runOnce applies the per-attempt timeout, if any, around fn. The ctx it
+// receives is already bounded by the Execute-level MaxDuration budget.
 func (e *builtinExecutor) runOnce(ctx context.Context, fn func(context.Context) error) error {
 	if e.policy.Timeout <= 0 {
 		return fn(ctx)
@@ -159,33 +183,62 @@ func newTokenBucket(rate float64, burst int) *tokenBucket {
 	}
 }
 
-func (b *tokenBucket) allow() bool {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	now := time.Now()
-	b.tokens += now.Sub(b.last).Seconds() * b.rate
-	if b.tokens > b.burst {
-		b.tokens = b.burst
-	}
-	b.last = now
-	if b.tokens < 1 {
-		return false
-	}
-	b.tokens--
-	return true
-}
-
-// circuitBreaker is a consecutive-failure breaker with a half-open trial. It
-// opens after threshold consecutive failures and, once openFor has elapsed,
-// admits a single trial request whose outcome closes or re-opens it.
+// circuitBreaker supports two strategies over one open/half-open state machine:
+//
+//   - consecutive: trips after threshold failures in a row (a success resets
+//     the count), the historical behavior.
+//   - error-rate: trips when fails/total over a rolling window reaches a ratio,
+//     once a minimum sample has accumulated.
+//
+// Half-open admits exactly one trial: the gate is a single-permit channel, not a
+// bool flag, so two concurrent callers arriving right after cool-down cannot
+// both be admitted (the prior flag-based implementation had exactly that race).
 type circuitBreaker struct {
+	strategy BreakerStrategy
+	openFor  time.Duration
+
+	// consecutive strategy
 	threshold int
-	openFor   time.Duration
+
+	// error-rate strategy
+	rateThreshold float64 // fails/total ratio that trips
+	minRequests   int     // minimum sample before tripping
+	window        time.Duration
 
 	mu       sync.Mutex
-	failures int
+	failures int // consecutive counter
 	openedAt time.Time
-	halfOpen bool
+	halfOpen chan struct{} // non-nil while a single trial permit is offered
+
+	// rolling-window counters for the error-rate strategy
+	win       time.Duration
+	curStart  time.Time
+	total     int
+	fails     int
+	prevTotal int
+	prevFails int
+}
+
+func newCircuitBreaker(p Policy, open time.Duration) *circuitBreaker {
+	c := &circuitBreaker{
+		strategy:      p.ResolvedBreakerStrategy(),
+		openFor:       open,
+		threshold:     p.ErrorThreshold,
+		rateThreshold: p.ErrorRateThreshold,
+		minRequests:   p.MinRequests,
+	}
+	if c.strategy == BreakerErrorRate {
+		if c.minRequests <= 0 {
+			c.minRequests = 1
+		}
+		if p.BreakerWindow > 0 {
+			c.win = p.BreakerWindow
+		} else {
+			c.win = time.Second
+		}
+		c.curStart = time.Now()
+	}
+	return c
 }
 
 // allow reports whether a request may proceed given the current breaker state.
@@ -198,25 +251,48 @@ func (c *circuitBreaker) allow() bool {
 	if time.Since(c.openedAt) < c.openFor {
 		return false // open, cooling down
 	}
-	// Cool-down elapsed: admit one trial request (half-open).
-	c.halfOpen = true
-	return true
+	// Cool-down elapsed: open a single-permit half-open gate if none yet, then
+	// take the only permit. A concurrent caller finds the gate empty and is
+	// treated as still-open — exactly one trial is admitted.
+	if c.halfOpen == nil {
+		c.halfOpen = make(chan struct{}, 1)
+		c.halfOpen <- struct{}{}
+	}
+	select {
+	case <-c.halfOpen:
+		return true
+	default:
+		return false
+	}
 }
 
 // record folds an attempt's outcome back into the breaker state.
 func (c *circuitBreaker) record(success bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	// Half-open trial resolves first: its outcome closes or re-opens the
+	// circuit regardless of strategy.
+	if c.halfOpen != nil {
+		if success {
+			c.closeLocked()
+			return
+		}
+		// Trial failed: re-open the cool-down window.
+		c.halfOpen = nil
+		c.openedAt = time.Now()
+		return
+	}
+	if c.strategy == BreakerErrorRate {
+		c.recordRate(success)
+		return
+	}
+	c.recordConsecutive(success)
+}
+
+func (c *circuitBreaker) recordConsecutive(success bool) {
 	if success {
 		c.failures = 0
 		c.openedAt = time.Time{}
-		c.halfOpen = false
-		return
-	}
-	if c.halfOpen {
-		// Trial failed: re-open the cool-down window.
-		c.halfOpen = false
-		c.openedAt = time.Now()
 		return
 	}
 	c.failures++
@@ -224,3 +300,43 @@ func (c *circuitBreaker) record(success bool) {
 		c.openedAt = time.Now()
 	}
 }
+
+// recordRate advances the rolling-window counters and trips the breaker when
+// the failure ratio reaches rateThreshold with enough samples. It uses the same
+// weighted two-window estimate as the standalone slidingWindow limiter.
+func (c *circuitBreaker) recordRate(success bool) {
+	now := time.Now()
+	elapsed := now.Sub(c.curStart)
+	if elapsed >= c.win {
+		if elapsed >= 2*c.win {
+			c.prevTotal, c.prevFails = 0, 0
+		} else {
+			c.prevTotal, c.prevFails = c.total, c.fails
+		}
+		c.total, c.fails = 0, 0
+		c.curStart = now
+		elapsed = 0
+	}
+	c.total++
+	if !success {
+		c.fails++
+	}
+	weight := float64(c.win-elapsed) / float64(c.win)
+	estimateTotal := float64(c.prevTotal)*weight + float64(c.total)
+	estimateFails := float64(c.prevFails)*weight + float64(c.fails)
+	if c.total+c.prevTotal >= c.minRequests && estimateTotal > 0 &&
+		estimateFails/estimateTotal >= c.rateThreshold {
+		c.openedAt = now
+	}
+}
+
+func (c *circuitBreaker) closeLocked() {
+	c.failures = 0
+	c.openedAt = time.Time{}
+	c.halfOpen = nil
+	// Reset the windowed counters so a freshly-closed breaker starts clean.
+	c.total, c.fails = 0, 0
+	c.prevTotal, c.prevFails = 0, 0
+	c.curStart = time.Now()
+}
+

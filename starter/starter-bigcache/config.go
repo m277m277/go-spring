@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/allegro/bigcache/v3"
+	observe "go-spring.org/observe"
 )
 
 var driverRegistry = map[string]Driver{}
@@ -59,6 +60,11 @@ type Config struct {
 
 	// Driver specifies which BigCache driver to use, defaults to DefaultDriver.
 	Driver string `value:"${driver:=DefaultDriver}"`
+
+	// Observability configures the per-operation instrumentation (trace span +
+	// duration/in-flight metric + access log off/brief/detailed) emitted by the
+	// obsBigCache wrapper. Defaults to "brief".
+	Observability observe.LogConfig `value:"${observability:=}"`
 }
 
 // Driver interface defines how to create a BigCache instance.

@@ -66,7 +66,10 @@ func TracingServerFilter() filter.ServerFilter {
 }
 
 // MetricsServerFilter is a tRPC ServerFilter that records request count,
-// duration, and in-flight gauge through the global MeterProvider.
+// duration, and in-flight gauge through the global MeterProvider. Metric names
+// follow the OTel stable RPC semantic conventions (rpc.server.request.duration);
+// the request_count counter and active_requests gauge are kept as complementary
+// dimensions (not redundant with the duration histogram).
 func MetricsServerFilter() filter.ServerFilter {
 	meter := otel.GetMeterProvider().Meter(meterName)
 	requestCount, _ := meter.Int64Counter(
@@ -75,9 +78,10 @@ func MetricsServerFilter() filter.ServerFilter {
 		metric.WithUnit("{request}"),
 	)
 	requestDuration, _ := meter.Float64Histogram(
-		"rpc.server.request_duration",
+		"rpc.server.request.duration",
 		metric.WithDescription("Duration of RPC requests"),
 		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1, 2.5, 5, 7.5, 10),
 	)
 	requestsInFlight, _ := meter.Int64UpDownCounter(
 		"rpc.server.active_requests",

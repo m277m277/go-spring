@@ -85,9 +85,9 @@ func (p *publisher) Publish(ctx context.Context, msg *messaging.Message) error {
 		Headers:   toAMQPTable(msg.Headers),
 		MessageId: msg.Key,
 	}
-	ctx, span := StartPublishSpan(ctx, "", p.queue, &pub)
+	ctx, sp := startPublish(ctx, p.queue, &pub)
 	err := p.ch.PublishWithContext(ctx, "", p.queue, false, false, pub)
-	EndSpan(span, err)
+	sp.End(err)
 	return err
 }
 
@@ -113,9 +113,9 @@ func (s *subscriber) Subscribe(_ context.Context, handler messaging.Handler) err
 	go func() {
 		defer close(s.done)
 		for d := range deliveries {
-			msgCtx, span := StartConsumeSpan(context.Background(), &d)
+			msgCtx, sp := startConsume(context.Background(), &d)
 			herr := handler(msgCtx, fromDelivery(&d))
-			EndSpan(span, herr)
+			sp.End(herr)
 			if herr != nil {
 				log.Errorf(msgCtx, log.TagAppDef, "rabbitmq binder handler error on %q: %v", s.queue, herr)
 				_ = d.Nack(false, true)

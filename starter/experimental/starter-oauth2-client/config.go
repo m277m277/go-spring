@@ -60,53 +60,18 @@ type Config struct {
 	// circuit breaking and retry. It is disabled by default; when enabled the
 	// client's transport is wrapped so every downstream request (with the bearer
 	// token already attached) flows through the selected resilience driver.
-	Resilience ResilienceConfig `value:"${resilience:=}"`
+	Resilience resilience.Config `value:"${resilience:=}"`
 }
 
-// ResilienceConfig binds the backend-neutral resilience knobs exposed by
-// stdlib/resilience. Driver selects which registered backend enforces them:
-// "default" (bundled, zero-dependency) or "sentinel" (recommended, enabled by
-// blank-importing starter-resilience). Switching backends is a one-line config
-// change — no code touches the wrapping seam.
-type ResilienceConfig struct {
-	// Enabled turns the resilience transport on. When false the client is
-	// returned unwrapped.
-	Enabled bool `value:"${enabled:=false}"`
-
-	// Driver names the registered resilience backend to use.
-	Driver string `value:"${driver:=default}"`
-
-	// RateLimit caps sustained throughput in requests per second (0 disables).
-	RateLimit float64 `value:"${rate-limit:=0}"`
-
-	// Burst is the momentary allowance above RateLimit (0 = driver default).
-	Burst int `value:"${burst:=0}"`
-
-	// ErrorThreshold is the consecutive-failure count that trips the breaker
-	// open (0 disables circuit breaking).
-	ErrorThreshold int `value:"${error-threshold:=0}"`
-
-	// OpenDuration is how long the breaker stays open before a trial request.
-	OpenDuration time.Duration `value:"${open-duration:=0}"`
-
-	// MaxRetries is the number of extra attempts after the first failure.
-	MaxRetries int `value:"${max-retries:=0}"`
-
-	// AttemptTimeout bounds each individual attempt (0 = no per-attempt bound).
-	AttemptTimeout time.Duration `value:"${attempt-timeout:=0}"`
-}
-
-// policy maps the bound config onto the backend-neutral resilience.Policy.
-func (r ResilienceConfig) policy() resilience.Policy {
-	return resilience.Policy{
-		RateLimit:      r.RateLimit,
-		Burst:          r.Burst,
-		ErrorThreshold: r.ErrorThreshold,
-		OpenDuration:   r.OpenDuration,
-		MaxRetries:     r.MaxRetries,
-		Timeout:        r.AttemptTimeout,
-	}
-}
+// Resilience binds the backend-neutral resilience knobs shared by every client
+// starter (see [resilience.Config]). Driver selects which registered backend
+// enforces them: "default" (bundled, zero-dependency) or "sentinel"
+// (recommended, enabled by blank-importing starter-resilience). Switching
+// backends is a one-line config change — no code touches the wrapping seam.
+//
+// Keep MaxRetries at 0 unless the wrapped requests are idempotent: the wrapped
+// client may issue POSTs and other non-idempotent verbs, and a retry re-sends
+// them.
 
 // authStyle maps the configured auth-style string to an oauth2.AuthStyle.
 func (c Config) authStyle() oauth2.AuthStyle {

@@ -23,6 +23,24 @@ import (
 	"net/http"
 )
 
+// httpStatusError wraps an HTTP response status that the adapter treated as a
+// failure (5xx from an upstream, or a 5xx handler). It implements [Retryable]
+// so the executor's retry loop — via [shouldRetry] — retries server errors but
+// not client errors, without each adapter reimplementing the classification.
+// Callers may still inspect the status through [errors.As].
+type httpStatusError struct {
+	status    int
+	retryable bool // true for 5xx (retry), false for unexpected non-2xx
+}
+
+func (e *httpStatusError) Error() string {
+	return fmt.Sprintf("resilience: upstream returned %d", e.status)
+}
+
+// Retryable reports whether the error is eligible for retry. Only server errors
+// (5xx) are; a 4xx is a definite "no" from the upstream.
+func (e *httpStatusError) Retryable() bool { return e.retryable }
+
 // ResourceFunc derives the resilience resource key from a request. Requests to
 // different resources get independent limiter and breaker state. The default
 // keys on the request host, isolating protection per downstream service.
@@ -80,10 +98,11 @@ func (rt *roundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 		}
 		if r.StatusCode >= 500 {
 			// Drain and close so the connection can be reused before we decide
-			// to retry; surface the response as a breaker-tripping failure.
+			// to retry; surface the response as a breaker-tripping failure whose
+			// Retryable() == true lets the executor's retry loop decide.
 			_, _ = io.Copy(io.Discard, r.Body)
 			_ = r.Body.Close()
-			return fmt.Errorf("resilience: upstream returned %d", r.StatusCode)
+			return &httpStatusError{status: r.StatusCode, retryable: true}
 		}
 		resp = r
 		return nil

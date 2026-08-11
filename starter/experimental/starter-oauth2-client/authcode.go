@@ -60,7 +60,7 @@ type AuthCodeConfig struct {
 }
 
 // newAuthCodeConfig builds an *oauth2.Config for the authorization_code grant.
-func newAuthCodeConfig(ctx *gs.ContextProvider, c AuthCodeConfig) (*oauth2.Config, error) {
+func newAuthCodeConfig(ctx *gs.ContextProvider, name string, c AuthCodeConfig) (*oauth2.Config, error) {
 	_ = ctx.Context
 
 	return &oauth2.Config{

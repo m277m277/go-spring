@@ -20,11 +20,12 @@ import (
 	"context"
 	"runtime"
 
-	"github.com/allegro/bigcache/v3"
 	"go-spring.org/log"
+	"go-spring.org/spring/cloud/actuator/health"
 	"go-spring.org/spring/conf"
 	"go-spring.org/spring/data/cache"
 	"go-spring.org/spring/gs"
+	health2 "go-spring.org/starter-bigcache/health"
 	"go-spring.org/starter-bigcache/bytecache"
 	"go-spring.org/stdlib/errutil"
 	"go-spring.org/stdlib/flatten"
@@ -55,6 +56,10 @@ func init() {
 				gs.IndexArg(2, gs.ValueArg(c)),
 			).Name(name).Destroy(destroyClient)
 			b.SetFileLine(file, line)
+			// Contribute a health indicator for this instance, injecting the
+			// client just registered above by name.
+			h := r.Provide(func(c *obsBigCache) health.Indicator { return health2.NewBigCacheHealth(name, c.BigCache) }, gs.TagArg(name)).Export(gs.As[health.Indicator]())
+			h.SetFileLine(file, line)
 		}
 		return nil
 	})
@@ -68,17 +73,18 @@ func init() {
 	// starter-bigcache/bytecache.
 	cache.RegisterDriver("bigcache", func(beanID string) gs.ModuleFunc {
 		return func(r gs.BeanProvider, p flatten.Storage) error {
-			r.Provide(func(c *bigcache.BigCache) *cache.Cache {
-				return &cache.Cache{ByteCache: bytecache.NewByteCache(c)}
+			r.Provide(func(c *obsBigCache) *cache.Cache {
+				return &cache.Cache{ByteCache: bytecache.NewByteCache(c.BigCache)}
 			}, gs.TagArg(beanID)).Name(beanID)
 			return nil
 		}
 	})
 }
 
-// newClient creates a new BigCache instance based on the provided configuration
-// and registers OTel gauges for its statistics, labeled by the instance name.
-func newClient(ctx *gs.ContextProvider, name string, c Config) (*bigcache.BigCache, error) {
+// newClient creates a new BigCache instance based on the provided configuration,
+// wrapped so Get/Set/Delete flow through the observe kit, and registers OTel
+// gauges for its statistics, labeled by the instance name.
+func newClient(ctx *gs.ContextProvider, name string, c Config) (*obsBigCache, error) {
 	log.Debugf(ctx.Context, starterTag, "creating bigcache instance, name=%s shards=%d max-size=%d", name, c.Shards, c.MaxEntrySize)
 
 	d, ok := driverRegistry[c.Driver]
@@ -95,11 +101,11 @@ func newClient(ctx *gs.ContextProvider, name string, c Config) (*bigcache.BigCac
 	// starter-otel is absent (the OTel globals are no-ops then).
 	registerMetrics(name, client)
 	log.Infof(ctx.Context, starterTag, "bigcache instance initialized, name=%s shards=%d", name, c.Shards)
-	return client, nil
+	return newObsBigCache(client, c.Observability), nil
 }
 
 // destroyClient closes the BigCache instance, stopping its background cleaner.
-func destroyClient(client *bigcache.BigCache) error {
+func destroyClient(client *obsBigCache) error {
 	log.Debugf(context.Background(), starterTag, "bigcache instance destroyed")
-	return client.Close()
+	return client.BigCache.Close()
 }

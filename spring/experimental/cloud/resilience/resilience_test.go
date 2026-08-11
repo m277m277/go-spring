@@ -19,11 +19,13 @@ package resilience
 import (
 	"context"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -289,3 +291,182 @@ func TestHandler5xxTripsBreakerTo503(t *testing.T) {
 	assert.That(t, rec2.Code).Equal(http.StatusServiceUnavailable) // now short-circuited
 	assert.That(t, atomic.LoadInt32(&served)).Equal(int32(1))
 }
+
+// --- new: backoff, retry classification, total budget, half-open, error-rate ---
+
+func TestRetryBackoffSleeps(t *testing.T) {
+	// With InitialInterval set, retries are paced: the gap between attempt 1
+	// and attempt 2 must be at least one backoff interval.
+	e := newBuiltin(t, Policy{
+		MaxRetries:      1,
+		InitialInterval: 40 * time.Millisecond,
+	})
+	var attempts int
+	var firstSaw, secondSaw time.Duration
+	start := time.Now()
+	err := e.Execute(context.Background(), "svc", func(context.Context) error {
+		attempts++
+		if attempts == 1 {
+			firstSaw = time.Since(start)
+		} else {
+			secondSaw = time.Since(start)
+		}
+		if attempts < 2 {
+			return errors.New("transient")
+		}
+		return nil
+	})
+	assert.Error(t, err).Nil()
+	assert.That(t, attempts).Equal(2)
+	// The second attempt ran at least InitialInterval after the first returned.
+	assert.That(t, secondSaw-firstSaw >= 35*time.Millisecond).True()
+}
+
+func TestRetryRespectsMaxDuration(t *testing.T) {
+	// MaxDuration caps the whole call: even with many retries permitted, the
+	// loop stops once the budget is exhausted.
+	e := newBuiltin(t, Policy{
+		MaxRetries:      20,
+		InitialInterval: 20 * time.Millisecond,
+		MaxDuration:     60 * time.Millisecond,
+	})
+	var attempts int
+	_ = e.Execute(context.Background(), "svc", func(context.Context) error {
+		attempts++
+		return errors.New("always fails")
+	})
+	// Not all 21 attempts ran — the budget cut the loop short.
+	assert.That(t, attempts < 21).True()
+	assert.That(t, attempts >= 1).True()
+}
+
+func TestRetryPredicateSuppressesNonRetryable(t *testing.T) {
+	// A predicate that says "do not retry" stops the loop after the first
+	// failure, even though MaxRetries would allow more attempts.
+	e := newBuiltin(t, Policy{
+		MaxRetries:     3,
+		RetryPredicate: func(error) bool { return false },
+	})
+	var attempts int
+	err := e.Execute(context.Background(), "svc", func(context.Context) error {
+		attempts++
+		return errors.New("nope")
+	})
+	assert.Error(t, err).NotNil()
+	assert.That(t, attempts).Equal(1)
+}
+
+type nonRetryableErr struct{}
+
+func (nonRetryableErr) Error() string  { return "permanent" }
+func (nonRetryableErr) Retryable() bool { return false }
+
+func TestRetryableErrorOverridesPredicate(t *testing.T) {
+	// A Retryable() false error wins over a predicate that would retry it.
+	e := newBuiltin(t, Policy{
+		MaxRetries:     3,
+		RetryPredicate: func(error) bool { return true },
+	})
+	var attempts int
+	_ = e.Execute(context.Background(), "svc", func(context.Context) error {
+		attempts++
+		return nonRetryableErr{}
+	})
+	assert.That(t, attempts).Equal(1)
+}
+
+func TestHalfOpenAdmitsSingleTrialConcurrent(t *testing.T) {
+	// Regression for the bool-flag half-open bug: once cool-down elapses, at
+	// most ONE trial is admitted even under concurrency. A second concurrent
+	// caller is treated as still-open.
+	e := newBuiltin(t, Policy{ErrorThreshold: 1, OpenDuration: 30 * time.Millisecond})
+
+	// Trip the breaker.
+	_ = e.Execute(context.Background(), "svc", func(context.Context) error {
+		return errors.New("boom")
+	})
+	time.Sleep(40 * time.Millisecond) // cool-down elapses -> half-open
+
+	// Two concurrent calls: the first that reaches the half-open gate runs fn;
+	// the other must be rejected as ErrCircuitOpen (no second trial permit).
+	var wg sync.WaitGroup
+	var ran, rejected int32
+	for range 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			err := e.Execute(context.Background(), "svc", func(context.Context) error {
+				atomic.AddInt32(&ran, 1)
+				// Hold long enough that the sibling surely evaluates allow() too.
+				time.Sleep(20 * time.Millisecond)
+				return nil // trial succeeds -> closes
+			})
+			if errors.Is(err, ErrCircuitOpen) {
+				atomic.AddInt32(&rejected, 1)
+			}
+		}()
+	}
+	wg.Wait()
+	// Exactly one trial ran; the other was rejected (not both admitted).
+	assert.That(t, atomic.LoadInt32(&ran)).Equal(int32(1))
+	assert.That(t, atomic.LoadInt32(&rejected)).Equal(int32(1))
+}
+
+func TestErrorRateBreakerTripsOnRatio(t *testing.T) {
+	// error-rate breaker: trips when fails/total >= threshold with enough
+	// samples, even though successes are interleaved (so a consecutive counter
+	// would never trip).
+	e := newBuiltin(t, Policy{
+		BreakerStrategy:    BreakerErrorRate,
+		ErrorRateThreshold: 0.5,
+		MinRequests:        4,
+		BreakerWindow:      time.Second,
+		OpenDuration:       time.Minute,
+	})
+	// Interleave fail/success: 4 fails out of 8 => 50% ratio.
+	for i := range 8 {
+		err := e.Execute(context.Background(), "svc", func(context.Context) error {
+			if i%2 == 0 {
+				return errors.New("fail")
+			}
+			return nil
+		})
+		// Once the breaker trips (after MinRequests with ratio met) further
+		// calls are short-circuited. The last iteration should be rejected.
+		if errors.Is(err, ErrCircuitOpen) {
+			return // trip observed
+		}
+	}
+	t.Fatal("error-rate breaker never tripped at 50% failure ratio")
+}
+
+func TestDefaultRetryPredicateCases(t *testing.T) {
+	// Retryable cases.
+	assert.That(t, DefaultRetryPredicate(context.DeadlineExceeded)).True()
+	assert.That(t, DefaultRetryPredicate(io.EOF)).True()
+	assert.That(t, DefaultRetryPredicate(io.ErrUnexpectedEOF)).True()
+	assert.That(t, DefaultRetryPredicate(syscall.ECONNREFUSED)).True()
+
+	// A net.Error that is a timeout is retryable.
+	toErr := &timeoutNetErr{}
+	assert.That(t, DefaultRetryPredicate(toErr)).True()
+
+	// Caller cancellation is NOT retryable.
+	assert.That(t, DefaultRetryPredicate(context.Canceled)).False()
+
+	// A plain generic error is NOT retryable under the default predicate.
+	assert.That(t, DefaultRetryPredicate(errors.New("whatever"))).False()
+
+	// An httpStatusError is retryable only for 5xx.
+	assert.That(t, DefaultRetryPredicate(&httpStatusError{status: 500, retryable: true})).True()
+	assert.That(t, DefaultRetryPredicate(&httpStatusError{status: 400, retryable: false})).False()
+
+	// nil is not retryable.
+	assert.That(t, DefaultRetryPredicate(nil)).False()
+}
+
+type timeoutNetErr struct{}
+
+func (*timeoutNetErr) Error() string   { return "i/o timeout" }
+func (*timeoutNetErr) Timeout() bool   { return true }
+func (*timeoutNetErr) Temporary() bool { return true }

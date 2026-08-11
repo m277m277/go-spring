@@ -34,7 +34,7 @@ func init() {
 }
 
 // newClient creates and connects an MQTT client based on the provided configuration.
-func newClient(ctx *gs.ContextProvider, c Config) (mqtt.Client, error) {
+func newClient(ctx *gs.ContextProvider, name string, c Config) (mqtt.Client, error) {
 	log.Debugf(ctx.Context, starterTag, "creating mqtt client, broker=%s client-id=%s", c.Broker, c.ClientID)
 
 	opts := mqtt.NewClientOptions().

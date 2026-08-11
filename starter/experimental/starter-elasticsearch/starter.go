@@ -19,21 +19,43 @@ package StarterElasticsearch
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"sync"
 
 	"github.com/elastic/go-elasticsearch/v8"
 	"go-spring.org/log"
+	"go-spring.org/spring/cloud/actuator/health"
 	"go-spring.org/spring/cloud/discovery"
 	"go-spring.org/spring/cloud/mesh"
+	"go-spring.org/spring/conf"
 	"go-spring.org/spring/gs"
+	health2 "go-spring.org/starter-elasticsearch/health"
 	"go-spring.org/stdlib/errutil"
+	"go-spring.org/stdlib/flatten"
 )
 
 func init() {
-	// Register multiple Elasticsearch clients as a group.
-	// Each instance is created according to the configuration in "${spring.elasticsearch}".
-	// This allows defining multiple elasticsearch instances dynamically.
-	gs.Group("${spring.elasticsearch}", newClient, destroyClient)
+	// Register multiple Elasticsearch clients as a group, one per entry under
+	// "${spring.elasticsearch}". A gs.Module (rather than gs.Group) is used so
+	// each instance's *elasticsearch.Client bean can be paired with a
+	// health.Indicator registered under the same name — and to attach the
+	// file:line of this registration to the bean for diagnostics.
+	_, file, line, _ := runtime.Caller(0)
+	gs.Module(gs.OnProperty("spring.elasticsearch"), func(r gs.BeanProvider, p flatten.Storage) error {
+		var m map[string]Config
+		if err := conf.Bind(p, &m, "${spring.elasticsearch}"); err != nil {
+			return err
+		}
+		for name, c := range m {
+			b := r.Provide(newClient, gs.ValueArg(c)).Name(name).Destroy(destroyClient)
+			b.SetFileLine(file, line)
+			// Contribute a health indicator for this instance, injecting the
+			// client just registered above by name.
+			h := r.Provide(health2.NewClientHealth, gs.ValueArg(name), gs.TagArg(name)).Export(gs.As[health.Indicator]())
+			h.SetFileLine(file, line)
+		}
+		return nil
+	})
 }
 
 var starterTag = log.RegisterInfraTag("elasticsearch", "")

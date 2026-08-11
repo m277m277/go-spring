@@ -20,11 +20,9 @@ import (
 	"context"
 
 	"github.com/IBM/sarama"
+	observe "go-spring.org/observe"
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/propagation"
-	"go.opentelemetry.io/otel/trace"
 )
 
 // Why these are call-site helpers rather than a wrapped producer/consumer:
@@ -46,61 +44,43 @@ import (
 // starter-otel the global TracerProvider is a no-op and the global propagator is
 // a no-op, so these helpers cost almost nothing and change no message bytes.
 
-// tracerName identifies spans emitted by this starter.
-const tracerName = "go-spring.org/starter-kafka-sarama"
+// Package-level kit observers back the helpers. kafka-sarama's helpers are the
+// instrumentation API (there is no binder), so a default "brief" level is used.
+var (
+	defaultPubObs = observe.NewProducer("kafka", observe.LogConfig{Level: observe.DefaultBrief})
+	defaultSubObs = observe.NewConsumer("kafka", observe.LogConfig{Level: observe.DefaultBrief})
+)
 
-// StartProducerSpan starts a producer span for msg and injects the current W3C
-// trace context into msg.Headers so downstream consumers can continue the trace.
-// Call it right before SyncProducer.SendMessage and end the returned span once
-// the send completes, feeding any error back via the returned context's span:
+// StartProducerSpan opens a producer observation for msg (span + duration/in-
+// flight metric + access log) and injects the current W3C trace context into
+// msg.Headers so downstream consumers can continue the trace. Call it right
+// before SyncProducer.SendMessage and End the returned span once the send
+// completes:
 //
-//	ctx, span := StarterKafkaSarama.StartProducerSpan(ctx, msg)
+//	_, span := StarterKafkaSarama.StartProducerSpan(ctx, msg)
 //	_, _, err := producer.SendMessage(msg)
 //	StarterKafkaSarama.EndSpan(span, err)
-func StartProducerSpan(ctx context.Context, msg *sarama.ProducerMessage) (context.Context, trace.Span) {
-	tracer := otel.GetTracerProvider().Tracer(tracerName)
-	ctx, span := tracer.Start(ctx, "kafka.produce "+msg.Topic,
-		trace.WithSpanKind(trace.SpanKindProducer),
-		trace.WithAttributes(
-			attribute.String("messaging.system", "kafka"),
-			attribute.String("messaging.destination.name", msg.Topic),
-			attribute.String("messaging.operation", "publish"),
-		),
-	)
+func StartProducerSpan(ctx context.Context, msg *sarama.ProducerMessage) (context.Context, *observe.Span) {
+	ctx, sp := defaultPubObs.Start(ctx, "publish", msg.Topic)
 	otel.GetTextMapPropagator().Inject(ctx, producerCarrier{msg})
-	return ctx, span
+	return ctx, sp
 }
 
 // StartConsumerSpan extracts the upstream trace context carried in msg.Headers
-// and starts a consumer span as its child. Call it when a record is received and
-// end the returned span once processing finishes:
+// and opens a consumer observation. Call it when a record is received and End
+// once processing finishes:
 //
-//	ctx, span := StarterKafkaSarama.StartConsumerSpan(ctx, msg)
+//	_, span := StarterKafkaSarama.StartConsumerSpan(ctx, msg)
 //	err := handle(ctx, msg)
 //	StarterKafkaSarama.EndSpan(span, err)
-func StartConsumerSpan(ctx context.Context, msg *sarama.ConsumerMessage) (context.Context, trace.Span) {
+func StartConsumerSpan(ctx context.Context, msg *sarama.ConsumerMessage) (context.Context, *observe.Span) {
 	ctx = otel.GetTextMapPropagator().Extract(ctx, consumerCarrier{msg})
-	tracer := otel.GetTracerProvider().Tracer(tracerName)
-	ctx, span := tracer.Start(ctx, "kafka.consume "+msg.Topic,
-		trace.WithSpanKind(trace.SpanKindConsumer),
-		trace.WithAttributes(
-			attribute.String("messaging.system", "kafka"),
-			attribute.String("messaging.destination.name", msg.Topic),
-			attribute.String("messaging.operation", "receive"),
-			attribute.Int("messaging.kafka.partition", int(msg.Partition)),
-		),
-	)
-	return ctx, span
+	return defaultSubObs.Start(ctx, "consume", msg.Topic)
 }
 
-// EndSpan records err (if any) on span and ends it. It is a small convenience so
-// callers do not have to import the OTel codes package themselves.
-func EndSpan(span trace.Span, err error) {
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-	}
-	span.End()
+// EndSpan records err (if any) on the span and ends it.
+func EndSpan(span *observe.Span, err error) {
+	span.End(err)
 }
 
 // producerCarrier adapts a sarama.ProducerMessage's headers to the OTel

@@ -53,7 +53,7 @@ type Enforcer struct {
 // other instances trigger an automatic LoadPolicy, giving hot reload and
 // multi-instance synchronization. Adapter and watcher are both optional and
 // supplied by the application via RegisterAdapter / RegisterWatcher.
-func newEnforcer(ctx *gs.ContextProvider, c Config) (*Enforcer, error) {
+func newEnforcer(ctx *gs.ContextProvider, name string, c Config) (*Enforcer, error) {
 	var (
 		e   *casbin.Enforcer
 		err error

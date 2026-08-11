@@ -74,7 +74,7 @@ func (s *ChunkStep[I, O]) executor() (resilience.Executor, error) {
 	if s.Executor != nil {
 		return s.Executor, nil
 	}
-	if s.Retry == (resilience.Policy{}) {
+	if s.Retry.IsZero() {
 		return nil, nil
 	}
 	d, err := resilience.MustGetDriver("default")

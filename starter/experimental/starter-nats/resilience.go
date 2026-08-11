@@ -38,7 +38,7 @@ func applyResilience(c Config, conn *Conn) error {
 	if err != nil {
 		return err
 	}
-	exec, err := drv.NewExecutor(c.Resilience.policy())
+	exec, err := drv.NewExecutor(c.Resilience.Policy())
 	if err != nil {
 		return err
 	}
@@ -50,16 +50,9 @@ func applyResilience(c Config, conn *Conn) error {
 // resourceLabel derives a stable, human-readable resilience resource key for a
 // connection, so limiter and breaker state is scoped per NATS instance rather
 // than per subject. Name is preferred (it's set explicitly by the operator);
-// URL is the natural fallback.
+// URL is the natural fallback. Uses the shared [resilience.ResourceLabel] helper.
 func resourceLabel(c Config) string {
-	switch {
-	case c.Name != "":
-		return "nats:" + c.Name
-	case c.URL != "":
-		return "nats:" + c.URL
-	default:
-		return "nats"
-	}
+	return resilience.ResourceLabel("nats", c.Name, c.URL)
 }
 
 // guard routes call through the executor when one is attached, and otherwise

@@ -25,12 +25,8 @@
 package trace
 
 import (
-	"fmt"
-	"sort"
-	"strings"
-	"sync"
-
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go-spring.org/starter-otel/internal/registry"
 )
 
 // SpanExporterFactory builds a span exporter for one backend from the trace
@@ -38,54 +34,28 @@ import (
 // backend beyond the built-ins; NewTracerProvider looks it up by cfg.Exporter.
 type SpanExporterFactory func(cfg TraceConfig) (sdktrace.SpanExporter, error)
 
-var (
-	exporterMu  sync.RWMutex
-	exporterReg = map[string]SpanExporterFactory{}
-)
+// exporters is the shared generic registry (see internal/registry). It holds
+// the bookkeeping that used to be duplicated byte-for-byte with the metric
+// registry; only the factory type and category string differ.
+var exporters = registry.New[SpanExporterFactory]("trace")
 
 // RegisterSpanExporter makes a span exporter factory available under name. It
 // panics on empty name, nil factory, or a duplicate - mirroring the
 // driver-registry idiom used elsewhere (discovery.Register, starter-go-redis
-// RegisterDriver) so a mis-wired or duplicate registration fails loudly at init.
+// RegisterDriver, resilience.RegisterDriver) so a mis-wired or duplicate
+// registration fails loudly at init.
 func RegisterSpanExporter(name string, f SpanExporterFactory) {
-	if name == "" {
-		panic("trace: register span exporter with empty name")
-	}
 	if f == nil {
 		panic("trace: register nil span exporter factory for " + name)
 	}
-	exporterMu.Lock()
-	defer exporterMu.Unlock()
-	if _, ok := exporterReg[name]; ok {
-		panic("trace: span exporter already registered: " + name)
-	}
-	exporterReg[name] = f
+	exporters.Register(name, f)
 }
 
 func lookupSpanExporter(name string) (SpanExporterFactory, bool) {
-	exporterMu.RLock()
-	defer exporterMu.RUnlock()
-	f, ok := exporterReg[name]
-	return f, ok
-}
-
-// registeredSpanExporters returns the sorted names of all registered span
-// exporters, for inclusion in "unknown exporter" error messages.
-func registeredSpanExporters() []string {
-	exporterMu.RLock()
-	defer exporterMu.RUnlock()
-	names := make([]string, 0, len(exporterReg))
-	for n := range exporterReg {
-		names = append(names, n)
-	}
-	sort.Strings(names)
-	return names
+	return exporters.Lookup(name)
 }
 
 // unknownExporterErr builds the error returned when cfg.Exporter names no
 // registered span exporter, listing the available ones so the misconfig is
 // self-diagnosing.
-func unknownExporterErr(name string) error {
-	return fmt.Errorf("observability: unknown trace exporter %q (registered: %s)",
-		name, strings.Join(registeredSpanExporters(), ", "))
-}
+func unknownExporterErr(name string) error { return exporters.UnknownErr(name) }

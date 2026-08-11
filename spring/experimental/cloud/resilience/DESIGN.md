@@ -74,9 +74,31 @@ driver from `starter/starter-resilience`.
   request; the response is committed after the first `Write`.
 - Under the builtin driver, the bulkhead is held across retries (one slot
   per Execute, not per attempt) — a slow downstream must not be amplified.
+  The sentinel driver upholds the same invariant by registering its
+  isolation rule under a `$bulkhead`-suffixed resource and acquiring that
+  Entry once per Execute (its flow + breaker Entry stays per-attempt).
 - `redis.Nil` / `gorm.ErrRecordNotFound`-style "no data" errors from a
   client adapter must not feed the breaker; the adapter maps them to
   success before returning through `Execute`.
+- Half-open admits exactly one trial under the builtin driver (a
+  single-permit channel, not a boolean flag, so two concurrent callers
+  arriving right after cool-down cannot both be admitted). The sentinel
+  driver approximates this with `ProbeNum=1`; sentinel's own probe
+  accounting does not guarantee strict single-admission under tight
+  concurrency, which is the one residual behavioral difference between
+  the two drivers.
+- Retry is paced by explicit backoff fields (`InitialInterval`,
+  `Multiplier`, `MaxInterval`, `RandomizationFactor`) — a zero
+  `InitialInterval` keeps the legacy back-to-back retry. Whether an error
+  is retried is decided by `Policy.ShouldRetry`: a `Retryable`-implementing
+  error wins, then `Policy.RetryPredicate` (nil ⇒ retry on every error,
+  the historical behavior). A `MaxDuration` caps the whole Execute across
+  retries; the per-attempt `Timeout` is applied inside that budget.
+- Breaker strategy is selectable: `consecutive` (default, the historical
+  consecutive-count) or `error-rate` (trips on failure ratio over
+  `BreakerWindow` once `MinRequests` is reached). Both drivers honor the
+  same selection so switching backends does not silently change which
+  failures trip the breaker.
 
 ## 4. Trade-offs / Alternatives Rejected
 

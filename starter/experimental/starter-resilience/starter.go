@@ -16,7 +16,7 @@
 
 // Package StarterResilience registers sentinel-golang as the recommended
 // resilience driver for the framework defined in
-// [go-spring.org/spring/resilience].
+// [go-spring.org/spring/experimental/cloud/resilience].
 //
 // It is enabled purely by a blank import:
 //

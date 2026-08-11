@@ -51,7 +51,7 @@ func init() {
 // the OTel globals starter-otel installs (a no-op when it is absent), which is
 // how trace context rides across service boundaries. stdlib/httpx then layers
 // discovery + load balancing and, when enabled, resilience on top of that base.
-func newClient(ctx *gs.ContextProvider, c Config) (*http.Client, error) {
+func newClient(ctx *gs.ContextProvider, name string, c Config) (*http.Client, error) {
 	log.Debugf(ctx.Context, starterTag, "creating http client, addr=%s service-name=%s timeout=%v", c.Addr, c.ServiceName, c.Timeout)
 
 	if err := c.validate(); err != nil {

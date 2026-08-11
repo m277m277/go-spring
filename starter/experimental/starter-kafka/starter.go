@@ -53,7 +53,7 @@ const pingTimeout = 10 * time.Second
 // After the client is built it is pinged so a misconfigured broker list, bad
 // credentials or TLS mismatch fail fast at startup instead of surfacing on the
 // first produce/consume.
-func newClient(ctx *gs.ContextProvider, c Config) (*kgo.Client, error) {
+func newClient(ctx *gs.ContextProvider, name string, c Config) (*kgo.Client, error) {
 	log.Debugf(ctx.Context, starterTag, "creating kafka client, brokers=%s group=%s topic=%s", c.Brokers, c.Group, c.Topic)
 
 	kt := kotel.NewKotel(
@@ -62,7 +62,7 @@ func newClient(ctx *gs.ContextProvider, c Config) (*kgo.Client, error) {
 	)
 	opts := []kgo.Opt{
 		kgo.SeedBrokers(strings.Split(c.Brokers, ",")...),
-		kgo.WithHooks(kt.Hooks()...),
+		kgo.WithHooks(append(kt.Hooks(), newObserveHook(c.Observability))...),
 		kgo.WithLogger(newLogger()),
 	}
 	if c.Group != "" {

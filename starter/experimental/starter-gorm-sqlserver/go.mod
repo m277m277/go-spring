@@ -8,7 +8,17 @@ require (
 	go-spring.org/stdlib v0.1.7
 	gorm.io/driver/sqlserver v1.6.1
 	gorm.io/gorm v1.31.1
-	gorm.io/plugin/opentelemetry v0.1.16
+)
+
+require (
+	go-spring.org/observe v0.0.0
+	go-spring.org/observe-gorm v0.0.0
+)
+
+// Local, not-yet-published observe kit and gorm bridge. Removed once tagged.
+replace (
+	go-spring.org/observe => ../../../observe
+	go-spring.org/observe-gorm => ../../../observe-gorm
 )
 
 require (

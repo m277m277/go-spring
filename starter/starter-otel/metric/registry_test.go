@@ -17,6 +17,7 @@
 package metric
 
 import (
+	"context"
 	"testing"
 
 	"go.opentelemetry.io/otel/sdk/resource"
@@ -34,11 +35,7 @@ func TestRegisterMeterExporter(t *testing.T) {
 		// A manual reader is the simplest standalone Reader for a test.
 		return sdkmetric.NewManualReader(), wantPull, nil
 	})
-	t.Cleanup(func() {
-		exporterMu.Lock()
-		delete(exporterReg, name)
-		exporterMu.Unlock()
-	})
+	t.Cleanup(func() { exporters.Delete(name) })
 
 	res := resource.NewSchemaless()
 
@@ -46,7 +43,7 @@ func TestRegisterMeterExporter(t *testing.T) {
 	assert.Error(t, err).Nil()
 	assert.That(t, mp).NotNil()
 	assert.That(t, ps).Same(wantPull)
-	_ = mp.Shutdown(nil)
+	_ = mp.Shutdown(context.Background())
 
 	// Unknown exporter yields an error naming the registered set.
 	_, _, err = NewMeterProvider(MetricsConfig{Exporter: "does-not-exist"}, res)

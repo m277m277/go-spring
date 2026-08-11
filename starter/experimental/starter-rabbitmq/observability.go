@@ -20,6 +20,7 @@ import (
 	"context"
 
 	amqp "github.com/rabbitmq/amqp091-go"
+	observe "go-spring.org/observe"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -163,3 +164,38 @@ func (c deliveryCarrier) Keys() []string {
 
 var _ propagation.TextMapCarrier = publishingCarrier{}
 var _ propagation.TextMapCarrier = deliveryCarrier{}
+
+// --- binder auto path (kit-backed) -------------------------------------------
+//
+// The messaging.Binder drives publish/consume through the observe kit (3 signals)
+// via these package-level observers. They use a default "brief" level; the bean
+// is a raw *amqp.Connection (no wrapper to carry per-instance config), so the
+// binder path cannot bind a per-instance LogConfig — the manual helpers above
+// remain for apps that want explicit control.
+
+var (
+	defaultPubObs = observe.NewProducer("rabbitmq", observe.LogConfig{Level: observe.DefaultBrief})
+	defaultSubObs = observe.NewConsumer("rabbitmq", observe.LogConfig{Level: observe.DefaultBrief})
+)
+
+// startPublish opens a producer observation and injects the W3C trace context
+// into pub.Headers. For the binder's publish path.
+func startPublish(ctx context.Context, routingKey string, pub *amqp.Publishing) (context.Context, *observe.Span) {
+	ctx, sp := defaultPubObs.Start(ctx, "publish", routingKey)
+	if pub.Headers == nil {
+		pub.Headers = amqp.Table{}
+	}
+	otel.GetTextMapPropagator().Inject(ctx, publishingCarrier{pub})
+	return ctx, sp
+}
+
+// startConsume extracts the upstream trace from the delivery and opens a consumer
+// observation. For the binder's consume loop.
+func startConsume(ctx context.Context, d *amqp.Delivery) (context.Context, *observe.Span) {
+	ctx = otel.GetTextMapPropagator().Extract(ctx, deliveryCarrier{d})
+	dest := d.Exchange
+	if dest == "" {
+		dest = d.RoutingKey
+	}
+	return defaultSubObs.Start(ctx, "consume", dest)
+}

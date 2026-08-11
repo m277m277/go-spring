@@ -19,17 +19,21 @@ package StarterGormClickhouse
 import (
 	"context"
 	"net"
+	"runtime"
 	"sync"
 
 	ch "github.com/ClickHouse/clickhouse-go/v2"
 	"go-spring.org/log"
+	"go-spring.org/spring/cloud/actuator/health"
 	"go-spring.org/spring/cloud/discovery"
 	"go-spring.org/spring/cloud/mesh"
+	"go-spring.org/spring/conf"
 	"go-spring.org/spring/gs"
+	health2 "go-spring.org/starter-gorm-clickhouse/health"
 	"go-spring.org/stdlib/errutil"
+	"go-spring.org/stdlib/flatten"
 	"gorm.io/driver/clickhouse"
 	"gorm.io/gorm"
-	"gorm.io/plugin/opentelemetry/tracing"
 )
 
 // liveDialers tracks the discovery-backed resolver behind each client, so
@@ -39,10 +43,27 @@ var liveDialers sync.Map // *gorm.DB -> *discovery.Resolver
 var starterTag = log.RegisterInfraTag("gorm_clickhouse", "")
 
 func init() {
-	// Register multiple GORM clients as a group.
-	// Each instance is created according to the configuration in "${spring.gorm.clickhouse}".
-	// This allows defining multiple database connections dynamically.
-	gs.Group("${spring.gorm.clickhouse}", newClient, destroyClient)
+	// Register multiple GORM clients as a group, one per entry under
+	// "${spring.gorm.clickhouse}". A gs.Module (rather than gs.Group) is used so
+	// each instance's *gorm.DB bean can be paired with a health.Indicator
+	// registered under the same name — and to attach the file:line of this
+	// registration to the bean for diagnostics.
+	_, file, line, _ := runtime.Caller(0)
+	gs.Module(gs.OnProperty("spring.gorm.clickhouse"), func(r gs.BeanProvider, p flatten.Storage) error {
+		var m map[string]Config
+		if err := conf.Bind(p, &m, "${spring.gorm.clickhouse}"); err != nil {
+			return err
+		}
+		for name, c := range m {
+			b := r.Provide(newClient, gs.ValueArg(c)).Name(name).Destroy(destroyClient)
+			b.SetFileLine(file, line)
+			// Contribute a health indicator for this instance, injecting the
+			// *gorm.DB just registered above by name.
+			h := r.Provide(health2.NewGormHealth, gs.ValueArg(name), gs.TagArg(name)).Export(gs.As[health.Indicator]())
+			h.SetFileLine(file, line)
+		}
+		return nil
+	})
 }
 
 // newClient creates a GORM database client using the ClickHouse driver, bridged
@@ -135,7 +156,7 @@ func newClient(ctx *gs.ContextProvider, c Config) (*gorm.DB, error) {
 			return nil, err
 		}
 	}
-	if err := db.Use(tracing.NewPlugin(tracing.WithDBSystem("clickhouse"))); err != nil {
+	if err := applyObservability(db, c); err != nil {
 		log.Errorf(ctx.Context, starterTag, "gorm clickhouse: install otel plugin failed: %v", err)
 		if ld != nil {
 			_ = ld.Stop()

@@ -468,7 +468,7 @@ func Module(c PropertyCondition, fn ModuleFunc) {
 //	// Register multiple HTTP clients from configuration
 //	gs.Group(
 //	    "${http.clients}",
-//	    func(cfg HTTPClientConfig) (*HTTPClient, error) {
+//	    func(cp *gs.ContextProvider, name string, cfg HTTPClientConfig) (*HTTPClient, error) {
 //	        return NewHTTPClient(cfg)
 //	    },
 //	    func(c *HTTPClient) error {
@@ -486,7 +486,13 @@ func Module(c PropertyCondition, fn ModuleFunc) {
 //	    serviceB:  # <- "serviceB" becomes the bean name
 //	      baseURL: "http://b.example.com"
 //	      timeout: 60s
-func Group[T any, R any](tag string, fn func(cp *ContextProvider, c T) (R, error), d func(R) error) {
+//
+// The instance's bean name is passed to fn as the name argument, so a constructor
+// that needs it — to label OTel metrics, tag logs, or build a per-instance
+// resource — can use it directly. Registering additional per-instance beans
+// (e.g. a health.Indicator alongside the client) still requires a hand-written
+// gs.Module, since fn returns a single bean and has no access to the registry.
+func Group[T any, R any](tag string, fn func(cp *ContextProvider, name string, c T) (R, error), d func(R) error) {
 	if inited {
 		panic("gs.Group can only be called in init function")
 	}
@@ -504,7 +510,7 @@ func Group[T any, R any](tag string, fn func(cp *ContextProvider, c T) (R, error
 			return err
 		}
 		for name, c := range m {
-			b := r.Provide(fn, ValueArg(c)).Name(name)
+			b := r.Provide(fn, IndexArg(1, ValueArg(name)), IndexArg(2, ValueArg(c))).Name(name)
 			if d != nil {
 				b.Destroy(d)
 			}

@@ -49,7 +49,7 @@ func init() {
 // wrapped so downstream requests flow through the configured rate limiter,
 // circuit breaker and retry — the bearer token is already attached before the
 // resilience layer runs, so each protected attempt is a complete request.
-func newClient(ctx *gs.ContextProvider, c Config) (*http.Client, error) {
+func newClient(ctx *gs.ContextProvider, name string, c Config) (*http.Client, error) {
 
 	cfg := &clientcredentials.Config{
 		ClientID:       c.ClientID,
@@ -72,7 +72,7 @@ func newClient(ctx *gs.ContextProvider, c Config) (*http.Client, error) {
 		if err != nil {
 			return nil, err
 		}
-		exec, err := drv.NewExecutor(c.Resilience.policy())
+		exec, err := drv.NewExecutor(c.Resilience.Policy())
 		if err != nil {
 			return nil, err
 		}

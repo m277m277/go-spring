@@ -20,6 +20,7 @@ import (
 	"context"
 
 	"github.com/nats-io/nats.go"
+	observe "go-spring.org/observe"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -27,39 +28,78 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// Why these are call-site helpers rather than a wrapped connection:
+// Publish-side instrumentation is transparent: Conn.PublishMsg (below) wraps
+// every publish with a producer span + duration/in-flight metric + access log,
+// and injects the W3C trace context into msg.Header so subscribers continue the
+// trace. Both the messaging.Binder publisher and direct Conn.PublishMsg callers
+// flow through it.
 //
-//  1. nats.go has no official OTel instrumentation. Its API (Publish, Subscribe,
-//     Request, QueueSubscribe, plus the JetStream surface) is broad and callback
-//     driven, so a wrapper would have to shadow all of it and would still leave
-//     the JetStream context — reached via the embedded *nats.Conn — uninstrumented.
-//
-//  2. nats.Msg carries a Header (nats.Header, since NATS 2.2) that survives the
-//     broker round-trip, so W3C trace context propagates cleanly. Instrumenting
-//     at the call site — where the caller already builds the *nats.Msg — is what
-//     links producer to consumer across services; a connection wrapper cannot.
-//
-// To propagate context the publisher must send a *nats.Msg (nc.PublishMsg /
-// msg.RespondMsg), not the header-less Publish(subject, data). Everything rides
-// the OTel globals that starter-otel installs; without it the global
-// TracerProvider and propagator are no-ops, so these helpers cost almost nothing
-// and change no message bytes.
+// Subscribe-side instrumentation lives in the binder callback (binder.go): the
+// nats.MsgHandler signature (func(*nats.Msg), no context) means the consume span
+// must wrap the handler at the point that already bridges *nats.Msg to a
+// context-bearing handler — i.e. the binder. Direct Conn.Subscribe callers are
+// not instrumented (documented gap, same as the JetStream surface); use the
+// messaging.Binder for traced consume.
 
-// tracerName identifies spans emitted by this starter.
+// injectW3C inserts the current trace context into msg.Header so the receiver
+// can continue the trace across the broker.
+func injectW3C(ctx context.Context, msg *nats.Msg) {
+	if msg.Header == nil {
+		msg.Header = nats.Header{}
+	}
+	propagation.TraceContext{}.Inject(ctx, propagation.HeaderCarrier(msg.Header))
+}
+
+// extractW3C pulls the upstream trace context out of msg.Header. Returns the
+// input ctx unchanged when no context was propagated.
+func extractW3C(ctx context.Context, msg *nats.Msg) context.Context {
+	if len(msg.Header) == 0 {
+		return ctx
+	}
+	return propagation.TraceContext{}.Extract(ctx, propagation.HeaderCarrier(msg.Header))
+}
+
+// PublishMsg overrides the embedded *nats.Conn.PublishMsg so every publish flows
+// through the observe kit. When pubObs is nil (observability level "off" leaves
+// the observer present but a no-op; nil only when the field was never set) it
+// delegates unchanged. nats.PublishMsg carries no context, so the producer span
+// is started from context.Background; cross-service linkage still works because
+// the span's context is injected into msg.Header for the consumer to extract.
+func (c *Conn) PublishMsg(msg *nats.Msg) error {
+	if c.pubObs == nil {
+		return c.Conn.PublishMsg(msg)
+	}
+	ctx, sp := c.pubObs.Start(context.Background(), "publish", msg.Subject)
+	injectW3C(ctx, msg)
+	err := c.Conn.PublishMsg(msg)
+	sp.End(err)
+	return err
+}
+
+// startConsume is the subscribe-side hook the binder callback calls: it extracts
+// the upstream trace, opens a consumer span + metric + log, and returns a handle
+// whose End records the outcome.
+func (c *Conn) startConsume(ctx context.Context, subject string, msg *nats.Msg) (context.Context, *observe.Span) {
+	if c.subObs == nil {
+		return ctx, nil
+	}
+	ctx2, sp := c.subObs.Start(extractW3C(ctx, msg), "consume", subject)
+	return ctx2, sp
+}
+
+// --- low-level manual helpers (kept for the example programs and for apps that
+// want explicit span control outside the messaging.Binder) -------------------
+//
+// The auto path above (Conn.PublishMsg + binder) is preferred. These helpers are
+// a thin otel-direct escape hatch: they emit a span only (no metric/log) and do
+// not require an Observer, so they work with a bare *nats.Conn the app holds.
+
 const tracerName = "go-spring.org/starter-nats"
 
 // StartPublishSpan starts a producer span for msg and injects the current W3C
-// trace context into msg.Header so subscribers can continue the trace. Call it
-// right before Conn.PublishMsg and end the returned span once the publish
-// returns:
-//
-//	msg := &nats.Msg{Subject: subj, Data: data}
-//	ctx, span := StarterNats.StartPublishSpan(ctx, msg)
-//	err := conn.PublishMsg(msg)
-//	StarterNats.EndSpan(span, err)
+// trace context into msg.Header. Kept for backward compatibility / manual use.
 func StartPublishSpan(ctx context.Context, msg *nats.Msg) (context.Context, trace.Span) {
-	tracer := otel.GetTracerProvider().Tracer(tracerName)
-	ctx, span := tracer.Start(ctx, "nats.publish "+msg.Subject,
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "nats.publish "+msg.Subject,
 		trace.WithSpanKind(trace.SpanKindProducer),
 		trace.WithAttributes(
 			attribute.String("messaging.system", "nats"),
@@ -67,24 +107,15 @@ func StartPublishSpan(ctx context.Context, msg *nats.Msg) (context.Context, trac
 			attribute.String("messaging.operation", "publish"),
 		),
 	)
-	if msg.Header == nil {
-		msg.Header = nats.Header{}
-	}
-	otel.GetTextMapPropagator().Inject(ctx, msgCarrier{msg})
+	injectW3C(ctx, msg)
 	return ctx, span
 }
 
-// StartConsumeSpan extracts the upstream trace context carried in msg.Header and
-// starts a consumer span as its child. Call it when a message is received and
-// end the returned span once processing finishes:
-//
-//	ctx, span := StarterNats.StartConsumeSpan(ctx, msg)
-//	err := handle(ctx, msg)
-//	StarterNats.EndSpan(span, err)
+// StartConsumeSpan extracts the upstream trace from msg.Header and starts a
+// consumer span as its child. Kept for backward compatibility / manual use.
 func StartConsumeSpan(ctx context.Context, msg *nats.Msg) (context.Context, trace.Span) {
-	ctx = otel.GetTextMapPropagator().Extract(ctx, msgCarrier{msg})
-	tracer := otel.GetTracerProvider().Tracer(tracerName)
-	ctx, span := tracer.Start(ctx, "nats.consume "+msg.Subject,
+	ctx = extractW3C(ctx, msg)
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "nats.consume "+msg.Subject,
 		trace.WithSpanKind(trace.SpanKindConsumer),
 		trace.WithAttributes(
 			attribute.String("messaging.system", "nats"),
@@ -95,8 +126,7 @@ func StartConsumeSpan(ctx context.Context, msg *nats.Msg) (context.Context, trac
 	return ctx, span
 }
 
-// EndSpan records err (if any) on span and ends it. It is a small convenience so
-// callers do not have to import the OTel codes package themselves.
+// EndSpan records err (if any) on span and ends it.
 func EndSpan(span trace.Span, err error) {
 	if err != nil {
 		span.RecordError(err)
@@ -104,22 +134,3 @@ func EndSpan(span trace.Span, err error) {
 	}
 	span.End()
 }
-
-// msgCarrier adapts a nats.Msg's Header to the OTel TextMapCarrier interface.
-// The same type serves both injection (publish) and extraction (consume), since
-// nats.Header supports Get/Set symmetrically.
-type msgCarrier struct{ msg *nats.Msg }
-
-func (c msgCarrier) Get(key string) string { return c.msg.Header.Get(key) }
-
-func (c msgCarrier) Set(key, value string) { c.msg.Header.Set(key, value) }
-
-func (c msgCarrier) Keys() []string {
-	keys := make([]string, 0, len(c.msg.Header))
-	for k := range c.msg.Header {
-		keys = append(keys, k)
-	}
-	return keys
-}
-
-var _ propagation.TextMapCarrier = msgCarrier{}

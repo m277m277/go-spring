@@ -54,7 +54,7 @@ type Authenticator struct {
 // newAuthenticator builds an Authenticator from its configuration, failing fast
 // when the key source is ambiguous, the PEM key cannot be parsed, or the JWKS
 // endpoint cannot be reached at startup.
-func newAuthenticator(ctx *gs.ContextProvider, c Config) (*Authenticator, error) {
+func newAuthenticator(ctx *gs.ContextProvider, name string, c Config) (*Authenticator, error) {
 	src, err := c.source()
 	if err != nil {
 		return nil, err

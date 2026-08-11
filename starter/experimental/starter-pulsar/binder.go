@@ -84,9 +84,9 @@ func (p *publisher) Publish(ctx context.Context, msg *messaging.Message) error {
 	if msg.Key != "" {
 		pm.Key = msg.Key
 	}
-	ctx, span := StartProducerSpan(ctx, pm)
+	ctx, sp := startProduce(ctx, p.p.Topic(), pm)
 	_, err := p.p.Send(ctx, pm)
-	EndSpan(span, err)
+	sp.End(err)
 	return err
 }
 
@@ -121,9 +121,9 @@ func (s *subscriber) Subscribe(ctx context.Context, handler messaging.Handler) e
 				log.Errorf(loopCtx, log.TagAppDef, "pulsar binder receive error: %v", err)
 				continue
 			}
-			msgCtx, span := StartConsumerSpan(loopCtx, msg)
+			msgCtx, sp := startConsume(loopCtx, msg)
 			herr := handler(msgCtx, fromPulsarMsg(msg))
-			EndSpan(span, herr)
+			sp.End(herr)
 			if herr != nil {
 				log.Errorf(msgCtx, log.TagAppDef, "pulsar binder handler error on %q: %v", msg.Topic(), herr)
 				s.c.Nack(msg)

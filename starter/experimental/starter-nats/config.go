@@ -19,6 +19,7 @@ package StarterNats
 import (
 	"time"
 
+	observe "go-spring.org/observe"
 	"go-spring.org/spring/experimental/cloud/resilience"
 	"go-spring.org/spring/experimental/cloud/tlsconf"
 )
@@ -72,57 +73,25 @@ type Config struct {
 	// through the selected resilience driver. nats has no reject-capable
 	// middleware seam, so plain Publish/Request stay unchanged — callers pick
 	// per-call whether they want the guard.
-	Resilience ResilienceConfig `value:"${resilience:=}"`
+	Resilience resilience.Config `value:"${resilience:=}"`
+
+	// Observability configures the per-operation instrumentation (producer span +
+	// duration/in-flight metric + access log off/brief/detailed) emitted by the
+	// Conn.PublishMsg wrapper and the binder's consume callback. Defaults to
+	// "brief".
+	Observability observe.LogConfig `value:"${observability:=}"`
 }
 
-// ResilienceConfig binds the backend-neutral resilience knobs exposed by
-// stdlib/resilience. Driver selects which registered backend enforces them:
-// "default" (bundled, zero-dependency) or "sentinel" (recommended, enabled by
-// blank-importing starter-resilience). Switching backends is a one-line config
-// change — no code touches the guard seam.
-type ResilienceConfig struct {
-	// Enabled attaches the resilience executor to the connection. When false
-	// the guarded methods degrade to plain Publish/Request.
-	Enabled bool `value:"${enabled:=false}"`
+// Resilience binds the backend-neutral resilience knobs shared by every client
+// starter (see [resilience.Config]). Driver selects which registered backend
+// enforces them: "default" (bundled, zero-dependency) or "sentinel"
+// (recommended, enabled by blank-importing starter-resilience). Switching
+// backends is a one-line config change — no code touches the guard seam.
+//
+// Keep MaxRetries at 0 for publishing — retrying a publish can duplicate a
+// message; leave retry to the caller who knows whether the message is idempotent.
 
-	// Driver names the registered resilience backend to use.
-	Driver string `value:"${driver:=default}"`
 
-	// RateLimit caps sustained throughput in ops per second (0 disables).
-	RateLimit float64 `value:"${rate-limit:=0}"`
-
-	// Burst is the momentary allowance above RateLimit (0 = driver default).
-	Burst int `value:"${burst:=0}"`
-
-	// ErrorThreshold is the consecutive-failure count that trips the breaker
-	// open (0 disables circuit breaking).
-	ErrorThreshold int `value:"${error-threshold:=0}"`
-
-	// OpenDuration is how long the breaker stays open before a trial call.
-	OpenDuration time.Duration `value:"${open-duration:=0}"`
-
-	// MaxRetries is the number of extra attempts after a failure. Keep 0 for
-	// publishing — retrying a publish can duplicate a message; leave retry to
-	// the caller who knows whether the message is idempotent.
-	MaxRetries int `value:"${max-retries:=0}"`
-
-	// AttemptTimeout bounds each individual attempt (0 = no per-attempt bound).
-	AttemptTimeout time.Duration `value:"${attempt-timeout:=0}"`
-}
-
-// policy maps the bound config onto the backend-neutral resilience.Policy.
-func (r ResilienceConfig) policy() resilience.Policy {
-	return resilience.Policy{
-		RateLimit:      r.RateLimit,
-		Burst:          r.Burst,
-		ErrorThreshold: r.ErrorThreshold,
-		OpenDuration:   r.OpenDuration,
-		MaxRetries:     r.MaxRetries,
-		Timeout:        r.AttemptTimeout,
-	}
-}
-
-// JetStreamConfig configures the JetStream context. When Enabled is true a
 // JetStream context is created from the connection and exposed on Conn.JetStream;
 // otherwise Conn.JetStream is nil.
 type JetStreamConfig struct {
