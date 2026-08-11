@@ -21,7 +21,7 @@ import (
 	"errors"
 
 	"github.com/bradfitz/gomemcache/memcache"
-	"go-spring.org/spring/experimental/cloud/resilience"
+	"go-spring.org/cloud/experimental/resilience"
 )
 
 // guard runs fn under the resilience executor (when armed), treating

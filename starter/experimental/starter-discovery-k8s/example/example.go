@@ -38,7 +38,7 @@ import (
 	"time"
 
 	"go-spring.org/log"
-	"go-spring.org/spring/cloud/discovery"
+	"go-spring.org/cloud/discovery"
 	"go-spring.org/spring/gs"
 
 	// Blank-import registers the Kubernetes discovery backend(s) declared under

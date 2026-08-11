@@ -20,7 +20,7 @@ import (
 	"time"
 
 	observe "go-spring.org/observe"
-	"go-spring.org/spring/experimental/cloud/resilience"
+	"go-spring.org/cloud/experimental/resilience"
 )
 
 // Config defines Pulsar client configuration.

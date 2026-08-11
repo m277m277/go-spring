@@ -20,7 +20,7 @@ import (
 	"context"
 
 	"go-spring.org/log"
-	"go-spring.org/spring/experimental/cloud/transaction/tcc"
+	"go-spring.org/cloud/experimental/transaction/tcc"
 )
 
 // recoveryRunner drives transactions a crash left in flight to their decided

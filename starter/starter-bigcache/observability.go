@@ -21,9 +21,9 @@ import (
 	"errors"
 
 	"github.com/allegro/bigcache/v3"
-	"go-spring.org/observe-resilience"
+	"go-spring.org/observe/resilience"
 	observe "go-spring.org/observe"
-	"go-spring.org/spring/experimental/cloud/resilience"
+	"go-spring.org/cloud/experimental/resilience"
 	"go-spring.org/spring/gs"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"

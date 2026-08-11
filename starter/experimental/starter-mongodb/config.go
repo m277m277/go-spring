@@ -19,7 +19,7 @@ package StarterMongoDB
 import (
 	"time"
 
-	"go-spring.org/spring/experimental/cloud/tlsconf"
+	"go-spring.org/cloud/experimental/tlsconf"
 )
 
 // Config defines MongoDB client connection configuration.

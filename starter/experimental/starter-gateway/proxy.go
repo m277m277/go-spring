@@ -23,9 +23,9 @@ import (
 	"net/url"
 
 	"go-spring.org/log"
-	"go-spring.org/spring/cloud/discovery"
-	"go-spring.org/spring/experimental/cloud/loadbalance"
-	"go-spring.org/spring/experimental/cloud/resilience"
+	"go-spring.org/cloud/discovery"
+	"go-spring.org/cloud/experimental/loadbalance"
+	"go-spring.org/cloud/experimental/resilience"
 )
 
 // picker chooses the concrete target address for one request and returns a done
@@ -113,6 +113,34 @@ func (t *RouteTable) resolver(disName, name string) (*discovery.Resolver, error)
 	}
 	t.dialers[key] = d
 	return d, nil
+}
+
+// stopOrphanedDialers stops and removes the cached discovery resolvers whose
+// (discovery,service) key is no longer referenced by any route. A service dropped
+// from the route config must not keep its background watch running after a hot
+// reload, so recompile calls this with the set of keys the new routes use.
+func (t *RouteTable) stopOrphanedDialers(keep map[string]bool) {
+	t.dialerMu.Lock()
+	defer t.dialerMu.Unlock()
+	for key, d := range t.dialers {
+		if !keep[key] {
+			_ = d.Stop()
+			delete(t.dialers, key)
+		}
+	}
+}
+
+// Close stops the background discovery watch behind every cached resolver. It is
+// the gs destroy method, invoked on graceful shutdown, so the discovery watches
+// do not leak past the gateway's lifetime.
+func (t *RouteTable) Close() error {
+	t.dialerMu.Lock()
+	defer t.dialerMu.Unlock()
+	for key, d := range t.dialers {
+		_ = d.Stop()
+		delete(t.dialers, key)
+	}
+	return nil
 }
 
 // newProxyHandler assembles the terminal handler of a route's chain: a reverse

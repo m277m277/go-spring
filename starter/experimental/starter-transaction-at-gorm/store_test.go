@@ -20,7 +20,7 @@ import (
 	"context"
 	"testing"
 
-	"go-spring.org/spring/experimental/cloud/transaction/at"
+	"go-spring.org/cloud/experimental/transaction/at"
 	"go-spring.org/stdlib/testing/assert"
 	sqlite "gorm.io/driver/sqlite"
 	"gorm.io/gorm"

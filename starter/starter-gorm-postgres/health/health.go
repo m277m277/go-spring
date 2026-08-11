@@ -19,7 +19,7 @@ package health2
 import (
 	"context"
 
-	"go-spring.org/spring/cloud/actuator/health"
+	"go-spring.org/cloud/actuator/health"
 	"gorm.io/gorm"
 )
 

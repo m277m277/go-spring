@@ -22,9 +22,9 @@ import (
 	"runtime"
 
 	"go-spring.org/log"
-	"go-spring.org/spring/cloud/actuator/health"
-	"go-spring.org/spring/cloud/discovery"
-	"go-spring.org/spring/cloud/mesh"
+	"go-spring.org/cloud/actuator/health"
+	"go-spring.org/cloud/discovery"
+	"go-spring.org/cloud/mesh"
 	"go-spring.org/spring/conf"
 	"go-spring.org/spring/gs"
 	health2 "go-spring.org/starter-elasticsearch/health"
@@ -118,31 +118,6 @@ func newClient(ctx *gs.ContextProvider, c Config) (*ObservedElasticClient, error
 		return nil, errutil.Explain(err, "failed to reach elasticsearch cluster")
 	}
 	return w, nil
-}
-
-// resolveAddresses builds a discovery Resolver for c.ServiceName and returns the
-// current endpoint snapshot as "scheme://host:port" node addresses together with
-// the Resolver (so the caller can stop its background watch on shutdown). It
-// fails fast when no backend is registered or the service has no endpoints.
-func resolveAddresses(ctx context.Context, c Config) ([]string, *discovery.Resolver, error) {
-	backend, err := discovery.GetDiscovery(c.Discovery)
-	if err != nil {
-		return nil, nil, err
-	}
-	r, err := discovery.NewResolver(ctx, backend, c.ServiceName, discovery.WithScheme(c.Scheme))
-	if err != nil {
-		return nil, nil, errutil.Explain(err, "elasticsearch: resolve service %s", c.ServiceName)
-	}
-	eps := r.Endpoints()
-	if len(eps) == 0 {
-		_ = r.Stop()
-		return nil, nil, errutil.Explain(nil, "elasticsearch: discovery %q returned no endpoints for %q", c.Discovery, c.ServiceName)
-	}
-	addrs := make([]string, 0, len(eps))
-	for _, ep := range eps {
-		addrs = append(addrs, fmt.Sprintf("%s://%s", c.DiscoveryScheme, ep.Addr))
-	}
-	return addrs, r, nil
 }
 
 // HealthCheck reports whether the Elasticsearch cluster is reachable by issuing

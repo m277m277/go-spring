@@ -21,8 +21,8 @@ import (
 	"sync"
 
 	"github.com/apache/pulsar-client-go/pulsar"
-	resilobserve "go-spring.org/observe-resilience"
-	"go-spring.org/spring/experimental/cloud/resilience"
+	resilobserve "go-spring.org/observe/resilience"
+	"go-spring.org/cloud/experimental/resilience"
 )
 
 // resilienceExecs tracks the resilience executor attached to each client, so

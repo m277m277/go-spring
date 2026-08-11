@@ -24,10 +24,8 @@ import (
 	"time"
 
 	"go-spring.org/log"
-	"go-spring.org/spring/cloud/actuator/health"
 	observe "go-spring.org/observe"
-	"go-spring.org/spring/cloud/discovery"
-	"go-spring.org/spring/cloud/mesh"
+	"go-spring.org/cloud/actuator/health"
 	"go-spring.org/spring/conf"
 	"go-spring.org/spring/gs"
 	health2 "go-spring.org/starter-mongodb/health"
@@ -140,26 +138,16 @@ func newClient(ctx *gs.ContextProvider, c Config) (*ObservedMongoClient, error) 
 	opts.SetMonitor(newCommandMonitor(func() *observe.Observer { return w.obs.Load() }))
 
 	var baseDial func(ctx context.Context, network, address string) (net.Conn, error)
-	if c.ServiceName != "" && !mesh.Enabled() {
-		// Client-side discovery: resolve the service name and pick a live
-		// endpoint per new connection. In mesh mode a sidecar owns
-		// discovery+LB, so skip this and connect straight to the configured
-		// URI hosts.
-		d, err := discovery.GetDiscovery(c.Discovery)
-		if err != nil {
-			log.Errorf(ctx.Context, starterTag, "mongodb: get discovery backend failed: %v", err)
-			return nil, err
-		}
-		resolver, err := discovery.NewResolver(ctx.Context, d, c.ServiceName, discovery.WithScheme(c.Scheme))
-		if err != nil {
-			log.Errorf(ctx.Context, starterTag, "mongodb: create resolver for %s failed: %v", c.ServiceName, err)
-			return nil, err
-		}
-		w.resolver = resolver
+	w.resolver, err = newLiveResolver(ctx.Context, c)
+	if err != nil {
+		log.Errorf(ctx.Context, starterTag, "mongodb: build discovery resolver failed: %v", err)
+		return nil, err
+	}
+	if w.resolver != nil {
 		nd := &net.Dialer{Timeout: c.ConnectTimeout}
 		// The discovery dialer ignores the URI address and picks a live
 		// endpoint via the Resolver on each new connection.
-		pick := resolver.Pick
+		pick := w.resolver.Pick
 		baseDial = func(ctx context.Context, network, _ string) (net.Conn, error) {
 			ep, err := pick()
 			if err != nil {

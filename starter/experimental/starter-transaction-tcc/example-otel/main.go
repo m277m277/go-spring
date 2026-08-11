@@ -39,7 +39,7 @@ import (
 	"time"
 
 	"go-spring.org/log"
-	"go-spring.org/spring/experimental/cloud/transaction/tcc"
+	"go-spring.org/cloud/experimental/transaction/tcc"
 	"go-spring.org/spring/gs"
 	_ "go-spring.org/starter-otel"
 	_ "go-spring.org/starter-transaction-tcc"

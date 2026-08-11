@@ -21,8 +21,8 @@ import (
 	"sync"
 
 	"github.com/IBM/sarama"
-	resilobserve "go-spring.org/observe-resilience"
-	"go-spring.org/spring/experimental/cloud/resilience"
+	resilobserve "go-spring.org/observe/resilience"
+	"go-spring.org/cloud/experimental/resilience"
 )
 
 // resilienceExecs tracks the resilience executor attached to each client, so

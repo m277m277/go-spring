@@ -20,11 +20,10 @@ import (
 	"context"
 
 	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
-	"go-spring.org/log"
-	"go-spring.org/observe-resilience"
 	observe "go-spring.org/observe"
-	"go-spring.org/spring/cloud/discovery"
-	"go-spring.org/spring/experimental/cloud/resilience"
+	"go-spring.org/observe/resilience"
+	"go-spring.org/cloud/discovery"
+	"go-spring.org/cloud/experimental/resilience"
 	"go-spring.org/spring/gs"
 )
 
@@ -49,7 +48,7 @@ type ObservedNeo4jDriver struct {
 	// Config.Resilience/Observability fields so the wrapper bean owns its own
 	// protection + observability policy.
 	Resilience    gs.Dync[resilience.Config] `value:"${resilience:=}"`
-	Observability observe.LogConfig         `value:"${observability:=}"`
+	Observability observe.LogConfig          `value:"${observability:=}"`
 
 	// cfg is the connection config, retained for the resilience resource label.
 	cfg Config
@@ -108,10 +107,7 @@ func (o *ObservedNeo4jDriver) CloseDriver() error {
 	if o.exec != nil {
 		_ = o.exec.Close()
 	}
-	if o.resolver != nil {
-		_ = o.resolver.Stop()
-		log.Debugf(context.Background(), starterTag, "neo4j client destroyed, discovery resolver stopped")
-	}
+	stopLiveResolver(o.resolver)
 	return o.DriverWithContext.Close(context.Background())
 }
 

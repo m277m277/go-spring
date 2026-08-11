@@ -21,8 +21,8 @@ import (
 	"sync"
 
 	amqp "github.com/rabbitmq/amqp091-go"
-	resilobserve "go-spring.org/observe-resilience"
-	"go-spring.org/spring/experimental/cloud/resilience"
+	resilobserve "go-spring.org/observe/resilience"
+	"go-spring.org/cloud/experimental/resilience"
 )
 
 // resilienceExecs tracks the resilience executor attached to each connection,

@@ -21,8 +21,8 @@ import (
 	"errors"
 	"testing"
 
-	"go-spring.org/observe-transaction"
-	"go-spring.org/spring/experimental/cloud/transaction"
+	"go-spring.org/observe/transaction"
+	"go-spring.org/cloud/experimental/transaction"
 	"go-spring.org/stdlib/testing/assert"
 )
 

@@ -17,8 +17,8 @@
 package StarterLockEtcd
 
 import (
-	"go-spring.org/observe-lock"
-	"go-spring.org/spring/experimental/cloud/lock"
+	"go-spring.org/observe/lock"
+	"go-spring.org/cloud/experimental/lock"
 )
 
 // wrapLockerBean is a bean constructor that creates the original etcd locker,

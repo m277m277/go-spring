@@ -20,14 +20,12 @@ import (
 	"context"
 	"net"
 	"runtime"
-	"sync"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
 	"go-spring.org/log"
-	"go-spring.org/spring/cloud/actuator/health"
-	"go-spring.org/spring/cloud/discovery"
-	"go-spring.org/spring/cloud/mesh"
+	"go-spring.org/cloud/actuator/health"
+	"go-spring.org/cloud/discovery"
 	"go-spring.org/spring/conf"
 	"go-spring.org/spring/gs"
 	health2 "go-spring.org/starter-gorm-postgres/health"
@@ -36,10 +34,6 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
-
-// liveDialers tracks the discovery-backed resolver behind each client, so the
-// wrapper's Close can stop the background watch when the client is torn down.
-var liveDialers sync.Map // *gorm.DB -> *discovery.Resolver
 
 var starterTag = log.RegisterInfraTag("gorm_postgres", "")
 
@@ -95,23 +89,12 @@ func newClient(ctx *gs.ContextProvider, c Config) (*ObservedGormDB, error) {
 		ld  *discovery.Resolver
 	)
 
-	if c.ServiceName == "" || mesh.Enabled() {
-		db, err = gorm.Open(postgres.Open(c.DSN()), gormConfig(c))
-		if err != nil {
-			log.Errorf(ctx.Context, starterTag, "gorm postgres: open failed: %v", err)
-			return nil, err
-		}
-	} else {
-		d, err := discovery.GetDiscovery(c.Discovery)
-		if err != nil {
-			log.Errorf(ctx.Context, starterTag, "gorm postgres: get discovery backend failed: %v", err)
-			return nil, err
-		}
-		ld, err = discovery.NewResolver(ctx.Context, d, c.ServiceName, discovery.WithScheme(c.Scheme))
-		if err != nil {
-			log.Errorf(ctx.Context, starterTag, "gorm postgres: create resolver for %s failed: %v", c.ServiceName, err)
-			return nil, err
-		}
+	ld, err = newLiveResolver(ctx.Context, c)
+	if err != nil {
+		log.Errorf(ctx.Context, starterTag, "gorm postgres: build discovery resolver failed: %v", err)
+		return nil, err
+	}
+	if ld != nil {
 		pgxCfg, err := pgx.ParseConfig(c.DSN())
 		if err != nil {
 			log.Errorf(ctx.Context, starterTag, "gorm postgres: parse pgx config failed: %v", err)

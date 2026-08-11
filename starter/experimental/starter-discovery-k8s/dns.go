@@ -25,7 +25,7 @@ import (
 	"strings"
 	"time"
 
-	"go-spring.org/spring/cloud/discovery"
+	"go-spring.org/cloud/discovery"
 )
 
 // dnsResolver is the subset of net.Resolver the DNS backend needs. Abstracting

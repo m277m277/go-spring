@@ -21,10 +21,9 @@ import (
 	"errors"
 
 	"github.com/redis/go-redis/v9"
-	"go-spring.org/observe-resilience"
 	observe "go-spring.org/observe"
-	"go-spring.org/spring/cloud/discovery"
-	"go-spring.org/spring/experimental/cloud/resilience"
+	"go-spring.org/observe/resilience"
+	"go-spring.org/cloud/experimental/resilience"
 	"go-spring.org/spring/gs"
 )
 
@@ -36,7 +35,7 @@ import (
 type ObservedRedisClient struct {
 	redis.UniversalClient
 	Resilience    gs.Dync[resilience.Config] `value:"${resilience:=}"`
-	Observability observe.LogConfig         `value:"${observability:=}"`
+	Observability observe.LogConfig          `value:"${observability:=}"`
 
 	cfg      Config // for resourceLabel (address fields)
 	exec     resilience.Executor
@@ -80,11 +79,9 @@ func (o *ObservedRedisClient) Close() error {
 	if o.exec != nil {
 		_ = o.exec.Close()
 	}
-	// Stop any discovery-backed dialer watch behind a single-mode client so the
+	// Stop any discovery-backed resolver watch behind a single-mode client so the
 	// background endpoint refresher does not leak on shutdown.
-	if v, ok := liveDialers.LoadAndDelete(o.UniversalClient); ok {
-		_ = v.(*discovery.Resolver).Stop()
-	}
+	stopLiveResolver(o.UniversalClient)
 	return o.UniversalClient.Close()
 }
 

@@ -20,8 +20,8 @@ import (
 	"time"
 
 	observe "go-spring.org/observe"
-	"go-spring.org/spring/experimental/cloud/resilience"
-	"go-spring.org/spring/experimental/cloud/tlsconf"
+	"go-spring.org/cloud/experimental/resilience"
+	"go-spring.org/cloud/experimental/tlsconf"
 )
 
 // Config defines MQTT client connection configuration.

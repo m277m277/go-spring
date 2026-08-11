@@ -17,15 +17,11 @@
 package StarterGormClickhouse
 
 import (
-	"context"
-
-	"go-spring.org/log"
-	"go-spring.org/observe-resilience"
 	observe "go-spring.org/observe"
-	gormobserve "go-spring.org/observe-gorm"
-	"go-spring.org/resilience-gorm"
-	"go-spring.org/spring/cloud/discovery"
-	"go-spring.org/spring/experimental/cloud/resilience"
+	gormobserve "go-spring.org/gorm-cloud/observe"
+	"go-spring.org/observe/resilience"
+	"go-spring.org/gorm-cloud/resilience"
+	"go-spring.org/cloud/experimental/resilience"
 	"go-spring.org/spring/gs"
 	"gorm.io/gorm"
 )
@@ -39,7 +35,7 @@ import (
 type ObservedGormDB struct {
 	*gorm.DB
 	Resilience    gs.Dync[resilience.Config] `value:"${resilience:=}"`
-	Observability observe.LogConfig         `value:"${observability:=}"`
+	Observability observe.LogConfig          `value:"${observability:=}"`
 
 	cfg      Config // for resourceLabel (addr/service-name)
 	exec     resilience.Executor
@@ -88,10 +84,7 @@ func (o *ObservedGormDB) Close() error {
 	if o.exec != nil {
 		_ = o.exec.Close()
 	}
-	if v, ok := liveDialers.LoadAndDelete(o.DB); ok {
-		_ = v.(*discovery.Resolver).Stop()
-		log.Debugf(context.Background(), starterTag, "gorm clickhouse client destroyed, discovery dialer stopped")
-	}
+	stopLiveResolver(o.DB)
 	if sqlDB, err := o.DB.DB(); err == nil {
 		return sqlDB.Close()
 	}

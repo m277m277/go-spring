@@ -22,9 +22,9 @@ import (
 	"time"
 
 	observe "go-spring.org/observe"
-	"go-spring.org/observe-resilience"
-	"go-spring.org/spring/experimental/cloud/resilience"
-	"go-spring.org/spring/experimental/web/httpx"
+	"go-spring.org/observe/resilience"
+	"go-spring.org/cloud/experimental/resilience"
+	"go-spring.org/cloud/experimental/httpx"
 )
 
 // Config binds one declarative-HTTP-client instance under

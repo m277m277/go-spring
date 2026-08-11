@@ -20,13 +20,12 @@ import (
 	"context"
 	"sync/atomic"
 
-	"go.mongodb.org/mongo-driver/v2/mongo"
-	"go-spring.org/log"
-	"go-spring.org/observe-resilience"
 	observe "go-spring.org/observe"
-	"go-spring.org/spring/cloud/discovery"
-	"go-spring.org/spring/experimental/cloud/resilience"
+	"go-spring.org/observe/resilience"
+	"go-spring.org/cloud/discovery"
+	"go-spring.org/cloud/experimental/resilience"
 	"go-spring.org/spring/gs"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
 // ObservedMongoClient is the wrapper bean MongoDB clients are injected as. It
@@ -51,7 +50,7 @@ type ObservedMongoClient struct {
 	// Config.Resilience/Observability fields so the wrapper bean owns its own
 	// protection + observability policy.
 	Resilience    gs.Dync[resilience.Config] `value:"${resilience:=}"`
-	Observability observe.LogConfig         `value:"${observability:=}"`
+	Observability observe.LogConfig          `value:"${observability:=}"`
 
 	// cfg is the connection config, retained for the resilience resource label.
 	cfg Config
@@ -115,9 +114,6 @@ func (o *ObservedMongoClient) Close() error {
 	if o.exec != nil {
 		_ = o.exec.Close()
 	}
-	if o.resolver != nil {
-		_ = o.resolver.Stop()
-		log.Debugf(context.Background(), starterTag, "mongodb client destroyed, discovery resolver stopped")
-	}
+	stopLiveResolver(o.resolver)
 	return o.Client.Disconnect(context.Background())
 }

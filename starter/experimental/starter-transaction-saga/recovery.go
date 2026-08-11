@@ -20,7 +20,7 @@ import (
 	"context"
 
 	"go-spring.org/log"
-	"go-spring.org/spring/experimental/cloud/transaction"
+	"go-spring.org/cloud/experimental/transaction"
 )
 
 // recoveryRunner compensates sagas a crash left in flight. As a gs.Runner it

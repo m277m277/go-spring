@@ -16,7 +16,7 @@
 
 // Package StarterTransactionTCC contributes the TCC (Try / Confirm / Cancel)
 // distributed-transaction capability defined in
-// [go-spring.org/spring/experimental/cloud/transaction/tcc] to a Go-Spring application. It is
+// [go-spring.org/cloud/experimental/transaction/tcc] to a Go-Spring application. It is
 // enabled by a blank import:
 //
 //	import _ "go-spring.org/starter-transaction-tcc"
@@ -66,8 +66,8 @@ import (
 	"context"
 
 	"go-spring.org/log"
-	"go-spring.org/observe-transaction"
-	"go-spring.org/spring/experimental/cloud/transaction/tcc"
+	"go-spring.org/observe/transaction"
+	"go-spring.org/cloud/experimental/transaction/tcc"
 	"go-spring.org/spring/gs"
 )
 

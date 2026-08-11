@@ -17,14 +17,10 @@
 package StarterRedigo
 
 import (
-	"context"
-
 	"github.com/gomodule/redigo/redis"
-	"go-spring.org/log"
 	observe "go-spring.org/observe"
-	resilobserve "go-spring.org/observe-resilience"
-	"go-spring.org/spring/cloud/discovery"
-	"go-spring.org/spring/experimental/cloud/resilience"
+	resilobserve "go-spring.org/observe/resilience"
+	"go-spring.org/cloud/experimental/resilience"
 	"go-spring.org/spring/gs"
 )
 
@@ -86,10 +82,7 @@ func (o *ObservedRedisPool) Close() error {
 	if o.exec != nil {
 		_ = o.exec.Close()
 	}
-	if v, ok := liveDialers.LoadAndDelete(o.Pool); ok {
-		_ = v.(*discovery.Resolver).Stop()
-		log.Debugf(context.Background(), starterTag, "redigo client destroyed, discovery resolver stopped")
-	}
+	stopLiveResolver(o.Pool)
 	return o.Pool.Close()
 }
 

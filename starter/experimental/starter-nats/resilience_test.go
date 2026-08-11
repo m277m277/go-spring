@@ -21,7 +21,7 @@ import (
 	"errors"
 	"testing"
 
-	"go-spring.org/spring/experimental/cloud/resilience"
+	"go-spring.org/cloud/experimental/resilience"
 	"go-spring.org/stdlib/testing/assert"
 )
 

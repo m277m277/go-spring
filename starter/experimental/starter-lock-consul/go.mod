@@ -1,24 +1,21 @@
 module go-spring.org/starter-lock-consul
 
-go 1.26
+go 1.26.1
 
 require (
 	github.com/hashicorp/consul/api v1.34.1
 	go-spring.org/spring v1.3.4
 	go-spring.org/stdlib v0.1.7
-	go.opentelemetry.io/otel v1.43.0
-	go.opentelemetry.io/otel/trace v1.43.0
 )
+
+require github.com/stretchr/objx v0.5.2 // indirect
 
 require (
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
 	github.com/armon/go-metrics v0.4.1 // indirect
 	github.com/bytedance/mockey v1.4.6 // indirect
-	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/expr-lang/expr v1.17.8 // indirect
 	github.com/fatih/color v1.18.0 // indirect
-	github.com/go-logr/logr v1.4.3 // indirect
-	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/google/btree v1.1.3 // indirect
 	github.com/gopherjs/gopherjs v1.20.2 // indirect
@@ -41,12 +38,8 @@ require (
 	github.com/smarty/assertions v1.16.0 // indirect
 	github.com/smartystreets/goconvey v1.8.1 // indirect
 	github.com/spf13/cast v1.10.0 // indirect
-	github.com/stretchr/objx v0.5.2 // indirect
 	go-spring.org/gs-mock v0.0.9 // indirect
-	go-spring.org/log v0.1.4 // indirect
-	go-spring.org/observe-lock v0.0.0
-	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
-	go.opentelemetry.io/otel/metric v1.43.0 // indirect
+	go-spring.org/log v0.1.4
 	golang.org/x/arch v0.26.0 // indirect
 	golang.org/x/exp v0.0.0-20260410095643-746e56fc9e2f // indirect
 	golang.org/x/net v0.56.0 // indirect
@@ -54,4 +47,6 @@ require (
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
 
-replace go-spring.org/observe-lock => ../../../observe-lock
+require go-spring.org/cloud v0.0.0
+
+replace go-spring.org/cloud => ../../../cloud

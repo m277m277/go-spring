@@ -9,3 +9,7 @@ require (
 	github.com/jinzhu/now v1.1.5 // indirect
 	golang.org/x/text v0.40.0 // indirect
 )
+
+require go-spring.org/cloud v0.0.0
+
+replace go-spring.org/cloud => ../../../../cloud

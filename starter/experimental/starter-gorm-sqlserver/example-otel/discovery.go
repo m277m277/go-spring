@@ -16,7 +16,7 @@
 package main
 
 import (
-	"go-spring.org/spring/cloud/discovery"
+	"go-spring.org/cloud/discovery"
 )
 
 // This file plays the part a company's adapter would: it registers a discovery

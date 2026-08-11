@@ -20,7 +20,7 @@ import (
 	"context"
 
 	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
-	"go-spring.org/spring/cloud/actuator/health"
+	"go-spring.org/cloud/actuator/health"
 )
 
 // NewDriverHealth builds an indicator for a Neo4j driver. It is registered once

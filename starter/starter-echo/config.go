@@ -19,7 +19,7 @@ package StarterEcho
 import (
 	"time"
 
-	"go-spring.org/spring/experimental/cloud/tlsconf"
+	"go-spring.org/cloud/experimental/tlsconf"
 )
 
 // HealthConfig exposes an optional liveness/readiness endpoint served by the

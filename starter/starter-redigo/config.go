@@ -19,21 +19,14 @@ package StarterRedigo
 import (
 	"context"
 	"net"
-	"sync"
 	"time"
 
 	"github.com/gomodule/redigo/redis"
-	"go-spring.org/spring/cloud/discovery"
-	"go-spring.org/spring/cloud/mesh"
-	"go-spring.org/spring/experimental/cloud/tlsconf"
+	"go-spring.org/cloud/experimental/tlsconf"
 	"go-spring.org/stdlib/errutil"
 )
 
 var driverRegistry = map[string]Driver{}
-
-// liveDialers tracks the discovery-backed Resolver behind each pool built by
-// DefaultDriver, so destroyClient can stop the background watch on shutdown.
-var liveDialers sync.Map // *redis.Pool -> *discovery.Resolver
 
 func init() {
 	RegisterDriver("DefaultDriver", DefaultDriver{})
@@ -140,19 +133,9 @@ func (DefaultDriver) CreateClient(ctx context.Context, c Config) (*redis.Pool, e
 		return nil, errutil.Explain(err, "redis: build TLS")
 	}
 
-	var resolver *discovery.Resolver
-	if c.ServiceName != "" && !mesh.Enabled() {
-		// Client-side discovery: resolve the service name and pick a live
-		// endpoint per new connection. In mesh mode a sidecar owns
-		// discovery+LB, so skip this and connect straight to c.Addr.
-		d, err := discovery.GetDiscovery(c.Discovery)
-		if err != nil {
-			return nil, err
-		}
-		resolver, err = discovery.NewResolver(ctx, d, c.ServiceName, discovery.WithScheme(c.Scheme))
-		if err != nil {
-			return nil, err
-		}
+	resolver, err := newLiveResolver(ctx, c)
+	if err != nil {
+		return nil, err
 	}
 
 	pool := &redis.Pool{

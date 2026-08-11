@@ -50,8 +50,8 @@ import (
 	"time"
 
 	"go-spring.org/log"
-	"go-spring.org/spring/cloud/discovery"
-	"go-spring.org/spring/experimental/cloud/resilience"
+	"go-spring.org/cloud/discovery"
+	"go-spring.org/cloud/experimental/resilience"
 	"go-spring.org/spring/gs"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"

@@ -24,7 +24,7 @@ import (
 
 	"github.com/gomodule/redigo/redis"
 	observe "go-spring.org/observe"
-	"go-spring.org/spring/experimental/cloud/resilience"
+	"go-spring.org/cloud/experimental/resilience"
 )
 
 // installObsConn wraps the pool's Dial / DialContext so every connection handed

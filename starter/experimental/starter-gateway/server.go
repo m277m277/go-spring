@@ -25,7 +25,7 @@ import (
 	"os"
 
 	"go-spring.org/log"
-	"go-spring.org/spring/experimental/cloud/tlsconf"
+	"go-spring.org/cloud/experimental/tlsconf"
 	"go-spring.org/spring/gs"
 	"go-spring.org/stdlib/errutil"
 )

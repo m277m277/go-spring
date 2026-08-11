@@ -18,24 +18,13 @@ package StarterMemcached
 
 import (
 	"context"
-	"sync"
 	"time"
 
 	"github.com/bradfitz/gomemcache/memcache"
-	"go-spring.org/spring/cloud/discovery"
-	"go-spring.org/spring/cloud/mesh"
 	"go-spring.org/stdlib/errutil"
 )
 
 var driverRegistry = map[string]Driver{}
-
-// resolvers tracks the discovery-backed Resolver behind each client built by
-// DefaultDriver, so destroyClient can stop the background watch on shutdown.
-// gomemcache shards keys across a static server set chosen at client creation,
-// so the live endpoint updates from the watch are NOT re-applied to the client
-// mid-flight — the Resolver is kept only to own the watch lifecycle and to
-// provide a Stop hook. A changing cluster membership requires a restart.
-var resolvers sync.Map // *memcache.Client -> *discovery.Resolver
 
 func init() {
 	RegisterDriver("DefaultDriver", DefaultDriver{})
@@ -118,16 +107,11 @@ type DefaultDriver struct{}
 // Servers list (the service's stable DNS address).
 func (DefaultDriver) CreateClient(ctx context.Context, c Config) (*memcache.Client, error) {
 	servers := c.Servers
-	var resolver *discovery.Resolver
-	if c.ServiceName != "" && !mesh.Enabled() {
-		d, err := discovery.GetDiscovery(c.Discovery)
-		if err != nil {
-			return nil, err
-		}
-		resolver, err = discovery.NewResolver(ctx, d, c.ServiceName, discovery.WithScheme(c.Scheme))
-		if err != nil {
-			return nil, errutil.Explain(err, "memcached: discovery resolve %q failed", c.ServiceName)
-		}
+	resolver, err := newLiveResolver(ctx, c)
+	if err != nil {
+		return nil, errutil.Explain(err, "memcached: discovery resolve %q failed", c.ServiceName)
+	}
+	if resolver != nil {
 		eps := resolver.Endpoints()
 		if len(eps) == 0 {
 			_ = resolver.Stop()

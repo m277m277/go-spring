@@ -20,7 +20,7 @@ import (
 	"context"
 
 	"github.com/gomodule/redigo/redis"
-	"go-spring.org/spring/cloud/actuator/health"
+	"go-spring.org/cloud/actuator/health"
 )
 
 // NewPoolHealth builds an indicator for a redigo connection pool. It is

@@ -68,6 +68,24 @@ Web(`gin`、`echo`、`hertz`……)与 RPC(`grpc`、`kitex`、`thrift`、`dubbo`
   `PING` 用 `DialTimeout`),让配置错误在启动期暴露而非首个请求时。
 - **每个实例都有 `Destroy`。** 每个 bean 注册析构函数,`Close()` 连接并停掉其背后的
   后台 goroutine 或服务发现 watch。缺失 destroy 曾是已知缺口,现在是硬性要求。
+- **一个关注点一个文件 —— 标准的 client starter 骨架。** client starter 把横切关注点
+  拆到独立文件,而不是全堆进 `config.go` / `starter.go`,让每个能力的接线落在维护者
+  预期的地方:
+  - `config.go` —— `Config` 结构、`Driver` 接口、driver 注册表(`RegisterDriver`,
+    `init()`)。只负责建连接。
+  - `starter.go` —— `init()` 期的 `gs.Group` / `gs.Module` 注册,以及组装 bean 的
+    构造函数(`newClient`)。
+  - `discovery.go` —— 客户端服务发现接缝:`sync.Map` 跟踪每个 client 的
+    `*discovery.Resolver`、`newLiveResolver` 辅助函数(mesh 门控的 `GetDiscovery` +
+    `NewResolver` + `WithScheme`,`ServiceName` 为空或 mesh 开启时返回 `nil`)以及
+    `stopLiveResolver` 的 Close 半部。driver 各自的 dialer(调 `resolver.Pick`)留在
+    `config.go` / `starter.go`;这里只放 resolver 的构建 + 生命周期。
+  - `resilience.go` —— wrapper bean 的 `ApplyResilience` InitMethod、executor,以及
+    它的 `Close` / `CloseDriver` Destroy 钩子。
+  - `observability.go` —— observe kit 桥接(trace/metric/access-log 钩子)。
+  - `health/` —— health indicator 构造函数,作为子包以便不拉整个 starter 就能引用。
+  这一划分与生态内既有 client starter(go-redis、gorm-*、mongodb、elasticsearch、
+  neo4j……)现遵循的关注点边界一致,新增 starter 应照抄。§4 清单第 4 条引用此骨架。
 
 ### 2.3 Contributor 类(不自持端口)
 
@@ -163,13 +181,12 @@ WebSocket(`websocket`、`websocket-coder`)、中间件(`lua-filter`)、鉴权
 - **服务网格模式集中退化客户端栈,而非逐 starter 判断。** 注入 sidecar
   (Istio/Envoy、Linkerd)后它已负责发现与负载均衡,应用自带的再叠加就会双重负载
   均衡,并让拓扑/离群逻辑错乱。用一个进程级全局开关(`spring.mesh.enabled`,由
-  `starter-mesh` 接线),在发现与负载均衡的 Factory 装配处 ——
-  `discovery.NewClientDialer` / `NewLiveDialer` 与 `loadbalance.Pool` —— 读取一次
-  并统一退化为直通:服务名解析为唯一稳定的 Service 地址(ClusterIP)交给 sidecar
-  拦截,负载均衡器不再选择、不再剔除。client 类 starter 应经
-  `discovery.NewClientDialer` 获取 dialer(如 `starter-go-redis`),这样无需逐个分支
-  即可感知开关;仍直接调用 `NewLiveDialer` 的也会退化,但在 mesh 模式下仍需已注册后端。
-  代码不删除 —— 关掉开关即恢复完整的客户端行为。
+  `starter-mesh` 接线),在发现与负载均衡的 Factory 装配处 —— 各 client starter 的
+  `newLiveResolver`(见 §2.2)与 `loadbalance.Pool` —— 读取一次并统一退化为直通:
+  服务名解析为唯一稳定的 Service 地址(ClusterIP)交给 sidecar 拦截,负载均衡器不再
+  选择、不再剔除。因为 `newLiveResolver` 内部读取 `mesh.Enabled()`、mesh 开启时返回
+  `nil`,client starter 无需在调用处逐分支即可感知开关 —— driver 直接跳过安装
+  发现拨号器,按配置地址直连。代码不删除 —— 关掉开关即恢复完整的客户端行为。
 - **实例级注册按 starter 各自提供;RPC 框架 provider 注册仍不统一。** 别把两种
   "注册"混为一谈。(1)把**本进程**注册进外部注册中心
   (Nacos/Consul/Eureka/ZooKeeper)-- 即 Spring Cloud `@EnableDiscoveryClient` 的方向
@@ -195,7 +212,8 @@ WebSocket(`websocket`、`websocket-coder`)、中间件(`lua-filter`)、鉴权
 3. 选配置前缀 —— 使用唯一的 `${spring.<name>}` 前缀来标识**本**实现。如果是已有能力的
    第二种实现,用 `<能力>-<实现>` 格式（如 `spring.kafka-sarama`）,不要复用已有前缀。
 4. Client? → `gs.Group` 多实例、driver 注册表、地址必填 + fail-fast、启动期探测、
-   每实例 `Destroy`。
+   每实例 `Destroy`,以及"一个关注点一个文件"的骨架(§2.2):`config.go` /
+   `starter.go` / `discovery.go` / `resilience.go` / `observability.go`(+ `health/`)。
 5. Server? → 自持端口、提前监听/就绪后 serve、优雅 `Stop`、应用提供注册 bean、
    默认开启开关。
 6. 配置 Provider? → `provider.go` 里 `conf.RegisterProvider`(无 `config.go`、

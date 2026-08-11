@@ -16,7 +16,7 @@
 
 // Package StarterTransactionATGorm contributes the AT (Automatic Transaction)
 // distributed-transaction capability defined in
-// [go-spring.org/spring/experimental/cloud/transaction/at] to a Go-Spring application, backed by
+// [go-spring.org/cloud/experimental/transaction/at] to a Go-Spring application, backed by
 // gorm. It is enabled by a blank import:
 //
 //	import _ "go-spring.org/starter-transaction-at-gorm"
@@ -61,8 +61,8 @@ import (
 	"context"
 
 	"go-spring.org/log"
-	"go-spring.org/observe-transaction"
-	"go-spring.org/spring/experimental/cloud/transaction/at"
+	"go-spring.org/observe/transaction"
+	"go-spring.org/cloud/experimental/transaction/at"
 	"go-spring.org/spring/gs"
 )
 

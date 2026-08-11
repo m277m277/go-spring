@@ -21,7 +21,7 @@ import (
 	"fmt"
 
 	"github.com/elastic/go-elasticsearch/v8"
-	"go-spring.org/spring/cloud/actuator/health"
+	"go-spring.org/cloud/actuator/health"
 )
 
 // NewClientHealth builds an indicator for an Elasticsearch client. It is

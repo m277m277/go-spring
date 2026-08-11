@@ -1,26 +1,22 @@
 module go-spring.org/starter-mongodb
 
-go 1.26
+go 1.26.1
 
 require (
 	go-spring.org/log v0.1.4
 	go-spring.org/observe v0.0.0
-	go-spring.org/observe-resilience v0.0.0
 	go-spring.org/spring v1.3.4
 	go-spring.org/stdlib v0.1.7
 	go.mongodb.org/mongo-driver/v2 v2.6.0
 )
 
 // Local, not-yet-published observe kit. Removed once the module is tagged.
-replace go-spring.org/observe => ../../../observe
-
-replace go-spring.org/observe-resilience => ../../../observe-resilience
+replace go-spring.org/observe => ../../../cloud/observe
 
 require (
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
 	github.com/bytedance/mockey v1.4.6 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/expr-lang/expr v1.17.8 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
@@ -29,7 +25,6 @@ require (
 	github.com/klauspost/compress v1.18.6 // indirect
 	github.com/magiconair/properties v1.8.10 // indirect
 	github.com/pelletier/go-toml v1.9.5 // indirect
-	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/smarty/assertions v1.16.0 // indirect
 	github.com/smartystreets/goconvey v1.8.1 // indirect
 	github.com/spf13/cast v1.10.0 // indirect
@@ -50,3 +45,7 @@ require (
 	golang.org/x/text v0.40.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
+
+require go-spring.org/cloud v0.0.0
+
+replace go-spring.org/cloud => ../../../cloud

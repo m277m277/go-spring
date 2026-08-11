@@ -19,24 +19,14 @@ package StarterGoRedis
 import (
 	"context"
 	"net"
-	"sync"
 	"time"
 
 	"github.com/redis/go-redis/v9"
-	"go-spring.org/spring/cloud/discovery"
-	"go-spring.org/spring/cloud/mesh"
-	"go-spring.org/spring/experimental/cloud/tlsconf"
+	"go-spring.org/cloud/experimental/tlsconf"
 	"go-spring.org/stdlib/errutil"
 )
 
 var driverRegistry = map[string]Driver{}
-
-// liveDialers tracks the discovery-backed dialer behind each client built by
-// DefaultDriver, so the destructors can stop the background watch on shutdown.
-// The key is the client value (*redis.Client for single/sentinel), the value is
-// the *discovery.LiveDialer. Cluster/sentinel topologies self-discover their
-// nodes and never use a LiveDialer, so only single-mode clients appear here.
-var liveDialers sync.Map // redis client -> *discovery.Resolver
 
 func init() {
 	RegisterDriver("DefaultDriver", DefaultDriver{})
@@ -242,20 +232,11 @@ func (DefaultDriver) CreateClient(ctx context.Context, c Config) (*redis.Client,
 		TLSConfig:       tlsConfig,
 	}
 
-	var resolver *discovery.Resolver
-	if c.ServiceName != "" && !mesh.Enabled() {
-		// Client-side discovery: resolve the service name and pick a live
-		// endpoint per new connection. In mesh mode (mesh.Enabled) a sidecar
-		// owns discovery+LB, so skip this and connect straight to the configured
-		// Addr (the service's stable DNS address).
-		d, err := discovery.GetDiscovery(c.Discovery)
-		if err != nil {
-			return nil, err
-		}
-		resolver, err = discovery.NewResolver(ctx, d, c.ServiceName, discovery.WithScheme(c.Scheme))
-		if err != nil {
-			return nil, err
-		}
+	resolver, err := newLiveResolver(ctx, c)
+	if err != nil {
+		return nil, err
+	}
+	if resolver != nil {
 		nd := &net.Dialer{Timeout: c.DialTimeout}
 		// Addr becomes a label for the pool; the dialer picks a live endpoint.
 		opts.Addr = c.ServiceName

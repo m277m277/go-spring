@@ -19,7 +19,7 @@ package StarterRegistryEtcd
 import (
 	"time"
 
-	"go-spring.org/spring/experimental/cloud/tlsconf"
+	"go-spring.org/cloud/experimental/tlsconf"
 )
 
 // EtcdConfig binds the etcd cluster connection under ${spring.registry.etcd}.

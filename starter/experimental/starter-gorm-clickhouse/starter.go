@@ -20,13 +20,12 @@ import (
 	"context"
 	"net"
 	"runtime"
-	"sync"
 
 	ch "github.com/ClickHouse/clickhouse-go/v2"
 	"go-spring.org/log"
-	"go-spring.org/spring/cloud/actuator/health"
-	"go-spring.org/spring/cloud/discovery"
-	"go-spring.org/spring/cloud/mesh"
+	"go-spring.org/cloud/actuator/health"
+	"go-spring.org/cloud/discovery"
+	"go-spring.org/cloud/mesh"
 	"go-spring.org/spring/conf"
 	"go-spring.org/spring/gs"
 	health2 "go-spring.org/starter-gorm-clickhouse/health"
@@ -35,10 +34,6 @@ import (
 	"gorm.io/driver/clickhouse"
 	"gorm.io/gorm"
 )
-
-// liveDialers tracks the discovery-backed resolver behind each client, so the
-// wrapper's Close can stop the watch when the client is torn down.
-var liveDialers sync.Map // *gorm.DB -> *discovery.Resolver
 
 var starterTag = log.RegisterInfraTag("gorm_clickhouse", "")
 
@@ -127,14 +122,10 @@ func newClient(ctx *gs.ContextProvider, c Config) (*ObservedGormDB, error) {
 			opts.TLS = tlsCfg
 		}
 		if useDiscovery {
-			d, derr := discovery.GetDiscovery(c.Discovery)
+			var derr error
+			ld, derr = newLiveResolver(ctx.Context, c)
 			if derr != nil {
-				log.Errorf(ctx.Context, starterTag, "gorm clickhouse: get discovery backend failed: %v", derr)
-				return nil, derr
-			}
-			ld, derr = discovery.NewResolver(ctx.Context, d, c.ServiceName, discovery.WithScheme(c.Scheme))
-			if derr != nil {
-				log.Errorf(ctx.Context, starterTag, "gorm clickhouse: create resolver for %s failed: %v", c.ServiceName, derr)
+				log.Errorf(ctx.Context, starterTag, "gorm clickhouse: build discovery resolver failed: %v", derr)
 				return nil, derr
 			}
 			// ch.Options.DialContext is 2-arg: func(ctx, addr string) (net.Conn, error).

@@ -29,9 +29,9 @@ import (
 
 	"go-spring.org/log"
 	observe "go-spring.org/observe"
-	"go-spring.org/observe-resilience"
-	"go-spring.org/spring/cloud/discovery"
-	"go-spring.org/spring/experimental/cloud/resilience"
+	"go-spring.org/observe/resilience"
+	"go-spring.org/cloud/discovery"
+	"go-spring.org/cloud/experimental/resilience"
 	"go-spring.org/spring/gs"
 )
 
@@ -171,6 +171,20 @@ func (t *RouteTable) recompile(raw map[string]RouteRaw) error {
 	t.compiled.Store(&routes)
 	t.execs = execs
 	atomic.StoreUintptr(&t.lastPtr, reflect.ValueOf(raw).Pointer())
+
+	// Drop cached discovery resolvers no longer referenced by any route so a
+	// service removed from the route config stops its background watch.
+	keep := map[string]bool{}
+	for _, rt := range routes {
+		disName := rt.Upstream.Discovery
+		if disName == "" {
+			disName = t.discovery
+		}
+		if rt.Upstream.Service != "" {
+			keep[disName+"|"+rt.Upstream.Service] = true
+		}
+	}
+	t.stopOrphanedDialers(keep)
 	return nil
 }
 

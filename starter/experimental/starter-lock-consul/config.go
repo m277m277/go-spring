@@ -19,7 +19,7 @@ package StarterLockConsul
 import (
 	"time"
 
-	"go-spring.org/spring/experimental/cloud/tlsconf"
+	"go-spring.org/cloud/experimental/tlsconf"
 )
 
 // Config binds one Consul-backed distributed-lock instance under

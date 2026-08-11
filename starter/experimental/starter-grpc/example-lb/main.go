@@ -41,8 +41,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"go-spring.org/spring/cloud/discovery"
-	"go-spring.org/spring/experimental/cloud/loadbalance"
+	"go-spring.org/cloud/discovery"
+	"go-spring.org/cloud/experimental/loadbalance"
 	StarterGrpc "go-spring.org/starter-grpc"
 	"go-spring.org/starter-grpc/example/idl/proto"
 	"google.golang.org/grpc"

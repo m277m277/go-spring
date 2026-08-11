@@ -18,14 +18,13 @@ package StarterNeo4j
 
 import (
 	"context"
-	"net/url"
 	"runtime"
 	"time"
 
 	"go-spring.org/log"
-	"go-spring.org/spring/cloud/actuator/health"
-	"go-spring.org/spring/cloud/discovery"
-	"go-spring.org/spring/cloud/mesh"
+	"go-spring.org/cloud/actuator/health"
+	"go-spring.org/cloud/discovery"
+	"go-spring.org/cloud/mesh"
 	"go-spring.org/spring/conf"
 	"go-spring.org/spring/gs"
 	health2 "go-spring.org/starter-neo4j/health"
@@ -130,35 +129,6 @@ func newClient(ctx *gs.ContextProvider, c Config) (*ObservedNeo4jDriver, error) 
 	}
 	log.Infof(ctx.Context, starterTag, "neo4j client initialized, uri=%s", c.URI)
 	return w, nil
-}
-
-// resolveURI builds a discovery Resolver for c.ServiceName, picks one live
-// endpoint, and returns c.URI with its host replaced by that endpoint's address
-// together with the Resolver (so the caller can stop its background watch on
-// shutdown). It fails fast when no backend is registered or the service has no
-// eligible endpoints. This is a one-shot pick because the neo4j driver exposes
-// no dialer injection point (see Config.ServiceName).
-func resolveURI(ctx context.Context, c Config) (string, *discovery.Resolver, error) {
-	backend, err := discovery.GetDiscovery(c.Discovery)
-	if err != nil {
-		return "", nil, err
-	}
-	r, err := discovery.NewResolver(ctx, backend, c.ServiceName, discovery.WithScheme(c.Scheme))
-	if err != nil {
-		return "", nil, errutil.Explain(err, "neo4j: resolve service %s", c.ServiceName)
-	}
-	ep, err := r.Pick()
-	if err != nil {
-		_ = r.Stop()
-		return "", nil, errutil.Explain(err, "neo4j: pick endpoint for %s", c.ServiceName)
-	}
-	u, err := url.Parse(c.URI)
-	if err != nil {
-		_ = r.Stop()
-		return "", nil, errutil.Explain(err, "neo4j: parse uri %s", c.URI)
-	}
-	u.Host = ep.Addr
-	return u.String(), r, nil
 }
 
 // HealthCheck reports whether the Neo4j driver can reach the server. It is a

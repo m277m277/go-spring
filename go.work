@@ -1,6 +1,10 @@
 go 1.26.1
 
 use (
+	./cloud
+	./cloud/experimental/event/example
+	./cloud/gorm-cloud
+	./cloud/observe
 	./contrib/dubbo-go/dubbo
 	./contrib/dubbo-go/jsonrpc
 	./contrib/dubbo-go/rest
@@ -43,13 +47,6 @@ use (
 	./log/benchmarks/logs
 	./scripts/bomtool
 	./spring
-	./observe
-	./observe-gorm
-	./observe-lock
-	./observe-transaction
-	./observe-resilience
-	./resilience-gorm
-	./spring/experimental/cloud/event/example
 	./starter/experimental/starter-actuator
 	./starter/experimental/starter-actuator/example
 	./starter/experimental/starter-admin-ui

@@ -23,7 +23,7 @@ import (
 	"sort"
 	"time"
 
-	"go-spring.org/spring/experimental/cloud/transaction/at"
+	"go-spring.org/cloud/experimental/transaction/at"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )

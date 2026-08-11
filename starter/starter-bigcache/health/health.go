@@ -20,7 +20,7 @@ import (
 	"context"
 
 	"github.com/allegro/bigcache/v3"
-	"go-spring.org/spring/cloud/actuator/health"
+	"go-spring.org/cloud/actuator/health"
 )
 
 // NewBigCacheHealth builds an indicator for a BigCache instance. BigCache is an

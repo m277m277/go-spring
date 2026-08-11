@@ -21,9 +21,9 @@ import (
 	"net/http"
 
 	"go-spring.org/log"
-	"go-spring.org/observe-resilience"
+	"go-spring.org/observe/resilience"
 	observe "go-spring.org/observe"
-	"go-spring.org/spring/experimental/cloud/resilience"
+	"go-spring.org/cloud/experimental/resilience"
 	"go-spring.org/spring/gs"
 	"golang.org/x/oauth2/clientcredentials"
 )

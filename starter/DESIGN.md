@@ -90,6 +90,30 @@ Database, cache, and message-queue clients (`go-redis`, `gorm-*`, `mongodb`,
 - **Every instance has a `Destroy`.** Each bean registers a destructor that
   `Close()`s the connection and stops any background goroutine or discovery
   watch behind it. Missing destroy hooks were a known gap and are now required.
+- **One concern, one file — a standard client-starter skeleton.** A client
+  starter splits its cross-cutting concerns across dedicated files rather than
+  piling them into `config.go` / `starter.go`, so the wiring for each capability
+  lives where a maintainer expects it:
+  - `config.go` — the `Config` struct, the `Driver` interface, and the
+    driver-registry (`RegisterDriver`, `init()`). Connection-creation only.
+  - `starter.go` — the `init()`-time `gs.Group` / `gs.Module` registration and
+    the constructor (`newClient`) that assembles the bean.
+  - `discovery.go` — the client-side service-discovery seam: the
+    `sync.Map` tracking each client's `*discovery.Resolver`, a `newLiveResolver`
+    helper (mesh-gated `GetDiscovery` + `NewResolver` + `WithScheme`, returning
+    `nil` when `ServiceName` is empty or mesh is on), and a `stopLiveResolver`
+    Close-half. The driver's per-backend dialer (which calls `resolver.Pick`)
+    stays in `config.go` / `starter.go`; only the resolver build + lifecycle
+    lives here.
+  - `resilience.go` — the wrapper bean's `ApplyResilience` InitMethod, the
+    executor, and its `Close`/`CloseDriver` Destroy hook.
+  - `observability.go` — the observe kit bridge (trace/metric/access-log hooks).
+  - `health/` — the health-indicator constructor, as a subpackage so it can be
+    imported without pulling the whole starter.
+  This split mirrors the concern boundary established across the ecosystem and is
+  what every existing client starter (go-redis, gorm-*, mongodb, elasticsearch,
+  neo4j, ...) now follows — new starters should copy it verbatim. §4 checklist
+  item 4 references this skeleton.
 
 ### 2.3 Contributor starters (no port of their own)
 
@@ -227,15 +251,15 @@ application can load configuration from it at startup and hot-reload at runtime.
   discovery and load balancing, so running the app's own on top double-balances
   and confuses locality/outlier logic. A single process-global switch
   (`spring.mesh.enabled`, wired by `starter-mesh`) is read once at the discovery
-  and load-balancing factory points — `discovery.NewClientDialer` / `NewLiveDialer`
-  and `loadbalance.Pool` — and degrades both to a pass-through: names resolve to
-  one stable Service address (ClusterIP) the sidecar intercepts, and the balancer
-  stops selecting and ejecting. Client starters must obtain their dialer via
-  `discovery.NewClientDialer` (as `starter-go-redis` does) so the switch is
-  honored without per-starter branching; those still calling `NewLiveDialer`
-  directly also degrade, but require a registered backend even in mesh mode. The
-  code is not removed — flipping the switch off restores full client-side
-  behavior.
+  and load-balancing factory points — each client starter's `newLiveResolver`
+  (§2.2) and `loadbalance.Pool` — and degrades both to a pass-through: names
+  resolve to one stable Service address (ClusterIP) the sidecar intercepts, and
+  the balancer stops selecting and ejecting. Because `newLiveResolver` reads
+  `mesh.Enabled()` internally and returns `nil` when mesh is on, a client starter
+  honors the switch without per-starter branching at the call site — the driver
+  just skips installing its discovery-backed dialer and dials the configured
+  address directly. The code is not removed — flipping the switch off restores
+  full client-side behavior.
 - **Instance-level registration is per-starter; RPC-framework provider
   registration is not.** Do not conflate two different "registration" concerns.
   (1) Registering *this process* into an external registry
@@ -272,7 +296,9 @@ application can load configuration from it at startup and hot-reload at runtime.
    existing capability, pick `<capability>-<impl>` (e.g. `spring.kafka-sarama`),
    do not reuse the existing prefix.
 4. Client? → `gs.Group` multi-instance, driver registry, required address with
-   fail-fast, startup probe, per-instance `Destroy`.
+   fail-fast, startup probe, per-instance `Destroy`, and the one-concern-one-file
+   skeleton (§2.2): `config.go` / `starter.go` / `discovery.go` /
+   `resilience.go` / `observability.go` (+ `health/`).
 5. Server? → own port, listen-early/serve-on-ready, graceful `Stop`,
    app-supplied register bean, port-as-startup-gate (no `enabled` toggle — see §2.1).
 6. Config-provider? → `provider.go` with `conf.RegisterProvider` (no `config.go`,

@@ -3,7 +3,7 @@ module GS_PROJECT_MODULE
 go 1.26
 
 require (
-	github.com/cloudwego/hertz v0.10.1
+	github.com/cloudwego/hertz v0.10.3
 	github.com/gin-gonic/gin v1.12.0
 	github.com/go-playground/form/v4 v4.3.0
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674

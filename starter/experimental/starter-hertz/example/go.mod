@@ -2,7 +2,7 @@ module go-spring.org/starter-hertz/example
 
 go 1.26.1
 
-require github.com/cloudwego/hertz v0.10.1
+require github.com/cloudwego/hertz v0.10.3
 
 require (
 	github.com/bytedance/gopkg v0.1.4 // indirect

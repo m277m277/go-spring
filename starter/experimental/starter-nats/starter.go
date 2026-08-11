@@ -21,7 +21,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"go-spring.org/log"
 	observe "go-spring.org/observe"
-	"go-spring.org/spring/experimental/cloud/resilience"
+	"go-spring.org/cloud/experimental/resilience"
 	"go-spring.org/spring/gs"
 	"go-spring.org/stdlib/errutil"
 )

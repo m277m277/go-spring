@@ -17,18 +17,14 @@
 package StarterGormSqlserver
 
 import (
-	"context"
 	"database/sql"
 	"net"
 	"runtime"
-	"sync"
 
 	mssql "github.com/microsoft/go-mssqldb"
 	"github.com/microsoft/go-mssqldb/msdsn"
 	"go-spring.org/log"
-	"go-spring.org/spring/cloud/actuator/health"
-	"go-spring.org/spring/cloud/discovery"
-	"go-spring.org/spring/cloud/mesh"
+	"go-spring.org/cloud/actuator/health"
 	"go-spring.org/spring/conf"
 	"go-spring.org/spring/gs"
 	health2 "go-spring.org/starter-gorm-sqlserver/health"
@@ -37,26 +33,6 @@ import (
 	"gorm.io/driver/sqlserver"
 	"gorm.io/gorm"
 )
-
-// liveDialers tracks the discovery-backed resolver behind each client, so the
-// wrapper's Close can stop the watch when the client is torn down.
-var liveDialers sync.Map // *gorm.DB -> *discovery.Resolver
-
-// resolverDialer adapts a discovery.Resolver to mssql's Dialer interface
-// (DialContext(ctx, network, addr)). The network and addr arguments are ignored
-// — the dialer picks a live endpoint via the Resolver on every call.
-type resolverDialer struct {
-	r  *discovery.Resolver
-	nd *net.Dialer
-}
-
-func (d resolverDialer) DialContext(ctx context.Context, _, _ string) (net.Conn, error) {
-	ep, err := d.r.Pick()
-	if err != nil {
-		return nil, err
-	}
-	return d.nd.DialContext(ctx, "tcp", ep.Addr)
-}
 
 var starterTag = log.RegisterInfraTag("gorm_sqlserver", "")
 
@@ -106,10 +82,27 @@ func newClient(ctx *gs.ContextProvider, c Config) (*ObservedGormDB, error) {
 
 	log.Debugf(ctx.Context, starterTag, "creating gorm sqlserver client, host=%s service-name=%s db=%s", c.Host, c.ServiceName, c.DB)
 
-	if c.ServiceName == "" || mesh.Enabled() {
-		db, err := gorm.Open(sqlserver.Open(c.DSN()), gormConfig(c))
+	ld, err := newLiveResolver(ctx.Context, c)
+	if err != nil {
+		log.Errorf(ctx.Context, starterTag, "gorm sqlserver: build discovery resolver failed: %v", err)
+		return nil, err
+	}
+	if ld != nil {
+		msCfg, err := msdsn.Parse(c.DSN())
 		if err != nil {
-			log.Errorf(ctx.Context, starterTag, "gorm sqlserver: open failed: %v", err)
+			log.Errorf(ctx.Context, starterTag, "gorm sqlserver: parse DSN failed: %v", err)
+			_ = ld.Stop()
+			return nil, err
+		}
+		connector := mssql.NewConnectorConfig(msCfg)
+		connector.Dialer = resolverDialer{r: ld, nd: &net.Dialer{}}
+		sqlDB := sql.OpenDB(connector)
+
+		db, err := gorm.Open(sqlserver.New(sqlserver.Config{Conn: sqlDB}), gormConfig(c))
+		if err != nil {
+			log.Errorf(ctx.Context, starterTag, "gorm sqlserver: open with discovery failed: %v", err)
+			_ = ld.Stop()
+			_ = sqlDB.Close()
 			return nil, err
 		}
 		// Fail fast: verify connectivity and apply pool settings at creation time.
@@ -117,40 +110,18 @@ func newClient(ctx *gs.ContextProvider, c Config) (*ObservedGormDB, error) {
 		// wrapper's ApplyResilience (InitMethod).
 		if err := applyPool(db, c); err != nil {
 			log.Errorf(ctx.Context, starterTag, "gorm sqlserver: ping failed: %v", err)
-			if sqlDB, derr := db.DB(); derr == nil {
-				_ = sqlDB.Close()
-			}
+			_ = ld.Stop()
+			_ = sqlDB.Close()
 			return nil, err
 		}
-		log.Infof(ctx.Context, starterTag, "gorm sqlserver client initialized, host=%s db=%s", c.Host, c.DB)
+		liveDialers.Store(db, ld)
+		log.Infof(ctx.Context, starterTag, "gorm sqlserver client initialized, service-name=%s db=%s", c.ServiceName, c.DB)
 		return &ObservedGormDB{DB: db, cfg: c}, nil
 	}
 
-	d, err := discovery.GetDiscovery(c.Discovery)
+	db, err := gorm.Open(sqlserver.Open(c.DSN()), gormConfig(c))
 	if err != nil {
-		log.Errorf(ctx.Context, starterTag, "gorm sqlserver: get discovery backend failed: %v", err)
-		return nil, err
-	}
-	ld, err := discovery.NewResolver(ctx.Context, d, c.ServiceName, discovery.WithScheme(c.Scheme))
-	if err != nil {
-		log.Errorf(ctx.Context, starterTag, "gorm sqlserver: create resolver for %s failed: %v", c.ServiceName, err)
-		return nil, err
-	}
-	msCfg, err := msdsn.Parse(c.DSN())
-	if err != nil {
-		log.Errorf(ctx.Context, starterTag, "gorm sqlserver: parse DSN failed: %v", err)
-		_ = ld.Stop()
-		return nil, err
-	}
-	connector := mssql.NewConnectorConfig(msCfg)
-	connector.Dialer = resolverDialer{r: ld, nd: &net.Dialer{}}
-	sqlDB := sql.OpenDB(connector)
-
-	db, err := gorm.Open(sqlserver.New(sqlserver.Config{Conn: sqlDB}), gormConfig(c))
-	if err != nil {
-		log.Errorf(ctx.Context, starterTag, "gorm sqlserver: open with discovery failed: %v", err)
-		_ = ld.Stop()
-		_ = sqlDB.Close()
+		log.Errorf(ctx.Context, starterTag, "gorm sqlserver: open failed: %v", err)
 		return nil, err
 	}
 	// Fail fast: verify connectivity and apply pool settings at creation time.
@@ -158,11 +129,11 @@ func newClient(ctx *gs.ContextProvider, c Config) (*ObservedGormDB, error) {
 	// wrapper's ApplyResilience (InitMethod).
 	if err := applyPool(db, c); err != nil {
 		log.Errorf(ctx.Context, starterTag, "gorm sqlserver: ping failed: %v", err)
-		_ = ld.Stop()
-		_ = sqlDB.Close()
+		if sqlDB, derr := db.DB(); derr == nil {
+			_ = sqlDB.Close()
+		}
 		return nil, err
 	}
-	liveDialers.Store(db, ld)
-	log.Infof(ctx.Context, starterTag, "gorm sqlserver client initialized, service-name=%s db=%s", c.ServiceName, c.DB)
+	log.Infof(ctx.Context, starterTag, "gorm sqlserver client initialized, host=%s db=%s", c.Host, c.DB)
 	return &ObservedGormDB{DB: db, cfg: c}, nil
 }

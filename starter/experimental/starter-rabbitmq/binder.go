@@ -22,7 +22,7 @@ import (
 
 	amqp "github.com/rabbitmq/amqp091-go"
 	"go-spring.org/log"
-	"go-spring.org/spring/experimental/cloud/messaging"
+	"go-spring.org/cloud/experimental/messaging"
 )
 
 // NewBinder adapts a RabbitMQ connection to the broker-neutral messaging.Binder,

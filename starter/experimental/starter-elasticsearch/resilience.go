@@ -23,11 +23,10 @@ import (
 	"sync/atomic"
 
 	"github.com/elastic/go-elasticsearch/v8"
-	"go-spring.org/log"
-	"go-spring.org/observe-resilience"
 	observe "go-spring.org/observe"
-	"go-spring.org/spring/cloud/discovery"
-	"go-spring.org/spring/experimental/cloud/resilience"
+	"go-spring.org/observe/resilience"
+	"go-spring.org/cloud/discovery"
+	"go-spring.org/cloud/experimental/resilience"
 	"go-spring.org/spring/gs"
 )
 
@@ -54,7 +53,7 @@ type ObservedElasticClient struct {
 	// Config.Resilience/Observability fields so the wrapper bean owns its own
 	// protection + observability policy.
 	Resilience    gs.Dync[resilience.Config] `value:"${resilience:=}"`
-	Observability observe.LogConfig         `value:"${observability:=}"`
+	Observability observe.LogConfig          `value:"${observability:=}"`
 
 	// cfg is the connection config, retained for the resilience resource label.
 	cfg Config
@@ -124,10 +123,7 @@ func (o *ObservedElasticClient) Close() error {
 	if o.exec != nil {
 		_ = o.exec.Close()
 	}
-	if o.resolver != nil {
-		_ = o.resolver.Stop()
-		log.Debugf(context.Background(), starterTag, "elasticsearch client destroyed, discovery resolver stopped")
-	}
+	stopLiveResolver(o.resolver)
 	return o.Client.Close(context.Background())
 }
 

@@ -30,7 +30,7 @@ import (
 
 	"go-spring.org/log"
 	"go-spring.org/spring/conf"
-	"go-spring.org/spring/experimental/cloud/lock"
+	"go-spring.org/cloud/experimental/lock"
 	"go-spring.org/spring/gs"
 	"go-spring.org/stdlib/errutil"
 	"go-spring.org/stdlib/flatten"

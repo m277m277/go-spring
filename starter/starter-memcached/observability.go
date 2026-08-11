@@ -21,11 +21,9 @@ import (
 	"fmt"
 
 	"github.com/bradfitz/gomemcache/memcache"
-	"go-spring.org/log"
 	observe "go-spring.org/observe"
-	resilobserve "go-spring.org/observe-resilience"
-	"go-spring.org/spring/cloud/discovery"
-	"go-spring.org/spring/experimental/cloud/resilience"
+	resilobserve "go-spring.org/observe/resilience"
+	"go-spring.org/cloud/experimental/resilience"
 	"go-spring.org/spring/gs"
 )
 
@@ -106,10 +104,7 @@ func (c *ObservedClient) Close() error {
 	if c.exec != nil {
 		_ = c.exec.Close()
 	}
-	if v, ok := resolvers.LoadAndDelete(c.Client); ok {
-		_ = v.(*discovery.Resolver).Stop()
-		log.Debugf(context.Background(), starterTag, "memcached client destroyed, discovery resolver stopped")
-	}
+	stopLiveResolver(c.Client)
 	return nil
 }
 
