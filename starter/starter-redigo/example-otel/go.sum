@@ -72,6 +72,7 @@ go-spring.org/gs-mock v0.0.9 h1:7az0R0CB45prtQk6D/A02bPk5KRJbs2TbuRIIDTaKl0=
 go-spring.org/log v0.1.4 h1:LJR2Z7qyI6XbtZ8RwRu9vtImNVUdDAR6+4FAjBJXrTE=
 go-spring.org/spring v1.3.4 h1:Zmt+5JjU0c7PtQdaCnz1I5vq+fYr8prZX+jYxoWVJcU=
 go-spring.org/starter-redigo v1.3.4 h1:jC3Hvo2Ct5JXh2g8L9CvkmIl8D1+4iYVR+/AZXs9aZM=
+go-spring.org/starter-redigo v1.3.4/go.mod h1:HJ0J7/OzV31YjutGkXSEtJfX3LWLcNy0+QVjlVeu2eA=
 go-spring.org/stdlib v0.1.7 h1:sxB0/vXY2yyWx84THcBNfaiknBmsYqYh+UGT4xH3sAA=
 go.opentelemetry.io/auto/sdk v1.2.1 h1:jXsnJ4Lmnqd11kwkBV2LgLoFMZKizbCi5fNZ/ipaZ64=
 go.opentelemetry.io/auto/sdk v1.2.1/go.mod h1:KRTj+aOaElaLi+wW1kO/DZRXwkF4C5xPbEe3ZiIhN7Y=

@@ -120,6 +120,13 @@ func newClient(ctx *gs.ContextProvider, c Config) (*ObservedGormDB, error) {
 			_ = ld.Stop()
 			return nil, err
 		}
+	} else {
+		// Plain DSN mode (no discovery): dial the configured host:port directly.
+		db, err = gorm.Open(postgres.New(postgres.Config{DSN: c.DSN()}), gormConfig(c))
+		if err != nil {
+			log.Errorf(ctx.Context, starterTag, "gorm postgres: open failed: %v", err)
+			return nil, err
+		}
 	}
 
 	// Fail fast: verify connectivity and apply pool settings at creation time.

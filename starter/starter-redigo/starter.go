@@ -102,15 +102,27 @@ func newClient(ctx *gs.ContextProvider, c Config) (*ObservedRedisPool, error) {
 		log.Errorf(ctx.Context, starterTag, "redigo: create client failed: %v", err)
 		return nil, errutil.Explain(err, "failed to create redis client")
 	}
-	// Fail fast: the redigo pool dials lazily, so borrow one connection and
-	// PING it at startup. A misconfigured address or unreachable server then
+	// Fail fast: the redigo pool dials lazily, so dial one connection directly
+	// and PING it at startup. A misconfigured address or unreachable server then
 	// surfaces during boot rather than on the first request.
-	conn := pool.Get()
-	defer func() { _ = conn.Close() }()
-	if _, err := conn.Do("PING"); err != nil {
+	//
+	// The ping uses pool.Dial (a bare, non-pooled dial) instead of pool.Get: a
+	// conn borrowed via Get is returned to the idle pool on Close, and this
+	// happens *before* ApplyResilience wraps pool.Dial with the obsConn — so that
+	// stale raw conn would later be handed out with a nil executor and silently
+	// bypass resilience. Dialing directly keeps it out of the pool.
+	conn, err := pool.Dial()
+	if err != nil {
 		log.Errorf(ctx.Context, starterTag, "redigo: startup ping failed: %v", err)
 		_ = pool.Close()
 		return nil, errutil.Explain(err, "redis: startup ping failed")
+	}
+	_, pingErr := conn.Do("PING")
+	_ = conn.Close()
+	if pingErr != nil {
+		log.Errorf(ctx.Context, starterTag, "redigo: startup ping failed: %v", pingErr)
+		_ = pool.Close()
+		return nil, errutil.Explain(pingErr, "redis: startup ping failed")
 	}
 	log.Infof(ctx.Context, starterTag, "redigo client initialized, addr=%s", c.Addr)
 	return &ObservedRedisPool{Pool: pool, cfg: c}, nil

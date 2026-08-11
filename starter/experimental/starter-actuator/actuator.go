@@ -44,9 +44,8 @@
 //
 //	GET  /info        build/version info from the embedded build metadata.
 //	GET  /loggers     configured loggers with their effective levels, plus the
-//	                  selectable level names.
-//	POST /loggers/{name}  set a logger's level at runtime; body
-//	                  {"configuredLevel":"DEBUG"}. 204 on success.
+//	                  selectable level names. Read-only: a runtime level override
+//	                  (POST /loggers/{name}) is intentionally not implemented.
 //	GET  /env         merged configuration properties, secrets masked.
 //	GET  /configprops merged configuration as a nested tree, secrets masked.
 //	GET  /threaddump  goroutine stack dump (text/plain), the Go analogue of a

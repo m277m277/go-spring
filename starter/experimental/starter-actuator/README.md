@@ -78,29 +78,23 @@ paths are canonical; the older names are kept as aliases.
 | `/readyz` (alias `/readiness`) | GET | **Readiness.** Returns `200 {"status":"UP"}` only after the app has crossed its readiness barrier **and** every `readiness`-group indicator passes; `503` otherwise (`OUT_OF_SERVICE` before ready or while draining on shutdown, `DOWN` when a component fails). |
 | `/startupz` (alias `/startup`) | GET | **Startup probe.** Returns `503 OUT_OF_SERVICE` until the app has finished starting **and** every `startup`-group indicator passes, then `200`. Unaffected by drain, so once startup succeeds the kubelet hands off to the liveness probe and a slow boot is not killed. |
 | `/info` | GET | Build/version metadata read from the binary's embedded build info (module path/version, Go toolchain, and the VCS revision/time when built from a checkout). |
-| `/loggers` | GET | Configured loggers with their effective levels, plus the selectable level names. The Go analogue of Spring Boot's `/actuator/loggers`. |
-| `/loggers/{name}` | POST | Override a logger's level at runtime. Body `{"configuredLevel":"DEBUG"}`; use `root` for the root logger. `204` on success, `400` for an invalid level, `404` for an unknown logger. |
+| `/loggers` | GET | Configured loggers with their effective levels, plus the selectable level names. Read-only (a runtime level override is intentionally not implemented). The Go analogue of Spring Boot's `/actuator/loggers`. |
 | `/env` | GET | Merged configuration properties as a flat property source. Secret-named keys (`password`, `token`, `secret`, ...) and `ENC(...)` values are masked. |
 | `/configprops` | GET | Merged configuration as a nested tree (the Go analogue of `/actuator/configprops`), with the same masking as `/env`. |
 | `/threaddump` | GET | Goroutine stack dump as `text/plain` — the Go analogue of a JVM thread dump. |
 | `/metrics` | GET | Prometheus scrape endpoint. Present only when `starter-otel` is imported with `spring.observability.metrics.exporter=prometheus` — otel contributes its scrape handler and the actuator mounts it here (see *Metrics & Kubernetes Scraping*). |
 
-### Runtime log levels
+### Log levels
 
-`GET /loggers` reports each configured logger and the levels you can set:
+`GET /loggers` reports each configured logger and the selectable levels. It is
+**read-only** — a runtime level override (`POST /loggers/{name}`) is
+intentionally not implemented:
 
 ```json
 {
   "levels": ["TRACE","DEBUG","INFO","WARN","ERROR","PANIC","FATAL"],
   "loggers": { "root": { "configuredLevel": "INFO" } }
 }
-```
-
-Raise a logger to `DEBUG` at runtime without a restart, then restore it:
-
-```bash
-curl -X POST http://127.0.0.1:9370/loggers/root \
-  -H 'Content-Type: application/json' -d '{"configuredLevel":"DEBUG"}'
 ```
 
 ### Secret masking (`/env`, `/configprops`)

@@ -58,12 +58,20 @@ func init() {
 				b.SetFileLine(file, line)
 				// Contribute a health indicator for this instance, injecting the
 				// client just registered above by name.
-				h := r.Provide(health2.NewClientHealth, gs.ValueArg(name), gs.TagArg(name)).Name(name).Export(gs.As[health.Indicator]())
+				// Inject the concrete *ObservedRedisClient by name and pass its
+				// embedded client to the health constructor. Resolving the
+				// redis.UniversalClient interface by tag would not match the
+				// wrapper bean; the concrete type embeds it.
+				h := r.Provide(func(w *ObservedRedisClient) health.Indicator {
+					return health2.NewClientHealth(name, w.UniversalClient)
+				}, gs.TagArg(name)).Name(name).Export(gs.As[health.Indicator]())
 				h.SetFileLine(file, line)
 			case "cluster":
 				b := r.Provide(newClusterClient, gs.IndexArg(1, gs.ValueArg(c))).Name(name).InitMethod("ApplyResilience").Destroy((*ObservedRedisClient).Close)
 				b.SetFileLine(file, line)
-				h := r.Provide(health2.NewClusterHealth, gs.ValueArg(name), gs.TagArg(name)).Name(name).Export(gs.As[health.Indicator]())
+				h := r.Provide(func(w *ObservedRedisClient) health.Indicator {
+					return health2.NewClusterHealth(name, w.UniversalClient)
+				}, gs.TagArg(name)).Name(name).Export(gs.As[health.Indicator]())
 				h.SetFileLine(file, line)
 			default:
 				return errutil.Explain(nil, "redis: invalid mode %q for instance %q (want single/sentinel/cluster)", c.Mode, name)

@@ -1,0 +1,11 @@
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.0
+    container_name: starter-elasticsearch-cloudnative
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - xpack.security.http.ssl.enabled=false
+      - ES_JAVA_OPTS=-Xms384m -Xmx384m
+    ports:
+      - "127.0.0.1:9200:9200"

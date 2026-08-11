@@ -20,7 +20,6 @@ import (
 	"context"
 	"net/http"
 	"sync"
-	"sync/atomic"
 
 	"github.com/elastic/go-elasticsearch/v8"
 	observe "go-spring.org/observe"
@@ -139,24 +138,33 @@ var dynamicTransports sync.Map // *elasticsearch.Client -> *dynamicTransport
 // is this indirection and ApplyResilience swaps in the observe+resilience
 // transport (or the observe-only transport when resilience is disabled). Until
 // ApplyResilience runs it passes straight through to http.DefaultTransport.
+//
+// The slot is guarded by a RWMutex rather than an atomic.Value because the
+// active round-tripper can be any of several distinct concrete types
+// (http.DefaultTransport, *obsTransport, the resilience round-tripper), and
+// atomic.Value requires every stored value to have the same concrete type.
 type dynamicTransport struct {
-	cur atomic.Value // holds http.RoundTripper
+	mu  sync.RWMutex
+	cur http.RoundTripper
 }
 
 func newDynamicTransport() *dynamicTransport {
-	t := &dynamicTransport{}
-	t.cur.Store(http.DefaultTransport)
-	return t
+	return &dynamicTransport{cur: http.DefaultTransport}
 }
 
 // Swap atomically replaces the active round-tripper.
 func (t *dynamicTransport) Swap(rt http.RoundTripper) {
-	t.cur.Store(rt)
+	t.mu.Lock()
+	t.cur = rt
+	t.mu.Unlock()
 }
 
 // RoundTrip delegates to the currently-active round-tripper.
 func (t *dynamicTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	return t.cur.Load().(http.RoundTripper).RoundTrip(req)
+	t.mu.RLock()
+	rt := t.cur
+	t.mu.RUnlock()
+	return rt.RoundTrip(req)
 }
 
 // resourceLabel derives a stable, human-readable resilience resource key for a

@@ -91,11 +91,15 @@ run_smoke_tests() {
     print_separator
     echo "Starter example smoke tests"
     print_separator
-    local example_dir dir
-    for example_dir in "${REPO_ROOT}"/starter/*/example; do
+    local example_dir rel dir
+    # Production starters live under starter/*/example and experimental starters
+    # under starter/experimental/*/example; both are smoke-tested here. Examples
+    # that need a backing service ship a docker-gated check.sh, which skips
+    # gracefully when docker is unavailable.
+    for example_dir in "${REPO_ROOT}"/starter/*/example "${REPO_ROOT}"/starter/experimental/*/example; do
         [ -d "${example_dir}" ] || continue
-        dir="$(dirname "${example_dir}")"
-        dir="${dir#"${REPO_ROOT}"/}"
+        rel="${example_dir#"${REPO_ROOT}"/}"   # starter/<name>/example
+        dir="${rel%/example}"                  # starter/<name>
         if [ -x "${example_dir}/check.sh" ]; then
             echo "Running ${dir} (custom check.sh)..."
             if "${example_dir}/check.sh"; then

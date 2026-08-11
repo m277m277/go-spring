@@ -53,6 +53,7 @@ scripts/git-history-audit/reports/
 # since gitignore has no "same name as parent dir" pattern.
 /contrib/observability-gorm/observability-gorm
 /examples/chatAI/chatai
+/examples/cloudnative/cloudnative
 /examples/miniapi/miniapi
 /examples/startup/startup
 /gs/experimental/gs-gui/gs-gui

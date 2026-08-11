@@ -17,7 +17,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"flag"
@@ -32,32 +31,29 @@ import (
 	"syscall"
 	"time"
 
-	"go-spring.org/log"
 	"go-spring.org/cloud/actuator/health"
 	"go-spring.org/spring/gs"
 	_ "go-spring.org/starter-actuator"
 )
 
-// demoIndicator is a stand-in for a real dependency (a database pool, a cache
-// client, ...). Any bean exported as health.Indicator is folded into the
-// actuator's /readiness aggregate with no extra wiring; here we register one so
-// the smoke test can observe both the UP and DOWN paths.
-type demoIndicator struct {
-	down atomic.Bool
-}
+// depDown toggles the demo dependency's health so runTest can observe both the
+// UP and DOWN probe paths.
+var depDown atomic.Bool
 
-func (d *demoIndicator) HealthName() string { return "demo:dependency" }
-
-func (d *demoIndicator) CheckHealth(ctx context.Context) error {
-	if d.down.Load() {
-		return errors.New("dependency unavailable")
-	}
-	return nil
-}
-
-// dep is registered as a health.Indicator and kept here so runTest can toggle
-// it to exercise the DOWN path.
-var dep = &demoIndicator{}
+// dep is a health.Indicator built with the health.NewIndicator helper; it stands
+// in for a real dependency (a database pool, a cache client, ...). Any bean
+// exported as health.Indicator is folded into the actuator's /readiness
+// aggregate with no extra wiring; here we register one so the smoke test can
+// observe both the UP and DOWN paths.
+var dep = health.NewIndicator(
+	"demo:dependency",
+	func(ctx context.Context) error {
+		if depDown.Load() {
+			return errors.New("dependency unavailable")
+		}
+		return nil
+	},
+)
 
 func init() {
 	// Contribute the indicator to the actuator. Because the actuator collects
@@ -127,23 +123,14 @@ func runTest() {
 	mustStatus(base+"/startupz", http.StatusOK)
 	fmt.Println("healthz/readyz/startupz OK")
 
-	// loggers: the root logger is listed at INFO, a DEBUG line is suppressed,
-	// then after raising the level to DEBUG it is emitted. This proves the
-	// runtime level override wired through the log control seam takes effect.
+	// loggers: the root logger is listed at INFO. A runtime level override
+	// (POST /loggers/{name}) is intentionally not implemented — dynamic log-level
+	// change was rejected by design — so the endpoint is read-only.
 	body := mustBody(base + "/loggers")
 	if !strings.Contains(body, `"root"`) || !strings.Contains(body, `"configuredLevel": "INFO"`) {
 		fail("/loggers did not report root at INFO: " + body)
 	}
-	log.Debugf(context.Background(), log.TagAppDef, "debug-before-should-not-appear")
-	mustStatusMethod(http.MethodPost, base+"/loggers/root", `{"configuredLevel":"DEBUG"}`, http.StatusNoContent)
-	if body = mustBody(base + "/loggers"); !strings.Contains(body, `"configuredLevel": "DEBUG"`) {
-		fail("/loggers did not reflect the DEBUG override: " + body)
-	}
-	log.Debugf(context.Background(), log.TagAppDef, "debug-after-should-appear")
-	// An unknown logger is 404; an invalid level is 400.
-	mustStatusMethod(http.MethodPost, base+"/loggers/nope", `{"configuredLevel":"DEBUG"}`, http.StatusNotFound)
-	mustStatusMethod(http.MethodPost, base+"/loggers/root", `{"configuredLevel":"BOGUS"}`, http.StatusBadRequest)
-	fmt.Println("loggers level override OK")
+	fmt.Println("loggers OK")
 
 	// env: ordinary values pass through; secret-named keys and ENC(...) values
 	// are masked.
@@ -172,14 +159,14 @@ func runTest() {
 
 	// Toggle the dependency down; readiness must now fail with 503 while
 	// liveness stays up (a degraded dependency must not trip liveness).
-	dep.down.Store(true)
+	depDown.Store(true)
 	mustStatus(base+"/readiness", http.StatusServiceUnavailable)
 	mustStatus(base+"/health", http.StatusOK)
 	fmt.Println("readiness DOWN when dependency down, health still UP")
 
 	// Restore the dependency so the subsequent 503 is attributable to draining,
 	// not to the indicator.
-	dep.down.Store(false)
+	depDown.Store(false)
 	mustStatus(base+"/readiness", http.StatusOK)
 
 	// Trigger graceful shutdown. With app.shutdown.pre-stop-delay set, the
@@ -227,25 +214,6 @@ func mustStatus(url string, want int) {
 	if resp.StatusCode != want {
 		fmt.Fprintf(os.Stderr, "unexpected status for %s: got %d want %d\n", url, resp.StatusCode, want)
 		os.Exit(1)
-	}
-}
-
-// mustStatusMethod issues a request with the given method and body and exits
-// non-zero unless the response status matches want.
-func mustStatusMethod(method, url, body string, want int) {
-	req, err := http.NewRequest(method, url, bytes.NewBufferString(body))
-	if err != nil {
-		fail(fmt.Sprintf("build request %s %s: %v", method, url, err))
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		fail(fmt.Sprintf("request %s %s: %v", method, url, err))
-	}
-	_, _ = io.Copy(io.Discard, resp.Body)
-	_ = resp.Body.Close()
-	if resp.StatusCode != want {
-		fail(fmt.Sprintf("unexpected status for %s %s: got %d want %d", method, url, resp.StatusCode, want))
 	}
 }
 
