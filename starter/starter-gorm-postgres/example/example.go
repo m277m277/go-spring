@@ -27,9 +27,8 @@ import (
 	"time"
 
 	"go-spring.org/spring/gs"
+	starter "go-spring.org/starter-gorm-postgres"
 	"gorm.io/gorm"
-
-	_ "go-spring.org/starter-gorm-postgres"
 )
 
 // KV is a small demo model. `key` and `value` are reserved words in some SQL dialects,
@@ -41,8 +40,8 @@ type KV struct {
 }
 
 type Service struct {
-	DB          *gorm.DB `autowire:"primary"`
-	DiscoveryDB *gorm.DB `autowire:"discovery"`
+	DB          *starter.ObservedGormDB `autowire:"primary"`
+	DiscoveryDB *starter.ObservedGormDB `autowire:"discovery"`
 }
 
 var manual = flag.Bool("manual", false, "run in manual verification mode (server stays up)")

@@ -37,6 +37,8 @@ import (
 	"net/http"
 	"net/url"
 	"time"
+
+	"go-spring.org/spring/experimental/cloud/resilience"
 )
 
 // Predicate reports whether a request matches a route. It is the Go-idiomatic
@@ -118,11 +120,51 @@ type RouteRaw struct {
 // starters (starter-go-redis, starter-http-client, ...) so the whole framework
 // reads resilience config one way.
 type policyRaw struct {
-	RateLimit      float64       `value:"${rate-limit:=0}"`
-	Burst          int           `value:"${burst:=0}"`
-	ErrorThreshold int           `value:"${error-threshold:=0}"`
-	OpenDuration   time.Duration `value:"${open-duration:=0}"`
-	MaxConcurrent  int           `value:"${max-concurrent:=0}"`
-	MaxRetries     int           `value:"${max-retries:=0}"`
-	Timeout        time.Duration `value:"${attempt-timeout:=0}"`
+	// Driver names the resilience backend for this policy ("default" or
+	// "sentinel"). Empty means "default". Previously hardcoded to "default",
+	// which blocked gateway routes from using sentinel.
+	Driver string `value:"${driver:=}"`
+
+	RateLimit           float64                `value:"${rate-limit:=0}"`
+	Burst               int                    `value:"${burst:=0}"`
+	ErrorThreshold      int                    `value:"${error-threshold:=0}"`
+	OpenDuration        time.Duration          `value:"${open-duration:=0}"`
+	BreakerStrategy     resilience.BreakerStrategy `value:"${breaker-strategy:=}"`
+	ErrorRateThreshold  float64                `value:"${error-rate-threshold:=0}"`
+	MinRequests         int                    `value:"${min-requests:=0}"`
+	BreakerWindow       time.Duration          `value:"${breaker-window:=0}"`
+	MaxConcurrent       int                    `value:"${max-concurrent:=0}"`
+	MaxRetries          int                    `value:"${max-retries:=0}"`
+	InitialInterval     time.Duration          `value:"${initial-interval:=0}"`
+	Multiplier          float64                `value:"${multiplier:=0}"`
+	MaxInterval         time.Duration          `value:"${max-interval:=0}"`
+	RandomizationFactor float64                `value:"${randomization-factor:=0}"`
+	Timeout             time.Duration          `value:"${attempt-timeout:=0}"`
+	MaxDuration         time.Duration          `value:"${max-duration:=0}"`
+}
+
+// toPolicy maps the bound policyRaw onto the driver-neutral resilience.Policy.
+// It is the single translation point so gateway routes expose the SAME knobs as
+// the client starters' shared resilience.Config — closing the previous
+// capability gap where gateway could not use error-rate breaking or exponential
+// backoff.
+func (p policyRaw) toPolicy() resilience.Policy {
+	return resilience.Policy{
+		RateLimit:           p.RateLimit,
+		Burst:               p.Burst,
+		ErrorThreshold:      p.ErrorThreshold,
+		OpenDuration:        p.OpenDuration,
+		BreakerStrategy:     p.BreakerStrategy,
+		ErrorRateThreshold:  p.ErrorRateThreshold,
+		MinRequests:         p.MinRequests,
+		BreakerWindow:       p.BreakerWindow,
+		MaxConcurrent:       p.MaxConcurrent,
+		MaxRetries:          p.MaxRetries,
+		InitialInterval:     p.InitialInterval,
+		Multiplier:          p.Multiplier,
+		MaxInterval:         p.MaxInterval,
+		RandomizationFactor: p.RandomizationFactor,
+		Timeout:             p.Timeout,
+		MaxDuration:         p.MaxDuration,
+	}
 }

@@ -29,6 +29,8 @@ require (
 	github.com/spf13/cast v1.10.0 // indirect
 	go-spring.org/gs-mock v0.0.9 // indirect
 	go-spring.org/log v0.1.4 // indirect
+	go-spring.org/observe v0.0.0
+	go-spring.org/observe-resilience v0.0.0
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel/sdk/metric v1.43.0 // indirect
 	golang.org/x/arch v0.26.0 // indirect
@@ -40,3 +42,7 @@ require (
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
+
+replace go-spring.org/observe => ../../../observe
+
+replace go-spring.org/observe-resilience => ../../../observe-resilience

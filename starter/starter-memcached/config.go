@@ -22,7 +22,6 @@ import (
 	"time"
 
 	"github.com/bradfitz/gomemcache/memcache"
-	observe "go-spring.org/observe"
 	"go-spring.org/spring/cloud/discovery"
 	"go-spring.org/spring/cloud/mesh"
 	"go-spring.org/stdlib/errutil"
@@ -81,12 +80,11 @@ type Config struct {
 
 	// Driver specifies which Memcached driver to use, defaults to DefaultDriver.
 	Driver string `value:"${driver:=DefaultDriver}"`
-
-	// Observability configures the per-operation instrumentation (trace span +
-	// duration/in-flight metric + access log off/brief/detailed) emitted by the
-	// obsClient wrapper. Defaults to "brief".
-	Observability observe.LogConfig `value:"${observability:=}"`
 }
+
+// Resilience and Observability are no longer fields of Config: they moved onto
+// the ObservedClient wrapper bean, field-injected by gs (Resilience via
+// gs.Dync, hot-reloadable) and consumed by the ApplyResilience InitMethod.
 
 // Driver interface defines how to create a Memcached client.
 type Driver interface {

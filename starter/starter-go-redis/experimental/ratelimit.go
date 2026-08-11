@@ -68,6 +68,37 @@ type redisRateLimiter struct {
 
 var _ resilience.RateLimiter = (*redisRateLimiter)(nil)
 
+// redisLimiterDriver adapts a bound Redis client into a [resilience.LimiterDriver]
+// so it can be registered under a name and looked up by gateway or any other
+// caller via [resilience.MustGetLimiter]. The [resilience.LimiterDriver] interface
+// takes only a [resilience.LimitPolicy] (no client), so the client must be bound
+// at registration time — hence RegisterLimiterDriver(name, client) below rather
+// than a package-level init.
+type redisLimiterDriver struct{ client redis.UniversalClient }
+
+// NewRateLimiter builds a [resilience.RateLimiter] for the bound client.
+func (d redisLimiterDriver) NewRateLimiter(p resilience.LimitPolicy) (resilience.RateLimiter, error) {
+	return NewRateLimiter(d.client, p), nil
+}
+
+// RegisterLimiterDriver registers a Redis-backed [resilience.LimiterDriver] under
+// name, bound to client, so callers can resolve it with
+// [resilience.MustGetLimiter](name). This closes the gap where the Redis limiter
+// existed as a constructor (NewRateLimiter) but was not reachable through the
+// driver registry that gateway and other starters use. Panics on empty name or
+// nil client, matching the registry's posture.
+//
+// Typical wiring (starter-go-redis or app code, after the client bean exists):
+//
+//	experimental.RegisterLimiterDriver("redis", client)
+//	... then in gateway config: spring.gateway.filter.ratelimit.driver = redis
+func RegisterLimiterDriver(name string, client redis.UniversalClient) {
+	if client == nil {
+		panic("starter-go-redis: register nil redis limiter client for " + name)
+	}
+	resilience.RegisterLimiter(name, redisLimiterDriver{client: client})
+}
+
 // NewRateLimiter builds a global [resilience.RateLimiter] over client from a
 // [resilience.LimitPolicy]. A zero Rate yields an unlimited pass-through (no
 // Redis round-trip). Burst defaults to a small multiple of Rate when unset. Keys

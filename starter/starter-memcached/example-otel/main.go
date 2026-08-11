@@ -57,9 +57,13 @@ func (AnotherMemcachedDriver) CreateClient(ctx context.Context, c StarterMemcach
 	return memcache.New(c.Servers...), nil
 }
 
+// Service injects the per-instance wrapped clients. gomemcache offers no hook/
+// plugin extension point, so per-operation observability is delivered through
+// the *ObservedClient wrapper itself (Get/Set/Delete/... emit span+metric+log);
+// inject that type rather than the raw *memcache.Client.
 type Service struct {
-	Memcached          *memcache.Client `autowire:"cache"`
-	DiscoveryMemcached *memcache.Client `autowire:"discovery"`
+	Memcached          *StarterMemcached.ObservedClient `autowire:"cache"`
+	DiscoveryMemcached *StarterMemcached.ObservedClient `autowire:"discovery"`
 }
 
 var manual = flag.Bool("manual", false, "run in manual verification mode (server stays up)")

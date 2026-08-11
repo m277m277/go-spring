@@ -19,6 +19,8 @@ package StarterMQTT
 import (
 	"time"
 
+	observe "go-spring.org/observe"
+	"go-spring.org/spring/experimental/cloud/resilience"
 	"go-spring.org/spring/experimental/cloud/tlsconf"
 )
 
@@ -56,7 +58,28 @@ type Config struct {
 	// Will configures the Last Will and Testament (LWT) message the broker
 	// publishes on the client's behalf if it disconnects ungracefully.
 	Will WillConfig `value:"${will}"`
+
+	// Resilience optionally protects publish calls with rate limiting and
+	// circuit breaking. It is disabled by default; when enabled, GuardedPublish
+	// routes Client.Publish (plus the token.Wait() that blocks until the paho
+	// outbound queue accepts the message, or until a QoS 1/2 ack lands) through
+	// the selected resilience driver. This is a minimal guard: paho manages its
+	// own internal queueing and reconnect, so the executor here is most useful
+	// for rate-limiting the publish rate and short-circuiting when the broker is
+	// unhealthy — not for retrying individual publishes.
+	Resilience resilience.Config `value:"${resilience:=}"`
+
+	// Observability configures the per-operation access log emitted by the
+	// resilience executor (off/brief/detailed). Defaults to "brief". This
+	// complements the package-level trace helpers in observability.go, which are
+	// driven by their own default level.
+	Observability observe.LogConfig `value:"${observability:=}"`
 }
+
+// Resilience binds the backend-neutral resilience knobs shared by every client
+// starter (see [resilience.Config]). Keep MaxRetries at 0 for publishing —
+// paho already retries internally on reconnect, and duplicating a publish on
+// retry is rarely what the caller wants.
 
 // WillConfig configures the Last Will and Testament message. The will is
 // registered only when Topic is non-empty.

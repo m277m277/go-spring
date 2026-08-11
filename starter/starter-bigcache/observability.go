@@ -18,9 +18,13 @@ package StarterBigCache
 
 import (
 	"context"
+	"errors"
 
 	"github.com/allegro/bigcache/v3"
+	"go-spring.org/observe-resilience"
 	observe "go-spring.org/observe"
+	"go-spring.org/spring/experimental/cloud/resilience"
+	"go-spring.org/spring/gs"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -81,40 +85,136 @@ func registerMetrics(name string, c *bigcache.BigCache) {
 
 // --- per-operation observe wrapper -------------------------------------------
 //
-// obsBigCache wraps *bigcache.BigCache so Get/Set/Delete flow through the shared
-// observe kit (trace span + duration/in-flight metric + access log), in addition
-// to the cache-stat gauges above. bigcache is an in-process heap cache with no
-// network, so the spans are root spans (no caller context to link) and the
-// durations are sub-microsecond - the value is per-key access visibility and a
-// uniform signal vocabulary with the other client starters. It embeds the real
+// ObservedBigCache wraps *bigcache.BigCache so Get/Set/Delete flow through the
+// shared observe kit (trace span + duration/in-flight metric + access log), in
+// addition to the cache-stat gauges above. bigcache is an in-process heap cache
+// with no network, so the spans are root spans (no caller context to link) and
+// the durations are sub-microsecond - the value is per-key access visibility and
+// a uniform signal vocabulary with the other client starters. It embeds the real
 // client, so Reset/Stats/Len/Capacity/Close are promoted unchanged.
+//
+// The type is exported because bigcache (unlike go-redis or gorm) offers no
+// hook/plugin extension point, so the only way to observe per-operation traffic
+// is to hold the wrapper itself. Apps therefore inject *ObservedBigCache rather
+// than *bigcache.BigCache; the embedded field is available for any third-party
+// API that needs the raw client.
 
-type obsBigCache struct {
+type ObservedBigCache struct {
 	*bigcache.BigCache
 	obs *observe.Observer
+
+	// Resilience is field-injected (gs.Dync, hot-reloadable) so the protection
+	// policy can change at runtime without a restart; ApplyResilience subscribes
+	// OnChanged to Refresh the executor. Observability is the startup access-log
+	// config (not hot). These replace the old Config.Resilience/Observability
+	// fields so the wrapper bean owns its own protection policy.
+	Resilience    gs.Dync[resilience.Config] `value:"${resilience:=}"`
+	Observability observe.LogConfig         `value:"${observability:=}"`
+
+	// name is the instance name (the spring.bigcache.<name> map key), used for
+	// the resilience resource label. Set by newClient; ApplyResilience reads it.
+	name string
+
+	// exec is the resilience executor protecting Get/Set/Delete, set by
+	// ApplyResilience when resilience is enabled. nil on an unarmed client, in
+	// which case guard runs the operation directly with no policy overhead.
+	exec resilience.Executor
+	// resource is the resilience resource key ("bigcache:<instance-name>")
+	// exec scopes limiter/breaker state by. Only meaningful when exec != nil.
+	resource string
 }
 
-func newObsBigCache(c *bigcache.BigCache, cfg observe.LogConfig) *obsBigCache {
-	return &obsBigCache{BigCache: c, obs: observe.NewClient("bigcache", cfg)}
+// ApplyResilience is the gs InitMethod: gs field-injects Resilience + Observability
+// after newClient returns, then calls this. It builds the observe.Observer (needs
+// Observability) and, when resilience is enabled, the executor (needs the
+// Resilience policy) + arms guard + subscribes to policy changes for hot Refresh.
+func (c *ObservedBigCache) ApplyResilience() error {
+	c.obs = observe.NewClient("bigcache", c.Observability)
+	rc := c.Resilience.Value()
+	if !rc.Enabled {
+		return nil
+	}
+	drv, err := resilience.MustGetDriver(rc.Driver)
+	if err != nil {
+		return err
+	}
+	exec, err := drv.NewExecutor(rc.Policy())
+	if err != nil {
+		return err
+	}
+	exec = resilobserve.WrapExecutor(exec, "bigcache", c.Observability)
+	c.exec = exec
+	c.resource = resilience.ResourceLabel("bigcache", c.name)
+	// Hot-reload: when the bound resilience config changes, adopt the new policy
+	// without a restart. Refresh resets per-resource state (the intended semantic
+	// of a threshold change - old failure counts were under the old policy).
+	c.Resilience.OnChanged(func(new, _ resilience.Config) {
+		if r, ok := exec.(resilience.RefreshableExecutor); ok {
+			_ = r.Refresh(new.Policy())
+		}
+	})
+	return nil
 }
 
-func (c *obsBigCache) Get(key string) ([]byte, error) {
+// Close releases the resilience executor (if armed) and the underlying BigCache.
+// It is the gs destroy method.
+func (c *ObservedBigCache) Close() error {
+	if c.exec != nil {
+		_ = c.exec.Close()
+	}
+	return c.BigCache.Close()
+}
+
+// guard runs fn under the resilience executor when armed, and directly otherwise.
+// bigcache.ErrEntryNotFound is a cache miss — a normal, expected outcome — so it is
+// treated as success for the breaker/retry (mirroring how go-redis treats
+// redis.Nil and gorm treats ErrRecordNotFound). A rejection (rate-limited /
+// circuit-open / bulkhead-full) is returned as the executor's sentinel error; any
+// other error from fn feeds the breaker and may be retried.
+func (c *ObservedBigCache) guard(ctx context.Context, fn func(context.Context) error) error {
+	if c.exec == nil {
+		return fn(ctx)
+	}
+	var callErr error
+	execErr := c.exec.Execute(ctx, c.resource, func(ctx context.Context) error {
+		callErr = fn(ctx)
+		if callErr != nil && !errors.Is(callErr, bigcache.ErrEntryNotFound) {
+			return callErr // a real failure feeds the breaker/retry
+		}
+		return nil // success or cache miss
+	})
+	if execErr != nil {
+		return execErr // rejected by protection, or propagated failure
+	}
+	return callErr
+}
+
+func (c *ObservedBigCache) Get(key string) ([]byte, error) {
 	_, sp := c.obs.Start(context.Background(), "get", key)
-	v, err := c.BigCache.Get(key)
+	var v []byte
+	err := c.guard(context.Background(), func(ctx context.Context) error {
+		var e error
+		v, e = c.BigCache.Get(key)
+		return e
+	})
 	sp.End(err)
 	return v, err
 }
 
-func (c *obsBigCache) Set(key string, entry []byte) error {
+func (c *ObservedBigCache) Set(key string, entry []byte) error {
 	_, sp := c.obs.Start(context.Background(), "set", key)
-	err := c.BigCache.Set(key, entry)
+	err := c.guard(context.Background(), func(ctx context.Context) error {
+		return c.BigCache.Set(key, entry)
+	})
 	sp.End(err)
 	return err
 }
 
-func (c *obsBigCache) Delete(key string) error {
+func (c *ObservedBigCache) Delete(key string) error {
 	_, sp := c.obs.Start(context.Background(), "delete", key)
-	err := c.BigCache.Delete(key)
+	err := c.guard(context.Background(), func(ctx context.Context) error {
+		return c.BigCache.Delete(key)
+	})
 	sp.End(err)
 	return err
 }

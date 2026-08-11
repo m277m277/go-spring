@@ -27,6 +27,8 @@ require (
 	github.com/smartystreets/goconvey v1.8.1 // indirect
 	github.com/spf13/cast v1.10.0 // indirect
 	go-spring.org/gs-mock v0.0.9 // indirect
+	go-spring.org/observe v0.0.0
+	go-spring.org/observe-resilience v0.0.0
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel/metric v1.43.0 // indirect
 	golang.org/x/arch v0.26.0 // indirect
@@ -34,3 +36,7 @@ require (
 	golang.org/x/sys v0.47.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
+
+replace go-spring.org/observe => ../../../observe
+
+replace go-spring.org/observe-resilience => ../../../observe-resilience

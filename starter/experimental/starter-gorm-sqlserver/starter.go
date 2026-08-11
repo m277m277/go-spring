@@ -38,8 +38,8 @@ import (
 	"gorm.io/gorm"
 )
 
-// liveDialers tracks the discovery-backed resolver behind each client, so
-// destroyClient can stop the watch when the client is torn down.
+// liveDialers tracks the discovery-backed resolver behind each client, so the
+// wrapper's Close can stop the watch when the client is torn down.
 var liveDialers sync.Map // *gorm.DB -> *discovery.Resolver
 
 // resolverDialer adapts a discovery.Resolver to mssql's Dialer interface
@@ -73,11 +73,14 @@ func init() {
 			return err
 		}
 		for name, c := range m {
-			b := r.Provide(newClient, gs.ValueArg(c)).Name(name).Destroy(destroyClient)
+			b := r.Provide(newClient, gs.IndexArg(1, gs.ValueArg(c))).Name(name).InitMethod("ApplyResilience").Destroy((*ObservedGormDB).Close)
 			b.SetFileLine(file, line)
 			// Contribute a health indicator for this instance, injecting the
-			// *gorm.DB just registered above by name.
-			h := r.Provide(health2.NewGormHealth, gs.ValueArg(name), gs.TagArg(name)).Export(gs.As[health.Indicator]())
+			// wrapper just registered above by name (the embedded *gorm.DB is
+			// passed through to the indicator).
+			h := r.Provide(func(w *ObservedGormDB) health.Indicator {
+				return health2.NewGormHealth(name, w.DB)
+			}, gs.TagArg(name)).Name(name).Export(gs.As[health.Indicator]())
 			h.SetFileLine(file, line)
 		}
 		return nil
@@ -96,7 +99,7 @@ func init() {
 // resolverDialer adapter, which implements mssql.Dialer. In mesh mode a sidecar
 // owns discovery+LB, so the configured Host is used as-is. When c.ServiceName
 // is empty this stays a plain DSN dial, unchanged from before.
-func newClient(ctx *gs.ContextProvider, c Config) (*gorm.DB, error) {
+func newClient(ctx *gs.ContextProvider, c Config) (*ObservedGormDB, error) {
 	if c.Host == "" && c.ServiceName == "" {
 		return nil, errutil.Explain(nil, "gorm sqlserver: one of host or service-name must be set")
 	}
@@ -109,10 +112,9 @@ func newClient(ctx *gs.ContextProvider, c Config) (*gorm.DB, error) {
 			log.Errorf(ctx.Context, starterTag, "gorm sqlserver: open failed: %v", err)
 			return nil, err
 		}
-		if err := applyObservability(db, c); err != nil {
-			log.Errorf(ctx.Context, starterTag, "gorm sqlserver: install otel plugin failed: %v", err)
-			return nil, err
-		}
+		// Fail fast: verify connectivity and apply pool settings at creation time.
+		// The observe plugin + resilience callbacks are installed later by the
+		// wrapper's ApplyResilience (InitMethod).
 		if err := applyPool(db, c); err != nil {
 			log.Errorf(ctx.Context, starterTag, "gorm sqlserver: ping failed: %v", err)
 			if sqlDB, derr := db.DB(); derr == nil {
@@ -121,7 +123,7 @@ func newClient(ctx *gs.ContextProvider, c Config) (*gorm.DB, error) {
 			return nil, err
 		}
 		log.Infof(ctx.Context, starterTag, "gorm sqlserver client initialized, host=%s db=%s", c.Host, c.DB)
-		return db, nil
+		return &ObservedGormDB{DB: db, cfg: c}, nil
 	}
 
 	d, err := discovery.GetDiscovery(c.Discovery)
@@ -151,12 +153,9 @@ func newClient(ctx *gs.ContextProvider, c Config) (*gorm.DB, error) {
 		_ = sqlDB.Close()
 		return nil, err
 	}
-	if err := applyObservability(db, c); err != nil {
-		log.Errorf(ctx.Context, starterTag, "gorm sqlserver: install otel plugin failed: %v", err)
-		_ = ld.Stop()
-		_ = sqlDB.Close()
-		return nil, err
-	}
+	// Fail fast: verify connectivity and apply pool settings at creation time.
+	// The observe plugin + resilience callbacks are installed later by the
+	// wrapper's ApplyResilience (InitMethod).
 	if err := applyPool(db, c); err != nil {
 		log.Errorf(ctx.Context, starterTag, "gorm sqlserver: ping failed: %v", err)
 		_ = ld.Stop()
@@ -165,18 +164,5 @@ func newClient(ctx *gs.ContextProvider, c Config) (*gorm.DB, error) {
 	}
 	liveDialers.Store(db, ld)
 	log.Infof(ctx.Context, starterTag, "gorm sqlserver client initialized, service-name=%s db=%s", c.ServiceName, c.DB)
-	return db, nil
-}
-
-// destroyClient stops any discovery watch behind the client and closes the
-// underlying connection pool.
-func destroyClient(db *gorm.DB) error {
-	if v, ok := liveDialers.LoadAndDelete(db); ok {
-		_ = v.(*discovery.Resolver).Stop()
-		log.Debugf(context.Background(), starterTag, "gorm sqlserver client destroyed, discovery dialer stopped")
-	}
-	if sqlDB, err := db.DB(); err == nil {
-		return sqlDB.Close()
-	}
-	return nil
+	return &ObservedGormDB{DB: db, cfg: c}, nil
 }

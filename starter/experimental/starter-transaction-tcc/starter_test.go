@@ -21,6 +21,7 @@ import (
 	"errors"
 	"testing"
 
+	"go-spring.org/observe-transaction"
 	"go-spring.org/spring/experimental/cloud/transaction/tcc"
 	"go-spring.org/stdlib/testing/assert"
 )
@@ -45,7 +46,7 @@ func TestOtelObserver_DrivesTCCWithoutPanic(t *testing.T) {
 	// With no TracerProvider installed the otel global is a no-op, but the observer
 	// must still return a usable context and an end func that records the outcome
 	// without panicking — exercised here through a real cancel path.
-	coord := tcc.NewCoordinator(tcc.WithObserver(otelObserver{}))
+	coord := tcc.NewCoordinator(tcc.WithObserver(transactionobserve.TccObserver{}))
 
 	var confirmed, cancelled []string
 	res, err := coord.Execute(context.Background(), tcc.Transaction{
@@ -61,12 +62,6 @@ func TestOtelObserver_DrivesTCCWithoutPanic(t *testing.T) {
 	assert.Error(t, err).Matches("boom")
 	assert.That(t, res.Status).Equal(tcc.StatusCancelled)
 	assert.Slice(t, cancelled).Equal([]string{"a"})
-}
-
-func TestSpanName(t *testing.T) {
-	assert.That(t, spanName(tcc.PhaseTry, "ReserveStock")).Equal("tcc.try ReserveStock")
-	assert.That(t, spanName(tcc.PhaseConfirm, "ReserveStock")).Equal("tcc.confirm ReserveStock")
-	assert.That(t, spanName(tcc.PhaseCancel, "ReserveStock")).Equal("tcc.cancel ReserveStock")
 }
 
 func TestRecoveryRunner_ConfirmsPendingCommit(t *testing.T) {

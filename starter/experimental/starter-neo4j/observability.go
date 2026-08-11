@@ -41,8 +41,15 @@ import (
 var defaultObs = observe.NewClient("neo4j", observe.LogConfig{Level: observe.DefaultBrief})
 
 // Query runs a Cypher query via neo4j.ExecuteQuery, wrapped with the observe kit
-// (trace span + duration/in-flight metric + access log). It is the instrumented
-// drop-in for neo4j.ExecuteQuery: same signature, plus automatic observability.
+// (trace span + duration/in-flight metric + access log) and, when resilience is
+// enabled for driver, the call-site resilience guard (rate limit / breaker /
+// retry / bulkhead / timeout). It is the instrumented drop-in for
+// neo4j.ExecuteQuery: same signature, plus automatic observability and
+// protection. Because neo4j-go-driver's ExecuteQuery is a package-level
+// function with no interception point, this is the resilience seam —
+// applications swap neo4j.ExecuteQuery for StarterNeo4j.Query and pick up both
+// observability and resilience. Code that drives sessions directly bypasses
+// both unless it calls [RunWithResilience].
 func Query[T any](
 	ctx context.Context,
 	driver neo4j.DriverWithContext,
@@ -52,9 +59,31 @@ func Query[T any](
 	settings ...neo4j.ExecuteQueryConfigurationOption,
 ) (T, error) {
 	ctx, sp := defaultObs.Start(ctx, "query", query)
-	res, err := neo4j.ExecuteQuery[T](ctx, driver, query, parameters, newResultTransformer, settings...)
+	var res T
+	var err error
+	if exec, resource := queryResilience(driver); exec != nil {
+		err = exec.Execute(ctx, resource, func(ctx context.Context) error {
+			res, err = neo4j.ExecuteQuery[T](ctx, driver, query, parameters, newResultTransformer, settings...)
+			return err
+		})
+	} else {
+		res, err = neo4j.ExecuteQuery[T](ctx, driver, query, parameters, newResultTransformer, settings...)
+	}
 	sp.End(err)
 	return res, err
+}
+
+// RunWithResilience runs fn through the resilience guard registered for driver,
+// for code that drives sessions/transactions manually. It is the lower-level
+// escape hatch for Neo4j operations that do not go through [Query] (e.g.
+// driver.NewSession + session.Run / transactional callbacks). When no executor
+// is registered for driver, fn runs unprotected. fn receives a context derived
+// from ctx (the executor may derive a per-attempt timeout from it).
+func RunWithResilience(ctx context.Context, driver neo4j.DriverWithContext, fn func(context.Context) error) error {
+	if exec, resource := queryResilience(driver); exec != nil {
+		return exec.Execute(ctx, resource, fn)
+	}
+	return fn(ctx)
 }
 
 // StartSpan starts a client observation for a manual Neo4j operation (e.g. a

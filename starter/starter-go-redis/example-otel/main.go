@@ -36,15 +36,14 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/redis/go-redis/v9"
 	"go-spring.org/log"
 	"go-spring.org/spring/gs"
-	_ "go-spring.org/starter-go-redis"
+	StarterGoRedis "go-spring.org/starter-go-redis"
 	_ "go-spring.org/starter-otel"
 )
 
 type Service struct {
-	Redis *redis.Client `autowire:"cache"`
+	Redis *StarterGoRedis.ObservedRedisClient `autowire:"cache"`
 }
 
 var manual = flag.Bool("manual", false, "run in manual verification mode (server stays up)")

@@ -54,6 +54,8 @@ require (
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ugorji/go/codec v1.3.1 // indirect
 	go-spring.org/gs-mock v0.0.9 // indirect
+	go-spring.org/observe v0.0.0
+	go-spring.org/observe-resilience v0.0.0
 	go.mongodb.org/mongo-driver/v2 v2.6.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	golang.org/x/arch v0.26.0 // indirect
@@ -65,3 +67,7 @@ require (
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
+
+replace go-spring.org/observe => ../../observe
+
+replace go-spring.org/observe-resilience => ../../observe-resilience

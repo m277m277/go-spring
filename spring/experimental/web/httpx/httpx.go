@@ -94,6 +94,12 @@ type Config struct {
 	// ResilienceDriver is set.
 	ResiliencePolicy resilience.Policy
 
+	// WrapExec, if non-nil, wraps the resilience executor before it drives the
+	// round-tripper — e.g. a client starter passes resilobserve.WrapExecutor to
+	// attach span+metric+log, keeping this otel-free core free of any observe
+	// import. nil-safe: leave nil for an unwrapped executor.
+	WrapExec func(resilience.Executor) resilience.Executor
+
 	// Base is the underlying transport every request ultimately flows through.
 	// Starters pass an otel-instrumented transport here so trace context rides
 	// along; nil means http.DefaultTransport.
@@ -171,6 +177,9 @@ func NewTransport(cfg Config) (rt http.RoundTripper, close func() error, err err
 		if err != nil {
 			closeAll(closeFns)
 			return nil, nil, err
+		}
+		if cfg.WrapExec != nil {
+			exec = cfg.WrapExec(exec)
 		}
 		base = resilience.NewRoundTripper(base, exec, nil)
 		closeFns = append(closeFns, exec.Close)

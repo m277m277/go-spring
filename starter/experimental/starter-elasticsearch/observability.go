@@ -33,19 +33,12 @@ func newOtelInstrumentation() *elastictransport.ElasticsearchOpenTelemetry {
 	return elastictransport.NewOtelInstrumentation(nil, false, "")
 }
 
-// newObserveTransport wraps the underlying HTTP round-tripper so each request
-// emits a duration metric + access log via the observe kit. It is built with
-// WithoutTrace: the trace span comes from newOtelInstrumentation above (applied
-// at the elastictransport.Perform layer, above this round-tripper), so the kit
-// only fills the metric+log gap - no duplicate span. The operation is derived
-// from the request method + URL path (e.g. "POST /index/_search").
-func newObserveTransport(cfg observe.LogConfig) http.RoundTripper {
-	return &obsTransport{
-		base: http.DefaultTransport,
-		obs:  observe.NewClient("elasticsearch", cfg, observe.WithoutTrace()),
-	}
-}
-
+// obsTransport wraps the underlying HTTP round-tripper so each request emits a
+// duration metric + access log via the observe kit. ApplyResilience builds it
+// with WithoutTrace: the trace span comes from newOtelInstrumentation above
+// (applied at the elastictransport.Perform layer, above this round-tripper), so
+// the kit only fills the metric+log gap - no duplicate span. The operation is
+// derived from the request method + URL path (e.g. "POST /index/_search").
 type obsTransport struct {
 	base http.RoundTripper
 	obs  *observe.Observer

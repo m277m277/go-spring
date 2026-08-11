@@ -73,6 +73,14 @@
     "driver": {
       "type": "string",
       "default": "DefaultDriver"
+    },
+    "resilience": {
+      "type": "object",
+      "default": ""
+    },
+    "observability": {
+      "type": "object",
+      "default": ""
     }
   }
 }

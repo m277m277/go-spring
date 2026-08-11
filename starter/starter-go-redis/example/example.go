@@ -50,10 +50,10 @@ func (AnotherRedisDriver) CreateClient(ctx context.Context, c StarterGoRedis.Con
 }
 
 type Service struct {
-	Redis          *redis.Client        `autowire:"cache"`
-	DiscoveryRedis *redis.Client        `autowire:"discovery"`
-	SentinelRedis  *redis.Client        `autowire:"sentinel"`
-	ClusterRedis   *redis.ClusterClient `autowire:"cluster"`
+	Redis          *StarterGoRedis.ObservedRedisClient        `autowire:"cache"`
+	DiscoveryRedis *StarterGoRedis.ObservedRedisClient        `autowire:"discovery"`
+	SentinelRedis  *StarterGoRedis.ObservedRedisClient        `autowire:"sentinel"`
+	ClusterRedis   *StarterGoRedis.ObservedRedisClient        `autowire:"cluster"`
 }
 
 var manual = flag.Bool("manual", false, "run in manual verification mode (server stays up)")

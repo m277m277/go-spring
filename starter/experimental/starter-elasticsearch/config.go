@@ -20,7 +20,6 @@ import (
 	"context"
 
 	"github.com/elastic/go-elasticsearch/v8"
-	observe "go-spring.org/observe"
 )
 
 var driverRegistry = map[string]Driver{}
@@ -101,12 +100,6 @@ type Config struct {
 
 	// Driver specifies which Elasticsearch driver to use, defaults to DefaultDriver.
 	Driver string `value:"${driver:=DefaultDriver}"`
-
-	// Observability configures the per-request metric + access log emitted by the
-	// observe HTTP round-tripper (trace spans come from the transport
-	// instrumentation; the kit fills metric+log, off/brief/detailed). Defaults to
-	// "brief".
-	Observability observe.LogConfig `value:"${observability:=}"`
 }
 
 // Driver interface defines how to create an Elasticsearch client.
@@ -131,8 +124,17 @@ type DefaultDriver struct{}
 // the transport emit client spans through the OTel global TracerProvider that
 // starter-otel installs; when starter-otel is absent that global is a no-op, so
 // this stays a zero-config opt-in that needs no per-component adaptation.
+//
+// The transport is fixed at construction time and cannot be swapped on the
+// client afterwards, and the resilience/observability policy is only injected
+// into the wrapper after CreateClient returns. So CreateClient installs a thin
+// [dynamicTransport] (an atomic RoundTripper indirection) whose behavior
+// ApplyResilience later swaps in — the observe+resilience transport built from
+// the injected policy. The dynamic transport is tracked in [dynamicTransports]
+// (keyed by the returned client) so newClient can hand it to the wrapper.
 func (DefaultDriver) CreateClient(ctx context.Context, c Config) (*elasticsearch.Client, error) {
-	return elasticsearch.NewClient(elasticsearch.Config{
+	dyn := newDynamicTransport()
+	client, err := elasticsearch.NewClient(elasticsearch.Config{
 		Addresses:              c.Addresses,
 		Username:               c.Username,
 		Password:               c.Password,
@@ -146,6 +148,11 @@ func (DefaultDriver) CreateClient(ctx context.Context, c Config) (*elasticsearch
 		EnableMetrics:          c.EnableMetrics,
 		EnableDebugLogger:      c.EnableDebugLogger,
 		Instrumentation:        newOtelInstrumentation(),
-		Transport:              newObserveTransport(c.Observability),
+		Transport:              dyn,
 	})
+	if err != nil {
+		return nil, err
+	}
+	dynamicTransports.Store(client, dyn)
+	return client, nil
 }

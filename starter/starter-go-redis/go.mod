@@ -5,8 +5,8 @@ go 1.26
 require (
 	github.com/redis/go-redis/extra/redisotel/v9 v9.21.0
 	github.com/redis/go-redis/v9 v9.21.0
-	go-spring.org/spring v1.3.4
 	go-spring.org/observe v0.0.0
+	go-spring.org/spring v1.3.4
 	go-spring.org/stdlib v0.1.7
 )
 
@@ -33,6 +33,7 @@ require (
 	github.com/spf13/cast v1.10.0 // indirect
 	go-spring.org/gs-mock v0.0.9 // indirect
 	go-spring.org/log v0.1.4 // indirect
+	go-spring.org/observe-resilience v0.0.0
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel v1.43.0 // indirect
 	go.opentelemetry.io/otel/metric v1.43.0 // indirect
@@ -43,3 +44,5 @@ require (
 	golang.org/x/sys v0.47.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
+
+replace go-spring.org/observe-resilience => ../../observe-resilience

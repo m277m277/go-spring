@@ -21,139 +21,220 @@ import (
 	"fmt"
 
 	"github.com/bradfitz/gomemcache/memcache"
+	"go-spring.org/log"
 	observe "go-spring.org/observe"
+	resilobserve "go-spring.org/observe-resilience"
+	"go-spring.org/spring/cloud/discovery"
+	"go-spring.org/spring/experimental/cloud/resilience"
+	"go-spring.org/spring/gs"
 )
 
-// obsClient wraps *memcache.Client so every operation flows through the shared
-// observe kit (trace span + duration/in-flight metric + access log). It embeds
-// the real client, so methods not overridden below (only Close, a lifecycle
-// method) are promoted unchanged. memcache's API carries no context, so spans
-// are root spans (not linked to the caller's request trace) — a limitation of
-// gomemcache, documented here.
-type obsClient struct {
+// ObservedClient wraps *memcache.Client so every operation flows through the
+// shared observe kit (trace span + duration/in-flight metric + access log). It
+// embeds the real client, so methods not overridden below (only Close, a
+// lifecycle method) are promoted unchanged. memcache's API carries no context,
+// so spans are root spans (not linked to the caller's request trace) — a
+// limitation of gomemcache, documented here.
+//
+// The type is exported because gomemcache (unlike go-redis or gorm) offers no
+// hook/plugin extension point, so the only way to observe per-operation traffic
+// is to hold the wrapper itself. Apps therefore inject *ObservedClient rather
+// than *memcache.Client; the embedded field is available for any third-party
+// API that needs the raw client.
+type ObservedClient struct {
 	*memcache.Client
 	obs *observe.Observer
+
+	// Resilience is field-injected (gs.Dync, hot-reloadable) so the protection
+	// policy can change at runtime without a restart; ApplyResilience subscribes
+	// OnChanged to Refresh the executor. Observability is the startup access-log
+	// config (not hot). These replace the old Config.Resilience/Observability
+	// fields so the wrapper bean owns its own protection policy.
+	Resilience    gs.Dync[resilience.Config] `value:"${resilience:=}"`
+	Observability observe.LogConfig          `value:"${observability:=}"`
+
+	// name is the instance name (the spring.memcached.<name> map key), used for
+	// the resilience resource label. Set by newClient; ApplyResilience reads it.
+	name string
+
+	// exec is the resilience executor protecting every operation, set by
+	// ApplyResilience when resilience is enabled. nil on an unarmed client, in
+	// which case guard runs the operation directly with no policy overhead.
+	exec resilience.Executor
+	// resource is the resilience resource key ("memcached:<instance-name>")
+	// exec scopes limiter/breaker state by. Only meaningful when exec != nil.
+	resource string
 }
 
-func newObsClient(c *memcache.Client, cfg observe.LogConfig) *obsClient {
-	return &obsClient{Client: c, obs: observe.NewClient("memcached", cfg)}
+// ApplyResilience is the gs InitMethod: gs field-injects Resilience + Observability
+// after newClient returns, then calls this. It builds the observe.Observer (needs
+// Observability) and, when resilience is enabled, the executor (needs the
+// Resilience policy) + arms guard + subscribes to policy changes for hot Refresh.
+func (c *ObservedClient) ApplyResilience() error {
+	c.obs = observe.NewClient("memcached", c.Observability)
+	rc := c.Resilience.Value()
+	if !rc.Enabled {
+		return nil
+	}
+	drv, err := resilience.MustGetDriver(rc.Driver)
+	if err != nil {
+		return err
+	}
+	exec, err := drv.NewExecutor(rc.Policy())
+	if err != nil {
+		return err
+	}
+	exec = resilobserve.WrapExecutor(exec, "memcached", c.Observability)
+	c.exec = exec
+	c.resource = resilience.ResourceLabel("memcached", c.name)
+	// Hot-reload: when the bound resilience config changes, adopt the new policy
+	// without a restart. Refresh resets per-resource state (the intended semantic
+	// of a threshold change - old failure counts were under the old policy).
+	c.Resilience.OnChanged(func(new, _ resilience.Config) {
+		if r, ok := exec.(resilience.RefreshableExecutor); ok {
+			_ = r.Refresh(new.Policy())
+		}
+	})
+	return nil
+}
+
+// Close releases the resilience executor (if armed) and stops any discovery
+// Resolver watch behind the client. The memcache client itself keeps a lazy
+// connection pool with no Close method, so only the background watch and the
+// executor's resources are released here. It is the gs destroy method.
+func (c *ObservedClient) Close() error {
+	if c.exec != nil {
+		_ = c.exec.Close()
+	}
+	if v, ok := resolvers.LoadAndDelete(c.Client); ok {
+		_ = v.(*discovery.Resolver).Stop()
+		log.Debugf(context.Background(), starterTag, "memcached client destroyed, discovery resolver stopped")
+	}
+	return nil
 }
 
 // instrument wraps a single-key operation: op names it, key is the log/span arg.
-// It returns an end callback the caller invokes with the operation's error.
-func (c *obsClient) instrument(op, key string) func(error) {
+// It starts an observe span and returns an end callback the caller invokes with
+// the operation's error. The resilience executor is applied by the caller via
+// guard (see resilience.go), so each method is span-instrumented here and
+// resilience-protected there — two single places rather than 17 copies of each.
+func (c *ObservedClient) instrument(op, key string) func(error) {
 	_, sp := c.obs.Start(context.Background(), op, key)
 	return func(err error) { sp.End(err) }
 }
 
-func (c *obsClient) Get(key string) (*memcache.Item, error) {
+func (c *ObservedClient) Get(key string) (*memcache.Item, error) {
 	end := c.instrument("get", key)
-	it, err := c.Client.Get(key)
+	it, err := guard(c.exec, c.resource, func() (*memcache.Item, error) { return c.Client.Get(key) })
 	end(err)
 	return it, err
 }
 
-func (c *obsClient) GetAndTouch(key string, expiration int32) (*memcache.Item, error) {
+func (c *ObservedClient) GetAndTouch(key string, expiration int32) (*memcache.Item, error) {
 	end := c.instrument("get_and_touch", key)
-	it, err := c.Client.GetAndTouch(key, expiration)
+	it, err := guard(c.exec, c.resource, func() (*memcache.Item, error) {
+		return c.Client.GetAndTouch(key, expiration)
+	})
 	end(err)
 	return it, err
 }
 
-func (c *obsClient) GetMulti(keys []string) (map[string]*memcache.Item, error) {
+func (c *ObservedClient) GetMulti(keys []string) (map[string]*memcache.Item, error) {
 	end := c.instrument("get_multi", fmt.Sprintf("%d keys", len(keys)))
-	m, err := c.Client.GetMulti(keys)
+	m, err := guard(c.exec, c.resource, func() (map[string]*memcache.Item, error) {
+		return c.Client.GetMulti(keys)
+	})
 	end(err)
 	return m, err
 }
 
-func (c *obsClient) Touch(key string, seconds int32) error {
+func (c *ObservedClient) Touch(key string, seconds int32) error {
 	end := c.instrument("touch", key)
-	err := c.Client.Touch(key, seconds)
+	err := guardErr(c.exec, c.resource, func() error { return c.Client.Touch(key, seconds) })
 	end(err)
 	return err
 }
 
-func (c *obsClient) Set(item *memcache.Item) error {
+func (c *ObservedClient) Set(item *memcache.Item) error {
 	end := c.instrument("set", item.Key)
-	err := c.Client.Set(item)
+	err := guardErr(c.exec, c.resource, func() error { return c.Client.Set(item) })
 	end(err)
 	return err
 }
 
-func (c *obsClient) Add(item *memcache.Item) error {
+func (c *ObservedClient) Add(item *memcache.Item) error {
 	end := c.instrument("add", item.Key)
-	err := c.Client.Add(item)
+	err := guardErr(c.exec, c.resource, func() error { return c.Client.Add(item) })
 	end(err)
 	return err
 }
 
-func (c *obsClient) Replace(item *memcache.Item) error {
+func (c *ObservedClient) Replace(item *memcache.Item) error {
 	end := c.instrument("replace", item.Key)
-	err := c.Client.Replace(item)
+	err := guardErr(c.exec, c.resource, func() error { return c.Client.Replace(item) })
 	end(err)
 	return err
 }
 
-func (c *obsClient) Append(item *memcache.Item) error {
+func (c *ObservedClient) Append(item *memcache.Item) error {
 	end := c.instrument("append", item.Key)
-	err := c.Client.Append(item)
+	err := guardErr(c.exec, c.resource, func() error { return c.Client.Append(item) })
 	end(err)
 	return err
 }
 
-func (c *obsClient) Prepend(item *memcache.Item) error {
+func (c *ObservedClient) Prepend(item *memcache.Item) error {
 	end := c.instrument("prepend", item.Key)
-	err := c.Client.Prepend(item)
+	err := guardErr(c.exec, c.resource, func() error { return c.Client.Prepend(item) })
 	end(err)
 	return err
 }
 
-func (c *obsClient) CompareAndSwap(item *memcache.Item) error {
+func (c *ObservedClient) CompareAndSwap(item *memcache.Item) error {
 	end := c.instrument("cas", item.Key)
-	err := c.Client.CompareAndSwap(item)
+	err := guardErr(c.exec, c.resource, func() error { return c.Client.CompareAndSwap(item) })
 	end(err)
 	return err
 }
 
-func (c *obsClient) Delete(key string) error {
+func (c *ObservedClient) Delete(key string) error {
 	end := c.instrument("delete", key)
-	err := c.Client.Delete(key)
+	err := guardErr(c.exec, c.resource, func() error { return c.Client.Delete(key) })
 	end(err)
 	return err
 }
 
-func (c *obsClient) DeleteAll() error {
+func (c *ObservedClient) DeleteAll() error {
 	end := c.instrument("delete_all", "")
-	err := c.Client.DeleteAll()
+	err := guardErr(c.exec, c.resource, func() error { return c.Client.DeleteAll() })
 	end(err)
 	return err
 }
 
-func (c *obsClient) Increment(key string, delta uint64) (uint64, error) {
+func (c *ObservedClient) Increment(key string, delta uint64) (uint64, error) {
 	end := c.instrument("increment", key)
-	n, err := c.Client.Increment(key, delta)
+	n, err := guard(c.exec, c.resource, func() (uint64, error) { return c.Client.Increment(key, delta) })
 	end(err)
 	return n, err
 }
 
-func (c *obsClient) Decrement(key string, delta uint64) (uint64, error) {
+func (c *ObservedClient) Decrement(key string, delta uint64) (uint64, error) {
 	end := c.instrument("decrement", key)
-	n, err := c.Client.Decrement(key, delta)
+	n, err := guard(c.exec, c.resource, func() (uint64, error) { return c.Client.Decrement(key, delta) })
 	end(err)
 	return n, err
 }
 
-func (c *obsClient) Ping() error {
+func (c *ObservedClient) Ping() error {
 	end := c.instrument("ping", "")
-	err := c.Client.Ping()
+	err := guardErr(c.exec, c.resource, func() error { return c.Client.Ping() })
 	end(err)
 	return err
 }
 
-func (c *obsClient) FlushAll() error {
+func (c *ObservedClient) FlushAll() error {
 	end := c.instrument("flush_all", "")
-	err := c.Client.FlushAll()
+	err := guardErr(c.exec, c.resource, func() error { return c.Client.FlushAll() })
 	end(err)
 	return err
 }

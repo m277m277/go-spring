@@ -36,9 +36,8 @@ import (
 	"time"
 
 	"go-spring.org/spring/gs"
+	starter "go-spring.org/starter-gorm-sqlserver"
 	"gorm.io/gorm"
-
-	_ "go-spring.org/starter-gorm-sqlserver"
 	_ "go-spring.org/starter-otel"
 )
 
@@ -51,8 +50,8 @@ type KV struct {
 }
 
 type Service struct {
-	DB          *gorm.DB `autowire:"primary"`
-	DiscoveryDB *gorm.DB `autowire:"discovery"`
+	DB          *starter.ObservedGormDB `autowire:"primary"`
+	DiscoveryDB *starter.ObservedGormDB `autowire:"discovery"`
 }
 
 var manual = flag.Bool("manual", false, "run in manual verification mode (server stays up)")

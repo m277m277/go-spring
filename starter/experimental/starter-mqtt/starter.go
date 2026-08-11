@@ -78,13 +78,20 @@ func newClient(ctx *gs.ContextProvider, name string, c Config) (mqtt.Client, err
 		log.Errorf(ctx.Context, starterTag, "mqtt: connect failed broker=%s: %v", c.Broker, err)
 		return nil, err
 	}
+	if err := applyResilience(c, client); err != nil {
+		log.Errorf(ctx.Context, starterTag, "mqtt: resilience setup failed: %v", err)
+		client.Disconnect(250)
+		return nil, err
+	}
 	log.Infof(ctx.Context, starterTag, "mqtt client initialized, broker=%s", c.Broker)
 	return client, nil
 }
 
 // destroyClient disconnects the MQTT client, waiting up to 250ms for
-// in-flight work to complete.
+// in-flight work to complete. When a resilience executor is attached its Close
+// releases any background resources of a production driver.
 func destroyClient(client mqtt.Client) error {
+	closeResilience(client)
 	client.Disconnect(250)
 	return nil
 }

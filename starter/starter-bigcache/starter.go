@@ -17,7 +17,6 @@
 package StarterBigCache
 
 import (
-	"context"
 	"runtime"
 
 	"go-spring.org/log"
@@ -54,11 +53,11 @@ func init() {
 			b := r.Provide(newClient,
 				gs.IndexArg(1, gs.ValueArg(name)),
 				gs.IndexArg(2, gs.ValueArg(c)),
-			).Name(name).Destroy(destroyClient)
+			).Name(name).InitMethod("ApplyResilience").Destroy((*ObservedBigCache).Close)
 			b.SetFileLine(file, line)
 			// Contribute a health indicator for this instance, injecting the
 			// client just registered above by name.
-			h := r.Provide(func(c *obsBigCache) health.Indicator { return health2.NewBigCacheHealth(name, c.BigCache) }, gs.TagArg(name)).Export(gs.As[health.Indicator]())
+			h := r.Provide(func(c *ObservedBigCache) health.Indicator { return health2.NewBigCacheHealth(name, c.BigCache) }, gs.TagArg(name)).Name(name).Export(gs.As[health.Indicator]())
 			h.SetFileLine(file, line)
 		}
 		return nil
@@ -73,7 +72,7 @@ func init() {
 	// starter-bigcache/bytecache.
 	cache.RegisterDriver("bigcache", func(beanID string) gs.ModuleFunc {
 		return func(r gs.BeanProvider, p flatten.Storage) error {
-			r.Provide(func(c *obsBigCache) *cache.Cache {
+			r.Provide(func(c *ObservedBigCache) *cache.Cache {
 				return &cache.Cache{ByteCache: bytecache.NewByteCache(c.BigCache)}
 			}, gs.TagArg(beanID)).Name(beanID)
 			return nil
@@ -84,7 +83,7 @@ func init() {
 // newClient creates a new BigCache instance based on the provided configuration,
 // wrapped so Get/Set/Delete flow through the observe kit, and registers OTel
 // gauges for its statistics, labeled by the instance name.
-func newClient(ctx *gs.ContextProvider, name string, c Config) (*obsBigCache, error) {
+func newClient(ctx *gs.ContextProvider, name string, c Config) (*ObservedBigCache, error) {
 	log.Debugf(ctx.Context, starterTag, "creating bigcache instance, name=%s shards=%d max-size=%d", name, c.Shards, c.MaxEntrySize)
 
 	d, ok := driverRegistry[c.Driver]
@@ -101,11 +100,8 @@ func newClient(ctx *gs.ContextProvider, name string, c Config) (*obsBigCache, er
 	// starter-otel is absent (the OTel globals are no-ops then).
 	registerMetrics(name, client)
 	log.Infof(ctx.Context, starterTag, "bigcache instance initialized, name=%s shards=%d", name, c.Shards)
-	return newObsBigCache(client, c.Observability), nil
-}
-
-// destroyClient closes the BigCache instance, stopping its background cleaner.
-func destroyClient(client *obsBigCache) error {
-	log.Debugf(context.Background(), starterTag, "bigcache instance destroyed")
-	return client.BigCache.Close()
+	// Return the wrapper; gs field-injects Resilience (gs.Dync, hot-reloadable)
+	// + Observability after this returns, then calls ApplyResilience (InitMethod)
+	// to build the observer + executor.
+	return &ObservedBigCache{BigCache: client, name: name}, nil
 }

@@ -19,46 +19,73 @@ package StarterGoRedis
 import (
 	"context"
 	"errors"
-	"sync"
 
 	"github.com/redis/go-redis/v9"
+	"go-spring.org/observe-resilience"
+	observe "go-spring.org/observe"
+	"go-spring.org/spring/cloud/discovery"
 	"go-spring.org/spring/experimental/cloud/resilience"
+	"go-spring.org/spring/gs"
 )
 
-// resilienceExecs tracks the resilience executor attached to each client, so the
-// destructors can Close it (releasing any background resources of a production
-// driver). The key is the client value; only clients with resilience enabled
-// appear here.
-var resilienceExecs sync.Map // redis.UniversalClient -> resilience.Executor
+// ObservedRedisClient is the wrapper bean go-redis clients are injected as. It
+// embeds the concrete redis.UniversalClient (a *redis.Client or *redis.ClusterClient
+// depending on mode, so methods promote unchanged) and field-injects the resilience
+// policy via gs.Dync so it hot-reloads on config change. newClient returns one; gs
+// field-injects Resilience + Observability, then calls ApplyResilience (InitMethod).
+type ObservedRedisClient struct {
+	redis.UniversalClient
+	Resilience    gs.Dync[resilience.Config] `value:"${resilience:=}"`
+	Observability observe.LogConfig         `value:"${observability:=}"`
 
-// applyResilience builds an executor from the configured driver and attaches it
-// to client as a redis.Hook, unless resilience is disabled. This is the go-redis
-// seam of stdlib/resilience: the same backend-neutral Executor that
-// starter-oauth2-client drives through an http.RoundTripper is here driven
-// through redis's per-command ProcessHook, proving the core is reused while only
-// the adapter differs per library.
-func applyResilience(c Config, client redis.UniversalClient) error {
-	if !c.Resilience.Enabled {
+	cfg      Config // for resourceLabel (address fields)
+	exec     resilience.Executor
+	resource string
+}
+
+// ApplyResilience is the gs InitMethod (runs after gs field-injects Resilience +
+// Observability). It builds the executor when resilience is enabled, attaches the
+// per-command hook, and subscribes to policy changes for hot Refresh.
+func (o *ObservedRedisClient) ApplyResilience() error {
+	rc := o.Resilience.Value()
+	if !rc.Enabled {
 		return nil
 	}
-	drv, err := resilience.MustGetDriver(c.Resilience.Driver)
+	drv, err := resilience.MustGetDriver(rc.Driver)
 	if err != nil {
 		return err
 	}
-	exec, err := drv.NewExecutor(c.Resilience.Policy())
+	exec, err := drv.NewExecutor(rc.Policy())
 	if err != nil {
 		return err
 	}
-	client.AddHook(&resilienceHook{exec: exec, resource: resourceLabel(c)})
-	resilienceExecs.Store(client, exec)
+	exec = resilobserve.WrapExecutor(exec, "redis", o.Observability)
+	o.exec = exec
+	o.resource = resourceLabel(o.cfg)
+	o.AddHook(&resilienceHook{exec: exec, resource: o.resource})
+	o.Resilience.OnChanged(func(new, _ resilience.Config) {
+		if r, ok := exec.(resilience.RefreshableExecutor); ok {
+			_ = r.Refresh(new.Policy())
+		}
+	})
+	// Attach the access-log Hook (trace+metric come from redisotel above). It
+	// rides the observe kit and defaults to a no-op pass-through when off.
+	applyObservability(o.Observability, o.UniversalClient)
 	return nil
 }
 
-// closeResilience closes and forgets the executor behind client, if any.
-func closeResilience(client redis.UniversalClient) {
-	if v, ok := resilienceExecs.LoadAndDelete(client); ok {
-		_ = v.(resilience.Executor).Close()
+// Close is the gs destroy method: closes the resilience executor (if armed) and
+// the underlying client.
+func (o *ObservedRedisClient) Close() error {
+	if o.exec != nil {
+		_ = o.exec.Close()
 	}
+	// Stop any discovery-backed dialer watch behind a single-mode client so the
+	// background endpoint refresher does not leak on shutdown.
+	if v, ok := liveDialers.LoadAndDelete(o.UniversalClient); ok {
+		_ = v.(*discovery.Resolver).Stop()
+	}
+	return o.UniversalClient.Close()
 }
 
 // resourceLabel derives a stable, human-readable resilience resource key for a

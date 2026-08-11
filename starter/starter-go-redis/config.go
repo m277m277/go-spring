@@ -23,10 +23,8 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
-	observe "go-spring.org/observe"
 	"go-spring.org/spring/cloud/discovery"
 	"go-spring.org/spring/cloud/mesh"
-	"go-spring.org/spring/experimental/cloud/resilience"
 	"go-spring.org/spring/experimental/cloud/tlsconf"
 	"go-spring.org/stdlib/errutil"
 )
@@ -141,22 +139,13 @@ type Config struct {
 	// false (the default) the client dials in plaintext.
 	TLS tlsconf.TLSConfig `value:"${tls}"`
 
-	// Resilience optionally protects Redis commands with rate limiting and
-	// circuit breaking. It is disabled by default; when enabled a redis.Hook is
-	// attached so every command flows through the selected resilience driver.
-	// Retry is best left to go-redis's own MaxRetries, so leave resilience
-	// max-retries at 0 to avoid re-sending non-idempotent commands.
-	Resilience resilience.Config `value:"${resilience:=}"`
-
-	// Observability configures the per-command access log attached as a Hook.
-	// go-redis already emits trace+metric via redisotel, so the kit only fills the
-	// access-log gap (off/brief/detailed). Defaults to "brief"; set "off" to
-	// silence the access log entirely.
-	Observability observe.LogConfig `value:"${observability:=}"`
-
 	// Driver specifies which Redis driver to use, defaults to DefaultDriver.
 	Driver string `value:"${driver:=DefaultDriver}"`
 }
+
+// Resilience and Observability are no longer fields of Config: they moved onto
+// the ObservedRedisClient wrapper bean, field-injected by gs (Resilience via
+// gs.Dync, hot-reloadable) and consumed by the ApplyResilience InitMethod.
 
 // Resilience binds the backend-neutral resilience knobs shared by every client
 // starter (see [resilience.Config]). Driver selects which registered backend

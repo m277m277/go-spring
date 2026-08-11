@@ -22,6 +22,8 @@ import (
 	"time"
 
 	"go-spring.org/log"
+	observe "go-spring.org/observe"
+	"go-spring.org/spring/experimental/cloud/resilience"
 	"go-spring.org/spring/experimental/cloud/tlsconf"
 	"go-spring.org/spring/gs"
 	"go-spring.org/stdlib/errutil"
@@ -72,6 +74,8 @@ type Config struct {
 	TLS                  tlsconf.TLSConfig `value:"${tls}"`
 	Health               HealthConfig      `value:"${health}"`
 	Observer             ObserverConfig    `value:"${observer}"`
+	Resilience           resilience.Config `value:"${resilience}"`
+	Observability        observe.LogConfig `value:"${observability:=}"`
 }
 
 // ObserverConfig groups the built-in observability interceptors the starter can
@@ -141,19 +145,31 @@ func (s *SimpleGrpcServer) buildOptions() ([]grpc.ServerOption, error) {
 		opts = append(opts, grpc.Creds(credentials.NewTLS(tlsCfg)))
 	}
 
-	// Observability interceptors are installed via ServerOptions so they wrap
-	// every registered service. They ride the OTel globals, no-op without otel.
+	// Observability + resilience interceptors are installed via chained
+	// ServerOptions so they wrap every registered service and compose with each
+	// other. NOTE: grpc.UnaryInterceptor is a setter (the last call wins), so the
+	// previous per-interceptor grpc.UnaryInterceptor calls silently shadowed each
+	// other — ChainUnaryInterceptor is used here to fix that and to admit the
+	// resilience interceptor. Tracing/metrics ride the OTel globals, no-op
+	// without starter-otel.
+	var unary []grpc.UnaryServerInterceptor
+	var stream []grpc.StreamServerInterceptor
 	if s.cfg.Observer.Tracing.Enabled {
-		opts = append(opts,
-			grpc.UnaryInterceptor(TracingUnaryInterceptor()),
-			grpc.StreamInterceptor(TracingStreamInterceptor()),
-		)
+		unary = append(unary, TracingUnaryInterceptor())
+		stream = append(stream, TracingStreamInterceptor())
 	}
 	if s.cfg.Observer.Metrics.Enabled {
-		opts = append(opts,
-			grpc.UnaryInterceptor(MetricsUnaryInterceptor()),
-			grpc.StreamInterceptor(MetricsStreamInterceptor()),
-		)
+		unary = append(unary, MetricsUnaryInterceptor())
+		stream = append(stream, MetricsStreamInterceptor())
+	}
+	if ropts, ok := s.buildResilienceInterceptors(); ok {
+		unary = append(unary, ropts.unary)
+	}
+	if len(unary) > 0 {
+		opts = append(opts, grpc.ChainUnaryInterceptor(unary...))
+	}
+	if len(stream) > 0 {
+		opts = append(opts, grpc.ChainStreamInterceptor(stream...))
 	}
 	return opts, nil
 }

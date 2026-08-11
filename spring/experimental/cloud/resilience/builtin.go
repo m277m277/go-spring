@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -42,9 +43,33 @@ func (builtinDriver) NewExecutor(p Policy) (Executor, error) {
 // builtinExecutor keeps per-resource limiter and breaker state so that one
 // misbehaving downstream does not trip protection for the others.
 type builtinExecutor struct {
-	policy Policy
-	mu     sync.Mutex
-	states map[string]*resourceState
+	policy   Policy
+	mu       sync.Mutex
+	states   map[string]*resourceState
+	listener atomic.Pointer[BreakerEventListener]
+}
+
+// SetBreakerEventListener attaches l so every per-resource breaker built by this
+// executor (including ones created later for new resources) emits state
+// transitions. It satisfies [BreakerEventListenerSetter].
+func (e *builtinExecutor) SetBreakerEventListener(l BreakerEventListener) {
+	e.listener.Store(&l)
+}
+
+// Refresh adopts p as the new policy and resets all per-resource state, so the
+// next Execute rebuilds breakers/limiters/bulkheads against the new thresholds.
+// It satisfies [RefreshableExecutor]. Per-resource state is discarded: a fresh
+// breaker/limiter starts from zero, which is the intended semantic of a
+// threshold change (the old failure counts were counted under the old policy).
+func (e *builtinExecutor) Refresh(p Policy) error {
+	if p.RateLimit < 0 {
+		return fmt.Errorf("resilience: negative rate limit %v", p.RateLimit)
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.policy = p
+	e.states = map[string]*resourceState{}
+	return nil
 }
 
 type resourceState struct {
@@ -77,7 +102,7 @@ func (e *builtinExecutor) state(resource string) *resourceState {
 		if open <= 0 {
 			open = 5 * time.Second
 		}
-		s.breaker = newCircuitBreaker(e.policy, open)
+		s.breaker = newCircuitBreaker(e.policy, open, resource, &e.listener)
 	}
 	if e.policy.MaxConcurrent > 0 {
 		// A buffered channel is a non-blocking counting semaphore: a full buffer
@@ -217,15 +242,21 @@ type circuitBreaker struct {
 	fails     int
 	prevTotal int
 	prevFails int
+
+	// event emission
+	resource string                                  // label passed to the listener
+	listener *atomic.Pointer[BreakerEventListener]   // shared with the executor; nil ptr or nil value = no listener
 }
 
-func newCircuitBreaker(p Policy, open time.Duration) *circuitBreaker {
+func newCircuitBreaker(p Policy, open time.Duration, resource string, listener *atomic.Pointer[BreakerEventListener]) *circuitBreaker {
 	c := &circuitBreaker{
 		strategy:      p.ResolvedBreakerStrategy(),
 		openFor:       open,
 		threshold:     p.ErrorThreshold,
 		rateThreshold: p.ErrorRateThreshold,
 		minRequests:   p.MinRequests,
+		resource:      resource,
+		listener:      listener,
 	}
 	if c.strategy == BreakerErrorRate {
 		if c.minRequests <= 0 {
@@ -257,6 +288,7 @@ func (c *circuitBreaker) allow() bool {
 	if c.halfOpen == nil {
 		c.halfOpen = make(chan struct{}, 1)
 		c.halfOpen <- struct{}{}
+		c.notifyLocked(BreakerOpen, BreakerHalfOpen)
 	}
 	select {
 	case <-c.halfOpen:
@@ -275,11 +307,13 @@ func (c *circuitBreaker) record(success bool) {
 	if c.halfOpen != nil {
 		if success {
 			c.closeLocked()
+			c.notifyLocked(BreakerHalfOpen, BreakerClosed)
 			return
 		}
 		// Trial failed: re-open the cool-down window.
 		c.halfOpen = nil
 		c.openedAt = time.Now()
+		c.notifyLocked(BreakerHalfOpen, BreakerOpen)
 		return
 	}
 	if c.strategy == BreakerErrorRate {
@@ -297,6 +331,9 @@ func (c *circuitBreaker) recordConsecutive(success bool) {
 	}
 	c.failures++
 	if c.failures >= c.threshold {
+		if c.openedAt.IsZero() {
+			c.notifyLocked(BreakerClosed, BreakerOpen)
+		}
 		c.openedAt = time.Now()
 	}
 }
@@ -326,6 +363,9 @@ func (c *circuitBreaker) recordRate(success bool) {
 	estimateFails := float64(c.prevFails)*weight + float64(c.fails)
 	if c.total+c.prevTotal >= c.minRequests && estimateTotal > 0 &&
 		estimateFails/estimateTotal >= c.rateThreshold {
+		if c.openedAt.IsZero() {
+			c.notifyLocked(BreakerClosed, BreakerOpen)
+		}
 		c.openedAt = now
 	}
 }
@@ -338,5 +378,17 @@ func (c *circuitBreaker) closeLocked() {
 	c.total, c.fails = 0, 0
 	c.prevTotal, c.prevFails = 0, 0
 	c.curStart = time.Now()
+}
+
+// notifyLocked emits a from→to transition to the listener, if one is attached.
+// Caller holds mu; the listener must not call back into the breaker/executor
+// (documented on [BreakerEventListener]).
+func (c *circuitBreaker) notifyLocked(from, to BreakerState) {
+	if from == to || c.listener == nil {
+		return
+	}
+	if l := c.listener.Load(); l != nil {
+		(*l).OnBreakerStateChange(c.resource, from, to)
+	}
 }
 

@@ -20,6 +20,7 @@ import (
 	"time"
 
 	observe "go-spring.org/observe"
+	"go-spring.org/spring/experimental/cloud/resilience"
 	"go-spring.org/spring/experimental/cloud/tlsconf"
 )
 
@@ -53,7 +54,20 @@ type Config struct {
 	// hook (kotel already provides trace spans + metrics, so the hook is log-only,
 	// off/brief/detailed). Defaults to "brief".
 	Observability observe.LogConfig `value:"${observability:=}"`
+
+	// Resilience optionally protects synchronous produce calls with rate
+	// limiting, circuit breaking, bulkhead and retry. It is disabled by default;
+	// when enabled, GuardedProduceSync routes the synchronous
+	// kgo.Client.ProduceSync path through the selected resilience driver. The
+	// asynchronous Produce (callback) path is untouched — wrapping an immediate
+	// return has no meaning.
+	Resilience resilience.Config `value:"${resilience:=}"`
 }
+
+// Resilience binds the backend-neutral resilience knobs shared by every client
+// starter (see [resilience.Config]). Keep MaxRetries at 0 for producing —
+// retrying a publish can duplicate a message; leave retry to the caller who
+// knows whether the message is idempotent.
 
 // SASLConfig configures SASL authentication. It is shared, by property name,
 // with the sarama based starter-kafka-sarama so switching implementations does

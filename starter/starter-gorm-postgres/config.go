@@ -20,8 +20,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	observe "go-spring.org/observe"
 )
 
 // Config holds the configuration parameters for a PostgreSQL connection.
@@ -68,11 +66,6 @@ type Config struct {
 	// Discovery selects which registered discovery backend resolves ServiceName.
 	// Only consulted when ServiceName is set; defaults to "default".
 	Discovery string `value:"${discovery:=default}"`
-
-	// Observability configures the per-operation instrumentation (trace span +
-	// duration/in-flight metric + access log off/brief/detailed) emitted by the
-	// gorm observe plugin. Defaults to "brief".
-	Observability observe.LogConfig `value:"${observability:=}"`
 }
 
 // DSN constructs the PostgreSQL Data Source Name based on the configuration.

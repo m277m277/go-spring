@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package StarterGormMySql
+package gormresilience
 
 import (
 	"context"
@@ -27,6 +27,7 @@ import (
 )
 
 func newExec(t *testing.T, p resilience.Policy) resilience.Executor {
+	t.Helper()
 	d, err := resilience.MustGetDriver("default")
 	assert.Error(t, err).Nil()
 	exec, err := d.NewExecutor(p)
@@ -34,53 +35,49 @@ func newExec(t *testing.T, p resilience.Policy) resilience.Executor {
 	return exec
 }
 
-// TestRecordNotFoundNeverTripsBreaker is the gorm-specific nuance the adapter
-// must get right: gorm.ErrRecordNotFound is a normal outcome, not a failure, so
-// no amount of misses may open the circuit.
-func TestRecordNotFoundNeverTripsBreaker(t *testing.T) {
+// TestRunGuardRecordNotFoundNeverTripsBreaker is the gorm-specific nuance:
+// gorm.ErrRecordNotFound is a normal outcome, not a failure, so no amount of
+// misses may open the circuit.
+func TestRunGuardRecordNotFoundNeverTripsBreaker(t *testing.T) {
 	exec := newExec(t, resilience.Policy{ErrorThreshold: 2})
 	defer func() { _ = exec.Close() }()
 
 	for range 10 {
-		err := runGuard(context.Background(), exec, "gorm:mysql:test", func() error {
+		err := runGuard(context.Background(), exec, "gorm:test", func() error {
 			return gorm.ErrRecordNotFound
 		})
 		assert.Error(t, err).Is(gorm.ErrRecordNotFound)
 	}
 	// A subsequent real op still runs (breaker never opened).
-	err := runGuard(context.Background(), exec, "gorm:mysql:test", func() error { return nil })
+	err := runGuard(context.Background(), exec, "gorm:test", func() error { return nil })
 	assert.Error(t, err).Nil()
 }
 
-// TestRealErrorsTripBreaker confirms genuine failures still open the circuit
+// TestRunGuardRealErrorsTripBreaker confirms genuine failures open the circuit
 // and the rejection is surfaced to the caller.
-func TestRealErrorsTripBreaker(t *testing.T) {
+func TestRunGuardRealErrorsTripBreaker(t *testing.T) {
 	exec := newExec(t, resilience.Policy{ErrorThreshold: 2})
 	defer func() { _ = exec.Close() }()
 
 	boom := errors.New("connection reset")
-	err := runGuard(context.Background(), exec, "gorm:mysql:test", func() error { return boom })
-	assert.Error(t, err).Is(boom)
-	err = runGuard(context.Background(), exec, "gorm:mysql:test", func() error { return boom })
-	assert.Error(t, err).Is(boom)
-
+	assert.Error(t, runGuard(context.Background(), exec, "gorm:test", func() error { return boom })).Is(boom)
+	assert.Error(t, runGuard(context.Background(), exec, "gorm:test", func() error { return boom })).Is(boom)
 	// Breaker now open: the next call is short-circuited before the stub runs.
-	err = runGuard(context.Background(), exec, "gorm:mysql:test", func() error { return nil })
-	assert.Error(t, err).Is(resilience.ErrCircuitOpen)
+	assert.Error(t, runGuard(context.Background(), exec, "gorm:test", func() error { return nil })).Is(resilience.ErrCircuitOpen)
 }
 
-// TestRateLimitRejects confirms the flow-control path: once the burst is spent,
-// further operations are rejected as rate-limited without invoking the stub.
-func TestRateLimitRejects(t *testing.T) {
+// TestRunGuardRateLimitRejects confirms the flow-control path: once the burst
+// is spent, further operations are rejected as rate-limited without invoking
+// the stub.
+func TestRunGuardRateLimitRejects(t *testing.T) {
 	exec := newExec(t, resilience.Policy{RateLimit: 1, Burst: 2})
 	defer func() { _ = exec.Close() }()
 
 	var ran int
 	stub := func() error { ran++; return nil }
-
-	assert.Error(t, runGuard(context.Background(), exec, "gorm:mysql:test", stub)).Nil()
-	assert.Error(t, runGuard(context.Background(), exec, "gorm:mysql:test", stub)).Nil()
-	err := runGuard(context.Background(), exec, "gorm:mysql:test", stub)
+	assert.Error(t, runGuard(context.Background(), exec, "gorm:test", stub)).Nil()
+	assert.Error(t, runGuard(context.Background(), exec, "gorm:test", stub)).Nil()
+	err := runGuard(context.Background(), exec, "gorm:test", stub)
 	assert.Error(t, err).Is(resilience.ErrRateLimited)
 	assert.That(t, ran).Equal(2) // the rejected call never reached the stub
 }

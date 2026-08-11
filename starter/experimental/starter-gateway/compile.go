@@ -28,6 +28,8 @@ import (
 	"sync/atomic"
 
 	"go-spring.org/log"
+	observe "go-spring.org/observe"
+	"go-spring.org/observe-resilience"
 	"go-spring.org/spring/cloud/discovery"
 	"go-spring.org/spring/experimental/cloud/resilience"
 	"go-spring.org/spring/gs"
@@ -178,25 +180,25 @@ func (t *RouteTable) buildExecutors() (map[string]resilience.Executor, error) {
 	if len(t.Cfg.Resilience) == 0 {
 		return nil, nil
 	}
-	driver, err := resilience.MustGetDriver("default")
-	if err != nil {
-		return nil, err
-	}
 	out := make(map[string]resilience.Executor, len(t.Cfg.Resilience))
 	for name, p := range t.Cfg.Resilience {
-		exec, err := driver.NewExecutor(resilience.Policy{
-			RateLimit:      p.RateLimit,
-			Burst:          p.Burst,
-			ErrorThreshold: p.ErrorThreshold,
-			OpenDuration:   p.OpenDuration,
-			MaxConcurrent:  p.MaxConcurrent,
-			MaxRetries:     p.MaxRetries,
-			Timeout:        p.Timeout,
-		})
+		// Per-policy driver: empty defaults to "default" (was hardcoded, which
+		// blocked routes from using the sentinel driver).
+		driverName := p.Driver
+		if driverName == "" {
+			driverName = "default"
+		}
+		driver, err := resilience.MustGetDriver(driverName)
+		if err != nil {
+			return nil, err
+		}
+		exec, err := driver.NewExecutor(p.toPolicy())
 		if err != nil {
 			return nil, fmt.Errorf("resilience policy %q: %w", name, err)
 		}
-		out[name] = exec
+		// Wrap so breaker trips / rejects / retries emit span + counter +
+		// histogram + access log (the resilience core emits none).
+		out[name] = resilobserve.WrapExecutor(exec, "gateway:"+name, observe.LogConfig{})
 	}
 	return out, nil
 }

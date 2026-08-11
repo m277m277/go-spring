@@ -61,8 +61,8 @@ func (AnotherRedisDriver) CreateClient(ctx context.Context, c StarterRedigo.Conf
 }
 
 type Service struct {
-	Redis          *redis.Pool `autowire:"cache"`
-	DiscoveryRedis *redis.Pool `autowire:"discovery"`
+	Redis          *StarterRedigo.ObservedRedisPool `autowire:"cache"`
+	DiscoveryRedis *StarterRedigo.ObservedRedisPool `autowire:"discovery"`
 }
 
 var manual = flag.Bool("manual", false, "run in manual verification mode (server stays up)")

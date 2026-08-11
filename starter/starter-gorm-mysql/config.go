@@ -21,8 +21,6 @@ import (
 	"strings"
 	"time"
 
-	observe "go-spring.org/observe"
-	"go-spring.org/spring/experimental/cloud/resilience"
 	"go-spring.org/spring/experimental/cloud/tlsconf"
 )
 
@@ -74,33 +72,11 @@ type Config struct {
 	// Only consulted when ServiceName is set; defaults to "default".
 	Discovery string `value:"${discovery:=default}"`
 
-	// Resilience optionally protects MySQL operations with rate limiting and
-	// circuit breaking. It is disabled by default; when enabled a set of gorm
-	// callbacks routes every DB op through the selected resilience driver.
-	// For a DB, max-retries is best left at 0: retrying a write re-sends it, and
-	// gorm/database-sql already retry at their layer.
-	Resilience resilience.Config `value:"${resilience:=}"`
-
-	// Observability configures the per-operation instrumentation (trace span +
-	// duration/in-flight metric + access log off/brief/detailed) emitted by the
-	// gorm observe plugin. Defaults to "brief".
-	Observability observe.LogConfig `value:"${observability:=}"`
-
 	// tlsParam carries the resolved MySQL DSN "tls" value (built-in mode name or
 	// a registered custom config name). It is set internally, not bound from
 	// configuration.
 	tlsParam string
 }
-
-// Resilience binds the backend-neutral resilience knobs shared by every client
-// starter (see [resilience.Config]). Driver selects which registered backend
-// enforces them: "default" (bundled, zero-dependency) or "sentinel"
-// (recommended, enabled by blank-importing starter-resilience). Switching
-// backends is a one-line config change — no code touches the callback seam.
-//
-// gorm.ErrRecordNotFound (record-not-found) is mapped to success before it ever
-// feeds the breaker. Keep MaxRetries at 0 for a DB: retrying a write re-sends it,
-// and gorm/database-sql already retry at their layer.
 
 // DSN constructs the MySQL Data Source Name based on the configuration.
 func (c Config) DSN() string {

@@ -225,3 +225,38 @@ func TestSentinelHalfOpenReopensOnFailedTrial(t *testing.T) {
 	err := e.Execute(context.Background(), "svc-reopen", func(context.Context) error { return nil })
 	assert.Error(t, err).Is(resilience.ErrCircuitOpen)
 }
+
+// sentinelRec captures breaker state transitions routed from sentinel-golang via
+// the global routeListener, for TestSentinelBreakerEvents.
+type sentinelRec struct {
+	events []struct{ resource, from, to string }
+}
+
+func (l *sentinelRec) OnBreakerStateChange(resource string, from, to resilience.BreakerState) {
+	l.events = append(l.events, struct{ resource, from, to string }{resource, from.String(), to.String()})
+}
+
+// TestSentinelBreakerEvents verifies the sentinel driver emits the same
+// closed->open->half-open->closed transitions as the builtin, routed through the
+// global routeListener to a listener attached via SetBreakerEventListener.
+func TestSentinelBreakerEvents(t *testing.T) {
+	e := newExec(t, resilience.Policy{ErrorThreshold: 1, OpenDuration: 30 * time.Millisecond})
+	rec := &sentinelRec{}
+	e.(resilience.BreakerEventListenerSetter).SetBreakerEventListener(rec)
+
+	// Trip: closed -> open.
+	_ = e.Execute(context.Background(), "svc-evt", func(context.Context) error { return errors.New("boom") })
+	assert.That(t, len(rec.events)).Equal(1)
+	assert.That(t, rec.events[0].to).Equal("open")
+
+	// Breaker open: rejected before fn runs, no transition.
+	_ = e.Execute(context.Background(), "svc-evt", func(context.Context) error { return nil })
+	assert.That(t, len(rec.events)).Equal(1)
+
+	// After cool-down a successful trial: open -> half-open -> closed.
+	time.Sleep(40 * time.Millisecond)
+	_ = e.Execute(context.Background(), "svc-evt", func(context.Context) error { return nil })
+	assert.That(t, len(rec.events)).Equal(3)
+	assert.That(t, rec.events[1].to).Equal("half_open")
+	assert.That(t, rec.events[2].to).Equal("closed")
+}

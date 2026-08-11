@@ -61,6 +61,14 @@
     "discovery": {
       "type": "string",
       "default": "default"
+    },
+    "resilience": {
+      "type": "object",
+      "default": ""
+    },
+    "observability": {
+      "type": "object",
+      "default": ""
     }
   }
 }

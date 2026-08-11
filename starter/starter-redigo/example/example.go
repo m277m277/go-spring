@@ -51,8 +51,8 @@ func (AnotherRedisDriver) CreateClient(ctx context.Context, c StarterRedigo.Conf
 }
 
 type Service struct {
-	Redis          *redis.Pool `autowire:"cache"`
-	DiscoveryRedis *redis.Pool `autowire:"discovery"`
+	Redis          *StarterRedigo.ObservedRedisPool `autowire:"cache"`
+	DiscoveryRedis *StarterRedigo.ObservedRedisPool `autowire:"discovery"`
 }
 
 var manual = flag.Bool("manual", false, "run in manual verification mode (server stays up)")
@@ -211,7 +211,8 @@ func runTest(s *Service) {
 
 	// Feature 5: health check + pool monitoring. A borrowed connection answers
 	// PING for readiness, and pool.Stats() exposes runtime pool counters — both
-	// read straight off the autowired *redis.Pool with no starter wrapper.
+	// read straight off the autowired *ObservedRedisPool (the embedded
+	// *redis.Pool) with no extra wiring.
 	if _, err := c.Do("PING"); err != nil {
 		log.Errorf(ctx, log.TagAppDef, "health ping failed: %v", err)
 		os.Exit(1)

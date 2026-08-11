@@ -17,18 +17,15 @@
 package StarterRedigo
 
 import (
-	"context"
 	"runtime"
 
-	"github.com/gomodule/redigo/redis"
 	"go-spring.org/log"
 	"go-spring.org/spring/cloud/actuator/health"
-	"go-spring.org/spring/cloud/discovery"
 	"go-spring.org/spring/conf"
 	"go-spring.org/spring/data/cache"
 	"go-spring.org/spring/gs"
-	health2 "go-spring.org/starter-redigo/health"
 	"go-spring.org/starter-redigo/bytecache"
+	health2 "go-spring.org/starter-redigo/health"
 	"go-spring.org/stdlib/errutil"
 	"go-spring.org/stdlib/flatten"
 )
@@ -48,11 +45,13 @@ func init() {
 			return err
 		}
 		for name, c := range m {
-			b := r.Provide(newClient, gs.ValueArg(c)).Name(name).Destroy(destroyClient)
+			b := r.Provide(newClient, gs.IndexArg(1, gs.ValueArg(c))).Name(name).InitMethod("ApplyResilience").Destroy((*ObservedRedisPool).Close)
 			b.SetFileLine(file, line)
 			// Contribute a health indicator for this instance, injecting the
 			// pool just registered above by name.
-			h := r.Provide(health2.NewPoolHealth, gs.ValueArg(name), gs.TagArg(name)).Export(gs.As[health.Indicator]())
+			h := r.Provide(func(w *ObservedRedisPool) health.Indicator {
+				return health2.NewPoolHealth(name, w.Pool)
+			}, gs.TagArg(name)).Name(name).Export(gs.As[health.Indicator]())
 			h.SetFileLine(file, line)
 		}
 		return nil
@@ -69,16 +68,21 @@ func init() {
 func init() {
 	cache.RegisterDriver("redigo", func(beanID string) gs.ModuleFunc {
 		return func(r gs.BeanProvider, p flatten.Storage) error {
-			r.Provide(func(pool *redis.Pool) *cache.Cache {
-				return &cache.Cache{ByteCache: bytecache.NewByteCache(pool)}
+			r.Provide(func(w *ObservedRedisPool) *cache.Cache {
+				return &cache.Cache{ByteCache: bytecache.NewByteCache(w.Pool)}
 			}, gs.TagArg(beanID)).Name(beanID)
 			return nil
 		}
 	})
 }
 
-// newClient creates a new Redis client based on the provided configuration.
-func newClient(ctx *gs.ContextProvider, c Config) (*redis.Pool, error) {
+// newClient creates a new Redis pool based on the provided configuration,
+// wrapped in an ObservedRedisPool so gs can field-inject resilience +
+// observability and ApplyResilience (InitMethod) can arm them (build the
+// observer + executor and wrap the pool's Dial with an obsConn). The startup
+// ping here runs on the raw pool before the Dial wrapper is installed — a bare
+// connectivity probe, not an instrumented command.
+func newClient(ctx *gs.ContextProvider, c Config) (*ObservedRedisPool, error) {
 
 	log.Debugf(ctx.Context, starterTag, "creating redigo client, addr=%s service-name=%s", c.Addr, c.ServiceName)
 
@@ -98,9 +102,6 @@ func newClient(ctx *gs.ContextProvider, c Config) (*redis.Pool, error) {
 		log.Errorf(ctx.Context, starterTag, "redigo: create client failed: %v", err)
 		return nil, errutil.Explain(err, "failed to create redis client")
 	}
-	// Attach transparent trace+metric+log instrumentation to every command on
-	// the pool (replaces the manual StartRedisSpan call-site helper).
-	applyObservability(pool, c.Observability)
 	// Fail fast: the redigo pool dials lazily, so borrow one connection and
 	// PING it at startup. A misconfigured address or unreachable server then
 	// surfaces during boot rather than on the first request.
@@ -112,14 +113,5 @@ func newClient(ctx *gs.ContextProvider, c Config) (*redis.Pool, error) {
 		return nil, errutil.Explain(err, "redis: startup ping failed")
 	}
 	log.Infof(ctx.Context, starterTag, "redigo client initialized, addr=%s", c.Addr)
-	return pool, nil
-}
-
-// destroyClient closes the Redis pool and stops any discovery watch behind it.
-func destroyClient(pool *redis.Pool) error {
-	if v, ok := liveDialers.LoadAndDelete(pool); ok {
-		_ = v.(*discovery.Resolver).Stop()
-		log.Debugf(context.Background(), starterTag, "redigo client destroyed, discovery resolver stopped")
-	}
-	return pool.Close()
+	return &ObservedRedisPool{Pool: pool, cfg: c}, nil
 }

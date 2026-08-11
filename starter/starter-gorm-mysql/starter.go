@@ -39,11 +39,12 @@ import (
 )
 
 // liveDialers tracks the discovery-backed dialer and its registered network
-// name behind each client, so destroyClient can stop the watch and deregister.
+// name behind each client, so the wrapper's Close can stop the watch and
+// deregister.
 var liveDialers sync.Map // *gorm.DB -> *discoveryConn
 
 // tlsConfigs tracks the custom TLS config name registered with the mysql driver
-// for a client, so destroyClient can deregister it on teardown.
+// for a client, so the wrapper's Close can deregister it on teardown.
 var tlsConfigs sync.Map // *gorm.DB -> string (tls config name)
 
 // netSeq makes each registered mysql dial network name unique, so multiple
@@ -73,11 +74,14 @@ func init() {
 			return err
 		}
 		for name, c := range m {
-			b := r.Provide(newClient, gs.ValueArg(c)).Name(name).Destroy(destroyClient)
+			b := r.Provide(newClient, gs.IndexArg(1, gs.ValueArg(c))).Name(name).InitMethod("ApplyResilience").Destroy((*ObservedGormDB).Close)
 			b.SetFileLine(file, line)
 			// Contribute a health indicator for this instance, injecting the
-			// *gorm.DB just registered above by name.
-			h := r.Provide(health2.NewGormHealth, gs.ValueArg(name), gs.TagArg(name)).Export(gs.As[health.Indicator]())
+			// wrapper just registered above by name (the embedded *gorm.DB is
+			// passed through to the indicator).
+			h := r.Provide(func(w *ObservedGormDB) health.Indicator {
+				return health2.NewGormHealth(name, w.DB)
+			}, gs.TagArg(name)).Name(name).Export(gs.As[health.Indicator]())
 			h.SetFileLine(file, line)
 		}
 		return nil
@@ -97,7 +101,7 @@ func init() {
 // the client. In mesh mode a sidecar owns discovery+LB, so the configured Addr
 // is used as-is. When c.ServiceName is empty this is a plain Addr dial,
 // unchanged from before.
-func newClient(ctx *gs.ContextProvider, c Config) (*gorm.DB, error) {
+func newClient(ctx *gs.ContextProvider, c Config) (*ObservedGormDB, error) {
 
 	if c.Addr == "" && c.ServiceName == "" {
 		return nil, fmt.Errorf("gorm mysql: one of addr or service-name must be set")
@@ -167,22 +171,12 @@ func newClient(ctx *gs.ContextProvider, c Config) (*gorm.DB, error) {
 		cleanup(conn, tlsName)
 		return nil, err
 	}
-	if err := applyObservability(db, c); err != nil {
-		log.Errorf(ctx.Context, starterTag, "gorm mysql: install otel plugin failed: %v", err)
-		cleanup(conn, tlsName)
-		return nil, err
-	}
 	// Fail fast: verify connectivity and apply pool settings at creation time.
+	// The observe plugin + resilience callbacks are installed later by the
+	// wrapper's ApplyResilience (InitMethod), after gs field-injects its
+	// Observability + Resilience config.
 	if err := applyPool(db, c); err != nil {
 		log.Errorf(ctx.Context, starterTag, "gorm mysql: ping failed: %v", err)
-		cleanup(conn, tlsName)
-		if sqlDB, derr := db.DB(); derr == nil {
-			_ = sqlDB.Close()
-		}
-		return nil, err
-	}
-	if err := applyResilience(c, db); err != nil {
-		log.Errorf(ctx.Context, starterTag, "gorm mysql: resilience setup failed: %v", err)
 		cleanup(conn, tlsName)
 		if sqlDB, derr := db.DB(); derr == nil {
 			_ = sqlDB.Close()
@@ -196,7 +190,7 @@ func newClient(ctx *gs.ContextProvider, c Config) (*gorm.DB, error) {
 		tlsConfigs.Store(db, tlsName)
 	}
 	log.Infof(ctx.Context, starterTag, "gorm mysql client initialized, addr=%s db=%s", c.Addr, c.DB)
-	return db, nil
+	return &ObservedGormDB{DB: db, cfg: c}, nil
 }
 
 // cleanup stops a discovery dialer and deregisters driver-scoped names created
@@ -215,23 +209,4 @@ func deregisterTLS(name string) {
 	if name != "" {
 		mysql.DeregisterTLSConfig(name)
 	}
-}
-
-// destroyClient stops any discovery watch behind the client, deregisters its
-// dial network and TLS config names, and closes the underlying connection pool.
-func destroyClient(db *gorm.DB) error {
-	closeResilience(db)
-	if v, ok := liveDialers.LoadAndDelete(db); ok {
-		conn := v.(*discoveryConn)
-		_ = conn.ld.Stop()
-		mysql.DeregisterDialContext(conn.netName)
-		log.Debugf(context.Background(), starterTag, "gorm mysql client destroyed, discovery dialer stopped")
-	}
-	if v, ok := tlsConfigs.LoadAndDelete(db); ok {
-		mysql.DeregisterTLSConfig(v.(string))
-	}
-	if sqlDB, err := db.DB(); err == nil {
-		return sqlDB.Close()
-	}
-	return nil
 }

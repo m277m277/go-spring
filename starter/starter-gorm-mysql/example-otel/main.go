@@ -36,10 +36,9 @@ import (
 	"time"
 
 	"go-spring.org/spring/gs"
-	"gorm.io/gorm"
-
-	_ "go-spring.org/starter-gorm-mysql"
+	starter "go-spring.org/starter-gorm-mysql"
 	_ "go-spring.org/starter-otel"
+	"gorm.io/gorm"
 )
 
 // KV is a small demo model. `key` and `value` are reserved words in MySQL,
@@ -51,8 +50,8 @@ type KV struct {
 }
 
 type Service struct {
-	DB          *gorm.DB `autowire:"primary"`
-	DiscoveryDB *gorm.DB `autowire:"discovery"`
+	DB          *starter.ObservedGormDB `autowire:"primary"`
+	DiscoveryDB *starter.ObservedGormDB `autowire:"discovery"`
 }
 
 var manual = flag.Bool("manual", false, "run in manual verification mode (server stays up)")

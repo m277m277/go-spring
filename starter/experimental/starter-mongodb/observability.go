@@ -32,19 +32,28 @@ import (
 // (connection id, request id), which the driver guarantees is unique for an
 // in-flight command.
 //
+// getObs lazily supplies the observer: newClient installs the monitor before
+// the wrapper's Observability config is field-injected, so ApplyResilience
+// builds the observer and makes it available through the getter. Because no
+// command runs before ApplyResilience (the wrapper is not handed out until
+// startup completes), the monitor never sees a nil observer in practice; the
+// nil guard keeps the probe path (startup Ping) safe.
+//
 // Why hand-rolled against the v2 event API (not otelmongo): the official
 // otelmongo instrumentation targets the v1 mongo driver and its CommandMonitor
 // type is incompatible with the v2 driver this starter uses. The bridge here
 // delegates the three signals to the observe kit so MongoDB shares the same
 // vocabulary (db.client.operation.duration, db.system=mongodb, ...) as every
 // other client starter.
-func newCommandMonitor(obs *observe.Observer) *event.CommandMonitor {
+func newCommandMonitor(getObs func() *observe.Observer) *event.CommandMonitor {
 	var inFlight sync.Map // spanKey -> *observe.Span
 
 	return &event.CommandMonitor{
 		Started: func(ctx context.Context, e *event.CommandStartedEvent) {
-			_, sp := obs.Start(ctx, e.CommandName, e.DatabaseName)
-			inFlight.Store(spanKey(e.ConnectionID, e.RequestID), sp)
+			if obs := getObs(); obs != nil {
+				_, sp := obs.Start(ctx, e.CommandName, e.DatabaseName)
+				inFlight.Store(spanKey(e.ConnectionID, e.RequestID), sp)
+			}
 		},
 		Succeeded: func(_ context.Context, e *event.CommandSucceededEvent) {
 			if v, ok := inFlight.LoadAndDelete(spanKey(e.ConnectionID, e.RequestID)); ok {

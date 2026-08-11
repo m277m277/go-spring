@@ -22,7 +22,6 @@ import (
 	"strings"
 	"time"
 
-	observe "go-spring.org/observe"
 	"go-spring.org/spring/experimental/cloud/tlsconf"
 )
 
@@ -75,11 +74,6 @@ type Config struct {
 	// Discovery selects which registered discovery backend resolves ServiceName.
 	// Only consulted when ServiceName is set; defaults to "default".
 	Discovery string `value:"${discovery:=default}"`
-
-	// Observability configures the per-operation instrumentation (trace span +
-	// duration/in-flight metric + access log off/brief/detailed) emitted by the
-	// gorm observe plugin. Defaults to "brief".
-	Observability observe.LogConfig `value:"${observability:=}"`
 }
 
 // DSN constructs the SQL Server Data Source Name based on the configuration.

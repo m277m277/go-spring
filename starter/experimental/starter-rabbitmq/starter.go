@@ -106,11 +106,19 @@ func newClient(ctx *gs.ContextProvider, name string, c Config) (*amqp.Connection
 	}()
 
 	log.Infof(ctx.Context, starterTag, "rabbitmq connection initialized, url=%s", c.URL)
+	if err := applyResilience(c, conn); err != nil {
+		log.Errorf(ctx.Context, starterTag, "rabbitmq: resilience setup failed: %v", err)
+		_ = conn.Close()
+		return nil, err
+	}
 	return conn, nil
 }
 
 // destroyClient closes the RabbitMQ connection. amqp091 closes the notifier
-// channels as part of Close, which drains the log-bridging goroutines.
+// channels as part of Close, which drains the log-bridging goroutines. When a
+// resilience executor is attached its Close releases any background resources
+// of a production driver.
 func destroyClient(conn *amqp.Connection) error {
+	closeResilience(conn)
 	return conn.Close()
 }

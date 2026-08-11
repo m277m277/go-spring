@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go"
+	"go-spring.org/observe-resilience"
 	"go-spring.org/spring/experimental/cloud/resilience"
 )
 
@@ -42,6 +43,10 @@ func applyResilience(c Config, conn *Conn) error {
 	if err != nil {
 		return err
 	}
+	// Wrap so breaker trips / rejects / retries emit span + counter + histogram
+	// + access log (the resilience core emits none). nil-safe, no-op without
+	// starter-otel.
+	exec = resilobserve.WrapExecutor(exec, "nats", c.Observability)
 	conn.exec = exec
 	conn.resource = resourceLabel(c)
 	return nil

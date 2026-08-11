@@ -20,9 +20,7 @@ import (
 	"context"
 	"fmt"
 	"runtime"
-	"sync"
 
-	"github.com/elastic/go-elasticsearch/v8"
 	"go-spring.org/log"
 	"go-spring.org/spring/cloud/actuator/health"
 	"go-spring.org/spring/cloud/discovery"
@@ -47,11 +45,19 @@ func init() {
 			return err
 		}
 		for name, c := range m {
-			b := r.Provide(newClient, gs.ValueArg(c)).Name(name).Destroy(destroyClient)
+			// The wrapper bean owns the resilience executor + discovery watch, so
+			// ApplyResilience arms it (InitMethod) and Close tears it down (Destroy).
+			b := r.Provide(newClient,
+				gs.IndexArg(1, gs.ValueArg(c)),
+			).Name(name).InitMethod("ApplyResilience").Destroy((*ObservedElasticClient).Close)
 			b.SetFileLine(file, line)
 			// Contribute a health indicator for this instance, injecting the
-			// client just registered above by name.
-			h := r.Provide(health2.NewClientHealth, gs.ValueArg(name), gs.TagArg(name)).Export(gs.As[health.Indicator]())
+			// client just registered above by name. The wrapper is what is
+			// autowired; the embedded *elasticsearch.Client is handed to the
+			// indicator.
+			h := r.Provide(func(w *ObservedElasticClient) health.Indicator {
+				return health2.NewClientHealth(name, w.Client)
+			}, gs.TagArg(name)).Name(name).Export(gs.As[health.Indicator]())
 			h.SetFileLine(file, line)
 		}
 		return nil
@@ -59,13 +65,6 @@ func init() {
 }
 
 var starterTag = log.RegisterInfraTag("elasticsearch", "")
-
-// resolvers tracks the discovery-backed resolver behind each client, so
-// destroyClient can stop the background watch on teardown. The elasticsearch
-// client exposes no dialer injection point, so the Resolver is only consulted
-// once at startup (to derive the node address list); the watch is kept running
-// only to honor the unified lifecycle and is stopped on shutdown.
-var resolvers sync.Map // *elasticsearch.Client -> *discovery.Resolver
 
 // newClient creates a new Elasticsearch client based on the provided
 // configuration. The cluster is probed once at startup so that misconfiguration
@@ -79,7 +78,7 @@ var resolvers sync.Map // *elasticsearch.Client -> *discovery.Resolver
 // only to keep the lifecycle uniform with the other client starters and is
 // stopped on shutdown. In mesh mode the sidecar owns discovery+LB, so the static
 // Addresses (or CloudID) are used unchanged. See Config.ServiceName.
-func newClient(ctx *gs.ContextProvider, c Config) (*elasticsearch.Client, error) {
+func newClient(ctx *gs.ContextProvider, c Config) (*ObservedElasticClient, error) {
 	var resolver *discovery.Resolver
 	if c.ServiceName != "" && !mesh.Enabled() {
 		addrs, r, err := resolveAddresses(ctx.Context, c)
@@ -104,17 +103,21 @@ func newClient(ctx *gs.ContextProvider, c Config) (*elasticsearch.Client, error)
 		}
 		return nil, errutil.Explain(err, "failed to create elasticsearch client")
 	}
-	if err := HealthCheck(ctx.Context, client); err != nil {
+	w := &ObservedElasticClient{Client: client, cfg: c, resolver: resolver}
+	// The DefaultDriver attaches a dynamic transport (its executor swapped in by
+	// ApplyResilience); pick it up so the wrapper can arm it. Custom drivers may
+	// not install one - resilience is then simply unavailable for that client.
+	if v, ok := dynamicTransports.LoadAndDelete(client); ok {
+		w.dyn = v.(*dynamicTransport)
+	}
+	if err := HealthCheck(ctx.Context, w); err != nil {
 		_ = client.Close(context.Background())
 		if resolver != nil {
 			_ = resolver.Stop()
 		}
 		return nil, errutil.Explain(err, "failed to reach elasticsearch cluster")
 	}
-	if resolver != nil {
-		resolvers.Store(client, resolver)
-	}
-	return client, nil
+	return w, nil
 }
 
 // resolveAddresses builds a discovery Resolver for c.ServiceName and returns the
@@ -147,7 +150,7 @@ func resolveAddresses(ctx context.Context, c Config) ([]string, *discovery.Resol
 // health endpoint. A context is always passed to Info because the transport's
 // OpenTelemetry instrumentation derives its span from it and panics on a nil
 // parent context.
-func HealthCheck(ctx context.Context, client *elasticsearch.Client) error {
+func HealthCheck(ctx context.Context, client *ObservedElasticClient) error {
 	res, err := client.Info(client.Info.WithContext(ctx))
 	if err != nil {
 		return err
@@ -157,14 +160,4 @@ func HealthCheck(ctx context.Context, client *elasticsearch.Client) error {
 		return fmt.Errorf("elasticsearch: info returned %s", res.Status())
 	}
 	return nil
-}
-
-// destroyClient releases the Elasticsearch client and stops any discovery
-// resolver behind it.
-func destroyClient(client *elasticsearch.Client) error {
-	if v, ok := resolvers.LoadAndDelete(client); ok {
-		_ = v.(*discovery.Resolver).Stop()
-		log.Debugf(context.Background(), starterTag, "elasticsearch client destroyed, discovery resolver stopped")
-	}
-	return client.Close(context.Background())
 }

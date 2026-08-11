@@ -105,6 +105,17 @@ func ApplyMiddlewares(e *gin.Engine, cfg Config) error {
 	}
 	e.Use(Observe(accessCfg))
 
+	// Resilience admission (opt-in): runs the request through the configured
+	// rate-limit / bulkhead / breaker before the handler chain. Sits inside
+	// Observe so 429/503 rejects are still observed.
+	adm, err := buildAdmission(cfg)
+	if err != nil {
+		return errutil.Explain(err, "gin: resilience admission")
+	}
+	if adm != nil {
+		e.Use(adm)
+	}
+
 	// Policy middlewares - opt-in, and they sit inside Observe so short-circuit
 	// responses (204, 403) are still observed.
 	if mw.SecureHeaders.Enabled {

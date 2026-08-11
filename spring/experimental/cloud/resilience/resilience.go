@@ -79,6 +79,68 @@ const (
 	BreakerErrorRate BreakerStrategy = "error-rate"
 )
 
+// BreakerState is one state of a circuit breaker.
+type BreakerState int
+
+const (
+	// BreakerClosed is the normal state: calls proceed and their outcomes feed
+	// the breaker's failure counting.
+	BreakerClosed BreakerState = iota
+	// BreakerOpen is the tripped state: calls are rejected with ErrCircuitOpen
+	// without invoking fn, until the cool-down elapses.
+	BreakerOpen
+	// BreakerHalfOpen is the trial state: exactly one call is admitted to probe
+	// recovery; its outcome either closes or re-opens the circuit.
+	BreakerHalfOpen
+)
+
+// String returns the lowercase OTel-style name ("closed" / "open" / "half_open").
+func (s BreakerState) String() string {
+	switch s {
+	case BreakerOpen:
+		return "open"
+	case BreakerHalfOpen:
+		return "half_open"
+	default:
+		return "closed"
+	}
+}
+
+// BreakerEventListener receives circuit-breaker state transitions. When a
+// breaker trips, half-opens or recovers, OnBreakerStateChange is called with
+// the resource and the from/to states.
+//
+// The listener is invoked synchronously from inside the breaker's state
+// transition. It must NOT call back into the same Executor (it would deadlock
+// on the breaker's lock) — emit a metric, log, or push onto a channel instead.
+type BreakerEventListener interface {
+	OnBreakerStateChange(resource string, from, to BreakerState)
+}
+
+// BreakerEventListenerSetter is optionally implemented by Executors whose driver
+// can emit circuit-breaker state transitions. The builtin driver implements it;
+// observe-resilience uses it to attach metric + log emission. A driver that
+// cannot observe transitions (e.g. one delegating to a library without state
+// callbacks) simply does not implement it, and SetBreakerEventListener calls
+// against it are a no-op detected by a failed type assertion.
+type BreakerEventListenerSetter interface {
+	SetBreakerEventListener(BreakerEventListener)
+}
+
+// RefreshableExecutor is optionally implemented by Executors that can adopt a
+// new [Policy] at runtime — hot-reloading rate/breaker/bulkhead/retry thresholds
+// without rebuilding the bean. Refreshing resets per-resource protection state
+// (breaker counters, token buckets, bulkhead slots): a new policy starts clean,
+// which is the intended semantic of "the threshold changed".
+//
+// The builtin driver implements it. Adapters that hold an executor and want to
+// surface runtime refresh (e.g. driven by a gs.Dync config binding) type-assert
+// against this interface and call Refresh when the bound policy changes.
+type RefreshableExecutor interface {
+	Refresh(Policy) error
+}
+
+
 // Policy is a backend-neutral description of the protection wanted for a set of
 // operations. Each [Driver] maps these knobs onto its own primitives (the
 // builtin driver reads them directly; sentinel-golang translates them into its

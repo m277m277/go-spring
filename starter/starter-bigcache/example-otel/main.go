@@ -42,16 +42,18 @@ import (
 	"github.com/allegro/bigcache/v3"
 	"go-spring.org/log"
 	"go-spring.org/spring/gs"
-	_ "go-spring.org/starter-bigcache"
+	StarterBigCache "go-spring.org/starter-bigcache"
 	_ "go-spring.org/starter-otel"
 )
 
 // Service injects the "hot" BigCache instance. The bean is created by
 // starter-bigcache under ${spring.bigcache.hot}; starter-bigcache
 // registers its OTel gauges (labeled cache.name="hot") as a side effect of
-// constructing the client.
+// constructing the client. The bean is the *ObservedBigCache wrapper (bigcache
+// has no hook extension point), so per-op span/metric/log are emitted by the
+// Get/Set calls below; the OTel gauges above are independent.
 type Service struct {
-	Hot *bigcache.BigCache `autowire:"hot"`
+	Hot *StarterBigCache.ObservedBigCache `autowire:"hot"`
 }
 
 var manual = flag.Bool("manual", false, "run in manual verification mode (server stays up)")

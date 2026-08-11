@@ -25,7 +25,6 @@ import (
 	"github.com/redis/go-redis/v9"
 	"go-spring.org/log"
 	"go-spring.org/spring/cloud/actuator/health"
-	"go-spring.org/spring/cloud/discovery"
 	"go-spring.org/spring/conf"
 	"go-spring.org/spring/data/cache"
 	"go-spring.org/spring/gs"
@@ -55,16 +54,16 @@ func init() {
 		for name, c := range m {
 			switch c.Mode {
 			case "", "single", "sentinel":
-				b := r.Provide(newClient, gs.ValueArg(c)).Name(name).Destroy(destroyClient)
+				b := r.Provide(newClient, gs.IndexArg(1, gs.ValueArg(c))).Name(name).InitMethod("ApplyResilience").Destroy((*ObservedRedisClient).Close)
 				b.SetFileLine(file, line)
 				// Contribute a health indicator for this instance, injecting the
 				// client just registered above by name.
-				h := r.Provide(health2.NewClientHealth, gs.ValueArg(name), gs.TagArg(name)).Export(gs.As[health.Indicator]())
+				h := r.Provide(health2.NewClientHealth, gs.ValueArg(name), gs.TagArg(name)).Name(name).Export(gs.As[health.Indicator]())
 				h.SetFileLine(file, line)
 			case "cluster":
-				b := r.Provide(newClusterClient, gs.ValueArg(c)).Name(name).Destroy(destroyClusterClient)
+				b := r.Provide(newClusterClient, gs.IndexArg(1, gs.ValueArg(c))).Name(name).InitMethod("ApplyResilience").Destroy((*ObservedRedisClient).Close)
 				b.SetFileLine(file, line)
-				h := r.Provide(health2.NewClusterHealth, gs.ValueArg(name), gs.TagArg(name)).Export(gs.As[health.Indicator]())
+				h := r.Provide(health2.NewClusterHealth, gs.ValueArg(name), gs.TagArg(name)).Name(name).Export(gs.As[health.Indicator]())
 				h.SetFileLine(file, line)
 			default:
 				return errutil.Explain(nil, "redis: invalid mode %q for instance %q (want single/sentinel/cluster)", c.Mode, name)
@@ -84,20 +83,21 @@ func init() {
 func init() {
 	cache.RegisterDriver("go-redis", func(beanID string) gs.ModuleFunc {
 		return func(r gs.BeanProvider, p flatten.Storage) error {
-			r.Provide(func(c *redis.Client) *cache.Cache {
-				return &cache.Cache{ByteCache: bytecache.NewByteCache(c)}
+			r.Provide(func(c *ObservedRedisClient) *cache.Cache {
+				return &cache.Cache{ByteCache: bytecache.NewByteCache(c.UniversalClient)}
 			}, gs.TagArg(beanID)).Name(beanID)
 			return nil
 		}
 	})
 }
 
-// newClient creates a single or sentinel Redis client (*redis.Client), bridged
-// into go-spring's unified observability. The redisotel hooks emit client spans
-// and connection-pool metrics through the OTel globals that starter-otel
+// newClient creates a single or sentinel Redis client, wrapped in an
+// ObservedRedisClient so gs can field-inject resilience + observability and
+// ApplyResilience (InitMethod) can arm them. The redisotel hooks emit client
+// spans and connection-pool metrics through the OTel globals that starter-otel
 // installs; when starter-otel is absent those globals are no-ops, so this stays
 // a zero-config opt-in that needs no per-component adaptation.
-func newClient(ctx *gs.ContextProvider, c Config) (*redis.Client, error) {
+func newClient(ctx *gs.ContextProvider, c Config) (*ObservedRedisClient, error) {
 	log.Debugf(ctx.Context, starterTag, "creating redis client, addr=%s mode=%s", c.Addr, c.Mode)
 
 	if err := validateConfig(c); err != nil {
@@ -113,31 +113,26 @@ func newClient(ctx *gs.ContextProvider, c Config) (*redis.Client, error) {
 		log.Errorf(ctx.Context, starterTag, "redis: create client failed: %v", err)
 		return nil, err
 	}
+	w := &ObservedRedisClient{UniversalClient: client, cfg: c}
 	if err := instrument(client); err != nil {
 		log.Errorf(ctx.Context, starterTag, "redis: instrument client failed: %v", err)
-		_ = client.Close()
+		_ = w.Close()
 		return nil, err
 	}
 	if err := failFastPing(ctx.Context, c, client); err != nil {
 		log.Errorf(ctx.Context, starterTag, "redis: startup ping failed: %v", err)
-		_ = destroyClient(client)
+		_ = w.Close()
 		return nil, err
 	}
-	if err := applyResilience(c, client); err != nil {
-		log.Errorf(ctx.Context, starterTag, "redis: resilience setup failed: %v", err)
-		_ = destroyClient(client)
-		return nil, err
-	}
-	// Attach the access-log Hook (trace+metric come from redisotel above).
-	applyObservability(c, client)
 	log.Infof(ctx.Context, starterTag, "redis client initialized, addr=%s mode=%s", c.Addr, c.Mode)
-	return client, nil
+	return w, nil
 }
 
-// newClusterClient creates a cluster Redis client (*redis.ClusterClient). The
-// driver must implement ClusterDriver; the redisotel hooks attach per-node via
-// ClusterClient.OnNewNode, so tracing/metrics cover every node discovered.
-func newClusterClient(ctx *gs.ContextProvider, c Config) (*redis.ClusterClient, error) {
+// newClusterClient creates a cluster Redis client, wrapped in an
+// ObservedRedisClient. The driver must implement ClusterDriver; the redisotel
+// hooks attach per-node via ClusterClient.OnNewNode, so tracing/metrics cover
+// every node discovered.
+func newClusterClient(ctx *gs.ContextProvider, c Config) (*ObservedRedisClient, error) {
 	log.Debugf(ctx.Context, starterTag, "creating redis cluster client, addrs=%v", c.Addrs)
 
 	if err := validateConfig(c); err != nil {
@@ -158,25 +153,19 @@ func newClusterClient(ctx *gs.ContextProvider, c Config) (*redis.ClusterClient, 
 		log.Errorf(ctx.Context, starterTag, "redis: create cluster client failed: %v", err)
 		return nil, err
 	}
+	w := &ObservedRedisClient{UniversalClient: client, cfg: c}
 	if err := instrument(client); err != nil {
 		log.Errorf(ctx.Context, starterTag, "redis: instrument cluster client failed: %v", err)
-		_ = client.Close()
+		_ = w.Close()
 		return nil, err
 	}
 	if err := failFastPing(ctx.Context, c, client); err != nil {
 		log.Errorf(ctx.Context, starterTag, "redis: cluster startup ping failed: %v", err)
-		_ = client.Close()
+		_ = w.Close()
 		return nil, err
 	}
-	if err := applyResilience(c, client); err != nil {
-		log.Errorf(ctx.Context, starterTag, "redis: cluster resilience setup failed: %v", err)
-		_ = destroyClusterClient(client)
-		return nil, err
-	}
-	// Attach the access-log Hook (trace+metric come from redisotel above).
-	applyObservability(c, client)
 	log.Infof(ctx.Context, starterTag, "redis cluster client initialized, addrs=%v", c.Addrs)
-	return client, nil
+	return w, nil
 }
 
 // validateConfig checks the per-mode required fields, and rejects combining
@@ -238,21 +227,6 @@ func pingTimeout(c Config) time.Duration {
 	return 5 * time.Second
 }
 
-// destroyClient closes a single/sentinel client and stops any discovery watch
-// behind it.
-func destroyClient(client *redis.Client) error {
-	closeResilience(client)
-	if v, ok := liveDialers.LoadAndDelete(client); ok {
-		_ = v.(*discovery.Resolver).Stop()
-		log.Debugf(context.Background(), starterTag, "redis client destroyed, discovery dialer stopped")
-	}
-	return client.Close()
-}
-
-// destroyClusterClient closes a cluster client. Cluster mode never uses a
-// LiveDialer, so there is no discovery watch to stop.
-func destroyClusterClient(client *redis.ClusterClient) error {
-	closeResilience(client)
-	log.Debugf(context.Background(), starterTag, "redis cluster client destroyed")
-	return client.Close()
-}
+// Client teardown is handled by (*ObservedRedisClient).Close (the gs destroy
+// method): it closes the resilience executor (if armed), stops any discovery
+// watch, and closes the underlying client.

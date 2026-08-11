@@ -21,6 +21,7 @@ import (
 	"errors"
 	"testing"
 
+	"go-spring.org/observe-transaction"
 	"go-spring.org/spring/experimental/cloud/transaction"
 	"go-spring.org/stdlib/testing/assert"
 )
@@ -36,7 +37,7 @@ func TestOtelObserver_DrivesSagaWithoutPanic(t *testing.T) {
 	// With no TracerProvider installed the otel global is a no-op, but the
 	// observer must still return a usable context and an end func that records the
 	// outcome without panicking — exercised here through a real compensation path.
-	coord := transaction.NewCoordinator(transaction.WithObserver(otelObserver{}))
+	coord := transaction.NewCoordinator(transaction.WithObserver(transactionobserve.SagaObserver{}))
 
 	compensated := false
 	res, err := coord.Execute(context.Background(), transaction.Saga{
@@ -50,11 +51,6 @@ func TestOtelObserver_DrivesSagaWithoutPanic(t *testing.T) {
 	assert.Error(t, err).NotNil()
 	assert.That(t, res.Status).Equal(transaction.StatusCompensated)
 	assert.That(t, compensated).True()
-}
-
-func TestSpanName(t *testing.T) {
-	assert.That(t, spanName(transaction.PhaseAction, "DeductInventory")).Equal("saga.action DeductInventory")
-	assert.That(t, spanName(transaction.PhaseCompensate, "DeductInventory")).Equal("saga.compensate DeductInventory")
 }
 
 func TestRecoveryRunner_CompensatesPendingSaga(t *testing.T) {

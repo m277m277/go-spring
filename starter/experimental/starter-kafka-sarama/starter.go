@@ -95,6 +95,11 @@ func newClient(ctx *gs.ContextProvider, name string, c Config) (sarama.Client, e
 		log.Errorf(ctx.Context, starterTag, "kafka sarama: no brokers after metadata fetch: %s", c.Brokers)
 		return nil, fmt.Errorf("kafka client has no brokers after metadata fetch: %s", c.Brokers)
 	}
+	if err := applyResilience(c, cl); err != nil {
+		log.Errorf(ctx.Context, starterTag, "kafka sarama: resilience setup failed: %v", err)
+		_ = cl.Close()
+		return nil, err
+	}
 	log.Infof(ctx.Context, starterTag, "kafka sarama client initialized, brokers=%s", c.Brokers)
 	return cl, nil
 }
@@ -163,7 +168,9 @@ func compressionCodec(name string) (sarama.CompressionCodec, error) {
 
 // destroyClient closes the Kafka client. sarama.Client itself buffers no
 // in-flight records; SyncProducer/ConsumerGroup are derived beans and manage
-// their own lifecycle.
+// their own lifecycle. When a resilience executor is attached its Close
+// releases any background resources of a production driver.
 func destroyClient(cl sarama.Client) error {
+	closeResilience(cl)
 	return cl.Close()
 }

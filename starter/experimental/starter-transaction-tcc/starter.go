@@ -66,6 +66,7 @@ import (
 	"context"
 
 	"go-spring.org/log"
+	"go-spring.org/observe-transaction"
 	"go-spring.org/spring/experimental/cloud/transaction/tcc"
 	"go-spring.org/spring/gs"
 )
@@ -114,7 +115,7 @@ func init() {
 func newCoordinator(c Config, store tcc.Store) tcc.Coordinator {
 	opts := []tcc.Option{tcc.WithStore(store)}
 	if c.Tracing {
-		opts = append(opts, tcc.WithObserver(otelObserver{}))
+		opts = append(opts, tcc.WithObserver(transactionobserve.TccObserver{}))
 	}
 	log.Infof(context.Background(), starterTag, "tcc coordinator created tracing=%v", c.Tracing)
 	return tcc.NewCoordinator(opts...)

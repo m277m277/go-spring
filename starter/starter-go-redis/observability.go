@@ -31,8 +31,8 @@ import (
 // log rides the caller's ctx, so it picks up redisotel's span for trace_id
 // correlation. When LogConfig.Level is "off" the Observer emits nothing, so the
 // Hook is a no-op pass-through.
-func applyObservability(c Config, client redis.UniversalClient) {
-	obs := observe.NewClient("redis", c.Observability, observe.WithoutTraceAndMetric())
+func applyObservability(cfg observe.LogConfig, client redis.UniversalClient) {
+	obs := observe.NewClient("redis", cfg, observe.WithoutTraceAndMetric())
 	client.AddHook(&observeHook{obs: obs})
 }
 

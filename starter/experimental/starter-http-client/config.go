@@ -21,6 +21,8 @@ import (
 	"net/http"
 	"time"
 
+	observe "go-spring.org/observe"
+	"go-spring.org/observe-resilience"
 	"go-spring.org/spring/experimental/cloud/resilience"
 	"go-spring.org/spring/experimental/web/httpx"
 )
@@ -64,6 +66,11 @@ type Config struct {
 	// Resilience optionally protects outbound requests with rate limiting,
 	// circuit breaking and retry. Disabled by default.
 	Resilience resilience.Config `value:"${resilience:=}"`
+
+	// Observability configures the resilience access log (off/brief/detailed)
+	// emitted alongside the trace span + metrics that observe-resilience wraps
+	// the executor with.
+	Observability observe.LogConfig `value:"${observability:=}"`
 }
 
 // ResilienceConfig binds the backend-neutral resilience knobs exposed by
@@ -107,6 +114,11 @@ func (c Config) toTransportConfig(base http.RoundTripper) httpx.Config {
 	if c.Resilience.Enabled {
 		cfg.ResilienceDriver = c.Resilience.Driver
 		cfg.ResiliencePolicy = c.Resilience.Policy()
+		// Attach span + metric + log to the executor via observe-resilience,
+		// injected as a wrap hook so the otel-free httpx core stays decoupled.
+		cfg.WrapExec = func(e resilience.Executor) resilience.Executor {
+			return resilobserve.WrapExecutor(e, "http", c.Observability)
+		}
 	}
 	return cfg
 }

@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"net"
 	"runtime"
-	"sync"
 	"time"
 
 	"go-spring.org/log"
@@ -38,26 +37,18 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
-// liveDialers tracks the discovery-backed resolver behind each client, so
-// destroyClient can stop the background watch on teardown.
-var liveDialers sync.Map // *mongo.Client -> *discovery.Resolver
-
 var starterTag = log.RegisterInfraTag("mongodb", "")
 
-// dialerWrapper adapts the discovery Resolver's Pick-based selection to the
-// mongo driver's options.ContextDialer interface. The dialed address is taken
-// from the Resolver, so the address argument from the driver is ignored.
+// dialerWrapper adapts a dial function (plain, discovery-backed, or
+// resilience-wrapped) to the mongo driver's options.Dialer interface. The
+// dialed address is taken as-is so the underlying function (which may itself
+// ignore it in favor of a Resolver pick) decides the target.
 type dialerWrapper struct {
-	pick func() (discovery.Endpoint, error)
 	dial func(ctx context.Context, network, address string) (net.Conn, error)
 }
 
-func (d *dialerWrapper) DialContext(ctx context.Context, network, _ string) (net.Conn, error) {
-	ep, err := d.pick()
-	if err != nil {
-		return nil, err
-	}
-	return d.dial(ctx, network, ep.Addr)
+func (d *dialerWrapper) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	return d.dial(ctx, network, address)
 }
 
 func init() {
@@ -73,11 +64,18 @@ func init() {
 			return err
 		}
 		for name, c := range m {
-			b := r.Provide(newClient, gs.ValueArg(c)).Name(name).Destroy(destroyClient)
+			// The wrapper bean owns the resilience executor + discovery watch, so
+			// ApplyResilience arms it (InitMethod) and Close tears it down (Destroy).
+			b := r.Provide(newClient,
+				gs.IndexArg(1, gs.ValueArg(c)),
+			).Name(name).InitMethod("ApplyResilience").Destroy((*ObservedMongoClient).Close)
 			b.SetFileLine(file, line)
 			// Contribute a health indicator for this instance, injecting the
-			// client just registered above by name.
-			h := r.Provide(health2.NewClientHealth, gs.ValueArg(name), gs.TagArg(name)).Export(gs.As[health.Indicator]())
+			// client just registered above by name. The wrapper is what is
+			// autowired; the embedded *mongo.Client is handed to the indicator.
+			h := r.Provide(func(w *ObservedMongoClient) health.Indicator {
+				return health2.NewClientHealth(name, w.Client)
+			}, gs.TagArg(name)).Name(name).Export(gs.As[health.Indicator]())
 			h.SetFileLine(file, line)
 		}
 		return nil
@@ -85,8 +83,12 @@ func init() {
 }
 
 // newClient creates a new MongoDB client based on the provided configuration,
-// bridged into go-spring's unified observability via a command monitor (see
-// observability.go). After the client is built it is pinged so that
+// wrapped so gs can field-inject resilience + observability and
+// ApplyResilience (InitMethod) can arm them. The command monitor (observability)
+// and the dial seam (resilience) are installed dynamically: newClient wires a
+// mutable monitor + dialer into the driver, and ApplyResilience later swaps in
+// the observe observer and the resilience-wrapped dial function once the
+// injected policy is available. After the client is built it is pinged so that
 // misconfiguration or an unreachable server fails fast at startup rather than
 // on first use.
 //
@@ -97,11 +99,10 @@ func init() {
 // take effect without rebuilding the client. In mesh mode a sidecar owns
 // discovery+LB, so the URI hosts are dialed directly. When c.ServiceName is
 // empty this dials the URI hosts directly, unchanged from before.
-func newClient(ctx *gs.ContextProvider, c Config) (*mongo.Client, error) {
+func newClient(ctx *gs.ContextProvider, c Config) (*ObservedMongoClient, error) {
 	log.Debugf(ctx.Context, starterTag, "creating mongodb client, uri=%s service-name=%s", c.URI, c.ServiceName)
 
 	opts := options.Client().ApplyURI(c.URI)
-	opts.SetMonitor(newCommandMonitor(observe.NewClient("mongodb", c.Observability)))
 	if c.ConnectTimeout > 0 {
 		opts.SetConnectTimeout(c.ConnectTimeout)
 	}
@@ -132,7 +133,13 @@ func newClient(ctx *gs.ContextProvider, c Config) (*mongo.Client, error) {
 		opts.SetTLSConfig(tlsCfg)
 	}
 
-	var resolver *discovery.Resolver
+	w := &ObservedMongoClient{cfg: c}
+	// The command monitor observes operations; it reads the observer lazily so
+	// ApplyResilience can build it from the injected Observability config once
+	// the wrapper is field-injected. No commands run before ApplyResilience.
+	opts.SetMonitor(newCommandMonitor(func() *observe.Observer { return w.obs.Load() }))
+
+	var baseDial func(ctx context.Context, network, address string) (net.Conn, error)
 	if c.ServiceName != "" && !mesh.Enabled() {
 		// Client-side discovery: resolve the service name and pick a live
 		// endpoint per new connection. In mesh mode a sidecar owns
@@ -143,25 +150,43 @@ func newClient(ctx *gs.ContextProvider, c Config) (*mongo.Client, error) {
 			log.Errorf(ctx.Context, starterTag, "mongodb: get discovery backend failed: %v", err)
 			return nil, err
 		}
-		resolver, err = discovery.NewResolver(ctx.Context, d, c.ServiceName, discovery.WithScheme(c.Scheme))
+		resolver, err := discovery.NewResolver(ctx.Context, d, c.ServiceName, discovery.WithScheme(c.Scheme))
 		if err != nil {
 			log.Errorf(ctx.Context, starterTag, "mongodb: create resolver for %s failed: %v", c.ServiceName, err)
 			return nil, err
 		}
+		w.resolver = resolver
 		nd := &net.Dialer{Timeout: c.ConnectTimeout}
-		// The injected dialer ignores the URI address and picks a live
+		// The discovery dialer ignores the URI address and picks a live
 		// endpoint via the Resolver on each new connection.
-		opts.SetDialer(&dialerWrapper{pick: resolver.Pick, dial: nd.DialContext})
+		pick := resolver.Pick
+		baseDial = func(ctx context.Context, network, _ string) (net.Conn, error) {
+			ep, err := pick()
+			if err != nil {
+				return nil, err
+			}
+			return nd.DialContext(ctx, network, ep.Addr)
+		}
 	}
+	if baseDial == nil {
+		nd := &net.Dialer{Timeout: c.ConnectTimeout}
+		baseDial = nd.DialContext
+	}
+	// A shared dialer instance is handed to the driver; ApplyResilience mutates
+	// its dial field (wrapping it with resilience.NewDialer) so the swap takes
+	// effect without rebuilding the client.
+	w.dialer = &dialerWrapper{dial: baseDial}
+	opts.SetDialer(w.dialer)
 
 	client, err := mongo.Connect(opts)
 	if err != nil {
 		log.Errorf(ctx.Context, starterTag, "mongodb: connect failed: %v", err)
-		if resolver != nil {
-			_ = resolver.Stop()
+		if w.resolver != nil {
+			_ = w.resolver.Stop()
 		}
 		return nil, fmt.Errorf("mongodb: create client: %w", err)
 	}
+	w.Client = client
 
 	// Fail fast: verify the server is reachable before handing out the client.
 	pingCtx, cancel := pingContext(ctx.Context, c.ConnectTimeout)
@@ -169,21 +194,18 @@ func newClient(ctx *gs.ContextProvider, c Config) (*mongo.Client, error) {
 	if err := client.Ping(pingCtx, nil); err != nil {
 		log.Errorf(ctx.Context, starterTag, "mongodb: ping failed uri=%s: %v", c.URI, err)
 		_ = client.Disconnect(context.Background())
-		if resolver != nil {
-			_ = resolver.Stop()
+		if w.resolver != nil {
+			_ = w.resolver.Stop()
 		}
 		return nil, fmt.Errorf("mongodb: ping %s: %w", c.URI, err)
 	}
-	if resolver != nil {
-		liveDialers.Store(client, resolver)
-	}
 	log.Infof(ctx.Context, starterTag, "mongodb client initialized, uri=%s", c.URI)
-	return client, nil
+	return w, nil
 }
 
 // HealthCheck reports whether the MongoDB client can reach the server. It is a
 // thin readiness probe suitable for wiring into a health endpoint.
-func HealthCheck(ctx context.Context, client *mongo.Client) error {
+func HealthCheck(ctx context.Context, client *ObservedMongoClient) error {
 	return client.Ping(ctx, nil)
 }
 
@@ -194,14 +216,4 @@ func pingContext(ctx context.Context, timeout time.Duration) (context.Context, c
 		timeout = 10 * time.Second
 	}
 	return context.WithTimeout(ctx, timeout)
-}
-
-// destroyClient disconnects the MongoDB client and stops any discovery watch
-// behind it.
-func destroyClient(client *mongo.Client) error {
-	if v, ok := liveDialers.LoadAndDelete(client); ok {
-		_ = v.(*discovery.Resolver).Stop()
-		log.Debugf(context.Background(), starterTag, "mongodb client destroyed, discovery resolver stopped")
-	}
-	return client.Disconnect(context.Background())
 }

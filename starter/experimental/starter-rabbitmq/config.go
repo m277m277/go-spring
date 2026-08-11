@@ -19,6 +19,8 @@ package StarterRabbitMQ
 import (
 	"time"
 
+	observe "go-spring.org/observe"
+	"go-spring.org/spring/experimental/cloud/resilience"
 	"go-spring.org/spring/experimental/cloud/tlsconf"
 )
 
@@ -43,4 +45,23 @@ type Config struct {
 	// uniform across starters (cert-file / key-file / ca-file / server-name /
 	// insecure-skip-verify).
 	TLS tlsconf.TLSConfig `value:"${tls}"`
+
+	// Resilience optionally protects synchronous publish calls with rate
+	// limiting, circuit breaking, bulkhead and retry. It is disabled by
+	// default; when enabled, GuardedPublish routes Channel.PublishWithContext
+	// through the selected resilience driver. Only the synchronous publish path
+	// is guarded — publisher confirms (which are async via NotifyConfirm) are
+	// untouched.
+	Resilience resilience.Config `value:"${resilience:=}"`
+
+	// Observability configures the per-operation access log emitted by the
+	// resilience executor (off/brief/detailed). Defaults to "brief". This
+	// complements the package-level trace helpers in observability.go, which are
+	// driven by their own default level.
+	Observability observe.LogConfig `value:"${observability:=}"`
 }
+
+// Resilience binds the backend-neutral resilience knobs shared by every client
+// starter (see [resilience.Config]). Keep MaxRetries at 0 for publishing —
+// retrying a publish can duplicate a message; leave retry to the caller who
+// knows whether the message is idempotent.

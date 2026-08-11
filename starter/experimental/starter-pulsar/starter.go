@@ -105,6 +105,14 @@ func newClient(ctx *gs.ContextProvider, name string, c Config) (pulsar.Client, e
 	if srv != nil {
 		metricsServers.Store(cl, srv)
 	}
+	if err := applyResilience(c, cl); err != nil {
+		log.Errorf(ctx.Context, starterTag, "pulsar: resilience setup failed: %v", err)
+		cl.Close()
+		if srv != nil {
+			_ = srv.Shutdown(ctx.Context)
+		}
+		return nil, err
+	}
 	log.Infof(ctx.Context, starterTag, "pulsar client initialized, url=%s", c.URL)
 	return cl, nil
 }
@@ -117,7 +125,10 @@ var metricsServers sync.Map // pulsar.Client -> *http.Server
 
 // destroyClient closes the Pulsar client, which releases all producers and
 // consumers held by it, then shuts down its /metrics server if one was started.
+// When a resilience executor is attached its Close releases any background
+// resources of a production driver.
 func destroyClient(cl pulsar.Client) error {
+	closeResilience(cl)
 	cl.Close()
 	if v, ok := metricsServers.LoadAndDelete(cl); ok {
 		_ = v.(*http.Server).Shutdown(context.Background())

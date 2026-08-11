@@ -17,52 +17,15 @@
 package StarterLockRedis
 
 import (
-	"context"
-
+	"go-spring.org/observe-lock"
 	"go-spring.org/spring/experimental/cloud/lock"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/trace"
 )
-
-const tracerName = "go-spring.org/starter-lock-redis"
 
 func wrapLockerBean(c Config, inner lock.Locker) lock.Locker { return WrapLocker(inner) }
 
-func WrapLocker(inner lock.Locker) lock.Locker { return &observedLocker{inner: inner} }
-
-type observedLocker struct{ inner lock.Locker }
-
-func (l *observedLocker) Acquire(ctx context.Context, key string, opts ...lock.Option) (lock.Lock, error) {
-	ctx, span := otel.Tracer(tracerName).Start(ctx, "lock.acquire",
-		trace.WithSpanKind(trace.SpanKindClient),
-		trace.WithAttributes(attribute.String("lock.key", key), attribute.String("lock.system", "redis")),
-	)
-	held, err := l.inner.Acquire(ctx, key, opts...)
-	if err != nil {
-		span.SetStatus(codes.Error, err.Error())
-		span.RecordError(err)
-	}
-	span.End()
-	return held, err
-}
-
-func (l *observedLocker) TryAcquire(ctx context.Context, key string, opts ...lock.Option) (lock.Lock, bool, error) {
-	ctx, span := otel.Tracer(tracerName).Start(ctx, "lock.try_acquire",
-		trace.WithSpanKind(trace.SpanKindClient),
-		trace.WithAttributes(attribute.String("lock.key", key), attribute.String("lock.system", "redis")),
-	)
-	held, ok, err := l.inner.TryAcquire(ctx, key, opts...)
-	if err != nil {
-		span.SetStatus(codes.Error, err.Error())
-		span.RecordError(err)
-	}
-	if !ok {
-		span.SetAttributes(attribute.Bool("lock.acquired", false))
-	}
-	span.End()
-	return held, ok, err
-}
-
-func (l *observedLocker) Close() error { return l.inner.Close() }
+// WrapLocker returns a lock.Locker whose Acquire/TryAcquire are wrapped with
+// OTel client spans (lock.system="redis"). The implementation lives in the
+// shared observe-lock adapter so every lock backend shares one wrapper instead
+// of copy-pasting it per starter. When starter-otel is not imported the global
+// TracerProvider is a no-op, so the wrapper adds negligible overhead.
+func WrapLocker(inner lock.Locker) lock.Locker { return lockobserve.WrapLocker("redis", inner) }

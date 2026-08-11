@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 
 	sentinel "github.com/alibaba/sentinel-golang/api"
 	"github.com/alibaba/sentinel-golang/core/base"
@@ -37,8 +38,17 @@ import (
 type sentinelExecutor struct {
 	policy resilience.Policy
 
-	mu     sync.Mutex
-	loaded map[string]bool
+	mu       sync.Mutex
+	loaded   map[string]bool
+	listener atomic.Pointer[resilience.BreakerEventListener]
+}
+
+// SetBreakerEventListener attaches l and routes sentinel breaker state changes
+// for every resource this executor builds (via ensureRules) to it. Satisfies
+// [resilience.BreakerEventListenerSetter]; observe-resilience uses it.
+func (e *sentinelExecutor) SetBreakerEventListener(l resilience.BreakerEventListener) {
+	ensureRouteListener()
+	e.listener.Store(&l)
 }
 
 // isoSuffix namespaces the bulkhead (isolation) resource so an Entry that holds
@@ -82,6 +92,11 @@ func (e *sentinelExecutor) ensureRules(resource string) error {
 	if e.policy.BreakerActive() {
 		if err := e.loadBreakerRule(resource); err != nil {
 			return err
+		}
+		// Route sentinel breaker state changes for this resource to the
+		// attached listener (if any), so observe-resilience gets the events.
+		if l := e.listener.Load(); l != nil {
+			registerBreakerRoute(resource, *l)
 		}
 	}
 

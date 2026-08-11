@@ -31,12 +31,18 @@ import (
 	"github.com/allegro/bigcache/v3"
 	"go-spring.org/log"
 	"go-spring.org/spring/gs"
+	StarterBigCache "go-spring.org/starter-bigcache"
 )
 
+// Service injects the per-instance wrapped clients. bigcache exposes no hook/
+// plugin extension point, so per-operation observability is delivered through
+// the *ObservedBigCache wrapper itself (Get/Set/Delete emit span+metric+log);
+// inject that type rather than the raw *bigcache.BigCache. The embedded
+// *bigcache.BigCache is still reachable via the field for any raw API need.
 type Service struct {
-	Hot   *bigcache.BigCache `autowire:"hot"`
-	Cold  *bigcache.BigCache `autowire:"cold"`
-	Evict *bigcache.BigCache `autowire:"evict"`
+	Hot   *StarterBigCache.ObservedBigCache `autowire:"hot"`
+	Cold  *StarterBigCache.ObservedBigCache `autowire:"cold"`
+	Evict *StarterBigCache.ObservedBigCache `autowire:"evict"`
 }
 
 var manual = flag.Bool("manual", false, "run in manual verification mode (server stays up)")

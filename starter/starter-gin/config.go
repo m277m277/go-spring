@@ -19,6 +19,8 @@ package StarterGin
 import (
 	"time"
 
+	observe "go-spring.org/observe"
+	"go-spring.org/spring/experimental/cloud/resilience"
 	"go-spring.org/spring/experimental/cloud/tlsconf"
 )
 
@@ -32,6 +34,8 @@ type Config struct {
 	TLS          tlsconf.TLSConfig `value:"${tls}"`
 	Health       HealthConfig      `value:"${health}"`
 	Middleware   MiddlewareConfig  `value:"${middleware}"`
+	Resilience   resilience.Config `value:"${resilience}"`
+	Observability observe.LogConfig `value:"${observability:=}"`
 }
 
 // HealthConfig exposes an optional liveness/readiness endpoint served by the

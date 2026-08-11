@@ -108,6 +108,11 @@ func newClient(ctx *gs.ContextProvider, name string, c Config) (*kgo.Client, err
 		cl.Close()
 		return nil, errutil.Explain(err, "failed to ping kafka: %s", c.Brokers)
 	}
+	if err := applyResilience(c, cl); err != nil {
+		log.Errorf(ctx.Context, starterTag, "kafka: resilience setup failed: %v", err)
+		cl.Close()
+		return nil, err
+	}
 	log.Infof(ctx.Context, starterTag, "kafka client initialized, brokers=%s", c.Brokers)
 	return cl, nil
 }
@@ -177,8 +182,10 @@ func compressionCodec(name string) (kgo.CompressionCodec, error) {
 }
 
 // destroyClient flushes any buffered produce records before closing so
-// in-flight messages are not dropped on shutdown.
+// in-flight messages are not dropped on shutdown. When a resilience executor is
+// attached its Close releases any background resources of a production driver.
 func destroyClient(cl *kgo.Client) error {
+	closeResilience(cl)
 	ctx, cancel := context.WithTimeout(context.Background(), pingTimeout)
 	defer cancel()
 	_ = cl.Flush(ctx)
