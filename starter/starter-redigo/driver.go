@@ -22,6 +22,7 @@ import (
 	"net"
 
 	"github.com/gomodule/redigo/redis"
+	"go-spring.org/cloud/discovery"
 	"go-spring.org/stdlib/errutil"
 )
 
@@ -78,7 +79,7 @@ func (DefaultDriver) CreateClient(ctx context.Context, c Config) (*redis.Pool, i
 		return nil, nil, errutil.Explain(err, "redis: build TLS")
 	}
 
-	resolver, err := newResolver(ctx, c)
+	resolver, err := discovery.NewResolver(ctx, c.Discovery, c.ServiceName, discovery.WithScheme(c.Scheme))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -138,9 +139,9 @@ func (DefaultDriver) CreateClient(ctx context.Context, c Config) (*redis.Pool, i
 	// The driver owns the resolver's lifecycle: return its Stop as the teardown
 	// closer so (*Pool).Close can stop the background watch without the starter
 	// keeping a pool->resolver registry. No resolver (plain Addr / mesh) → no-op.
-	stop := NopCloser()
+	stop := discovery.NopCloser()
 	if resolver != nil {
-		stop = closerFunc(resolver.Stop)
+		stop = discovery.CloserFunc(resolver.Stop)
 	}
 	return pool, stop, nil
 }

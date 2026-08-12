@@ -176,14 +176,10 @@ func (w *wrappedExecutor) Execute(ctx context.Context, resource string, fn func(
 
 func (w *wrappedExecutor) Close() error { return w.inner.Close() }
 
-// Refresh adopts p on the inner executor when it is [resilience.RefreshableExecutor],
-// keeping the wrapper's metrics/listener intact. Returns nil (no-op) when the
-// inner driver does not support hot refresh.
+// Refresh forwards p to the inner executor, keeping the wrapper's
+// metrics/listener intact. The inner driver always implements Refresh.
 func (w *wrappedExecutor) Refresh(p resilience.Policy) error {
-	if r, ok := w.inner.(resilience.RefreshableExecutor); ok {
-		return r.Refresh(p)
-	}
-	return nil
+	return w.inner.Refresh(p)
 }
 
 // classifyOutcome maps an Executor's return error to a coarse outcome dimension.

@@ -21,6 +21,7 @@ import (
 	"sync"
 
 	amqp "github.com/rabbitmq/amqp091-go"
+	"go-spring.org/cloud/fault"
 	"go-spring.org/cloud/resilience"
 	resilobserve "go-spring.org/observe/resilience"
 )
@@ -41,12 +42,18 @@ var resilienceResources sync.Map // *amqp.Connection -> string
 // are caller-created from the connection, so the executor is driven through an
 // opt-in call-site guard (GuardedPublish) rather than a transparent interceptor.
 func applyResilience(c Config, conn *amqp.Connection) error {
-	if !c.Resilience.Enabled {
+	rc := c.Resilience
+	fc := c.Fault
+	if !rc.Enabled && !fc.Enabled {
 		return nil
 	}
-	exec, err := resilience.NewExecutor(c.Resilience.Driver, c.Resilience.Policy())
+	rawExec, err := resilience.NewExecutor(rc.Driver, rc.Policy())
 	if err != nil {
 		return err
+	}
+	exec := rawExec
+	if fc.Enabled {
+		exec = fault.WrapExecutor(rawExec, fault.NewInjector(fc))
 	}
 	exec = resilobserve.WrapExecutor(exec, "rabbitmq", c.Observability)
 	resilienceExecs.Store(conn, exec)

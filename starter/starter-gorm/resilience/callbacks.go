@@ -73,9 +73,12 @@ func ApplyCallbacks(db *gorm.DB, exec resilience.Executor, resource string) erro
 				fn(tx)
 				return tx.Error
 			})
-			if err != nil && isRejection(err) {
-				// Rejected by limiter/breaker/bulkhead before or around the op:
-				// surface the rejection on tx.Error so gorm returns it.
+			// Propagate the guard's error onto tx.Error when it is a protection
+			// rejection OR when fn never set tx.Error — the latter happens when a
+			// fault injector short-circuited the attempt before fn ran, leaving the
+			// injected error otherwise dropped. When fn ran and failed, tx.Error is
+			// already set and is left untouched.
+			if err != nil && (isRejection(err) || tx.Error == nil) {
 				_ = tx.AddError(err)
 			}
 		}
@@ -106,7 +109,14 @@ func runGuard(ctx context.Context, exec resilience.Executor, resource string, ca
 		if isRejection(execErr) {
 			return execErr
 		}
-		// The executor swallowed/translated a real op error; callErr holds it.
+		// On the normal failure path execErr equals callErr (the closure returned
+		// it). They diverge only when the closure body never ran — e.g. a fault
+		// injector (cloud/fault) short-circuited the attempt before reaching call
+		// — leaving callErr nil while the executor still returns the injected
+		// error. Prefer execErr so the failure is not silently swallowed.
+		if callErr == nil {
+			return execErr
+		}
 		return callErr
 	}
 	return callErr

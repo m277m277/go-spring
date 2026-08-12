@@ -190,12 +190,7 @@ type inventoryClient struct {
 
 func (c *inventoryClient) client() (*http.Client, error) {
 	c.once.Do(func() {
-		dis, err := discovery.GetDiscovery(discoveryName)
-		if err != nil {
-			c.err = err
-			return
-		}
-		rsv, err := discovery.NewResolver(context.Background(), dis, "inventory")
+		rsv, err := discovery.NewResolver(context.Background(), discoveryName, "inventory")
 		if err != nil {
 			c.err = err
 			return

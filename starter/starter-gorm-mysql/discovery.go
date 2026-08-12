@@ -25,7 +25,6 @@ import (
 
 	"github.com/go-sql-driver/mysql"
 	"go-spring.org/cloud/discovery"
-	"go-spring.org/cloud/mesh"
 )
 
 // liveDialers tracks the discovery-backed dialer and its registered network
@@ -51,16 +50,12 @@ type discoveryConn struct {
 // directly. The caller owns the lifecycle and must release the conn via
 // stopDiscoveryConn.
 func newDiscoveryConn(ctx context.Context, c Config) (*discoveryConn, error) {
-	if c.ServiceName == "" || mesh.Enabled() {
+	ld, err := discovery.NewResolver(ctx, c.Discovery, c.ServiceName, discovery.WithScheme(c.Scheme))
+	if err != nil {
+		return nil, err
+	}
+	if ld == nil {
 		return nil, nil
-	}
-	d, err := discovery.GetDiscovery(c.Discovery)
-	if err != nil {
-		return nil, err
-	}
-	ld, err := discovery.NewResolver(ctx, d, c.ServiceName, discovery.WithScheme(c.Scheme))
-	if err != nil {
-		return nil, err
 	}
 	netName := fmt.Sprintf("gsdisco_%s_%d", c.ServiceName, netSeq.Add(1))
 	nd := &net.Dialer{}

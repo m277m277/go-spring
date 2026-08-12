@@ -21,6 +21,7 @@ import (
 	"errors"
 
 	"github.com/allegro/bigcache/v3"
+	"go-spring.org/cloud/fault"
 	"go-spring.org/cloud/resilience"
 	observe "go-spring.org/observe"
 	"go-spring.org/observe/resilience"
@@ -109,6 +110,7 @@ type Cache struct {
 	// config (not hot). These replace the old Config.Resilience/Observability
 	// fields so the wrapper bean owns its own protection policy.
 	Resilience    gs.Dync[resilience.Config] `value:"${resilience:=}"`
+	Fault         gs.Dync[fault.Config]      `value:"${fault:=}"`
 	Observability observe.ObserveConfig      `value:"${observability:=}"`
 
 	// name is the instance name (the spring.bigcache.<name> map key), used for
@@ -119,6 +121,10 @@ type Cache struct {
 	// Init when resilience is enabled. nil on an unarmed client, in
 	// which case guard runs the operation directly with no policy overhead.
 	exec resilience.Executor
+	// faultInj is the fault injector when fault is enabled; nil otherwise.
+	// It sits between the raw executor and the observe wrap so injected faults
+	// are observable. Set by Init when fault is enabled.
+	faultInj *fault.Injector
 	// resource is the resilience resource key ("bigcache:<instance-name>")
 	// exec scopes limiter/breaker state by. Only meaningful when exec != nil.
 	resource string
@@ -131,12 +137,18 @@ type Cache struct {
 func (c *Cache) Init() error {
 	c.obs = observe.NewClient("bigcache", c.Observability)
 	rc := c.Resilience.Value()
-	if !rc.Enabled {
+	fc := c.Fault.Value()
+	if !rc.Enabled && !fc.Enabled {
 		return nil
 	}
-	exec, err := resilience.NewExecutor(rc.Driver, rc.Policy())
+	rawExec, err := resilience.NewExecutor(rc.Driver, rc.Policy())
 	if err != nil {
 		return err
+	}
+	exec := rawExec
+	if fc.Enabled {
+		c.faultInj = fault.NewInjector(fc)
+		exec = fault.WrapExecutor(rawExec, c.faultInj)
 	}
 	exec = resilobserve.WrapExecutor(exec, "bigcache", c.Observability)
 	c.exec = exec
@@ -145,10 +157,13 @@ func (c *Cache) Init() error {
 	// without a restart. Refresh resets per-resource state (the intended semantic
 	// of a threshold change - old failure counts were under the old policy).
 	c.Resilience.OnChanged(func(new, _ resilience.Config) {
-		if r, ok := exec.(resilience.RefreshableExecutor); ok {
-			_ = r.Refresh(new.Policy())
-		}
+		_ = exec.Refresh(new.Policy())
 	})
+	if c.faultInj != nil {
+		c.Fault.OnChanged(func(new, _ fault.Config) {
+			c.faultInj.SetConfig(new)
+		})
+	}
 	return nil
 }
 

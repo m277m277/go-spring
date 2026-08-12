@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/gomodule/redigo/redis"
+	"go-spring.org/cloud/discovery"
 	"go-spring.org/log"
 	"go-spring.org/spring/gs"
 	StarterRedigo "go-spring.org/starter-redigo"
@@ -48,7 +49,7 @@ func (AnotherRedisDriver) CreateClient(ctx context.Context, c StarterRedigo.Conf
 		Dial: func() (redis.Conn, error) {
 			return redis.Dial("tcp", c.Addr, redis.DialPassword(c.Password))
 		},
-	}, StarterRedigo.NopCloser(), nil
+	}, discovery.NopCloser(), nil
 }
 
 type Service struct {

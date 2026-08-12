@@ -1,0 +1,15 @@
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server
+    container_name: starter-gorm-clickhouse-load
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:8123:8123"
+    # ClickHouse native TCP is 9000 (what the gorm driver dials); 8123 is the
+    # HTTP port, exposed for ad-hoc probing. No env required — the default
+    # image ships a "default" user and "default" database out of the box.
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://127.0.0.1:8123/ping || exit 1"]
+      interval: 3s
+      timeout: 3s
+      retries: 30

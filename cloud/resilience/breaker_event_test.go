@@ -106,13 +106,12 @@ func TestExecutorRefresh(t *testing.T) {
 	err = exec.Execute(ctx, "svc", func(context.Context) error { return nil })
 	assert.Error(t, err).Is(ErrCircuitOpen) // rejected, breaker open
 
-	r := exec.(RefreshableExecutor)
 	// Raise the threshold well above the failure count; Refresh resets state.
-	assert.Error(t, r.Refresh(Policy{ErrorThreshold: 100, OpenDuration: time.Hour})).Nil()
+	assert.Error(t, exec.Refresh(Policy{ErrorThreshold: 100, OpenDuration: time.Hour})).Nil()
 	err = exec.Execute(ctx, "svc", func(context.Context) error { return nil })
 	assert.Error(t, err).Nil() // fresh breaker under new policy, call runs
 
 	// Reject negative rate limit.
-	err = r.Refresh(Policy{RateLimit: -1})
+	err = exec.Refresh(Policy{RateLimit: -1})
 	assert.Error(t, err).NotNil()
 }

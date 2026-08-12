@@ -30,11 +30,7 @@ import (
 // it on shutdown. It must only be called when service discovery is in effect (the
 // caller has already gated on service-name being set and mesh mode being off).
 func resolveURI(ctx context.Context, c Config) (string, *discovery.Resolver, error) {
-	backend, err := discovery.GetDiscovery(c.Discovery)
-	if err != nil {
-		return "", nil, err
-	}
-	r, err := discovery.NewResolver(ctx, backend, c.ServiceName, discovery.WithScheme(c.Scheme))
+	r, err := discovery.NewResolver(ctx, c.Discovery, c.ServiceName, discovery.WithScheme(c.Scheme))
 	if err != nil {
 		return "", nil, errutil.Explain(err, "neo4j: resolve service %s", c.ServiceName)
 	}

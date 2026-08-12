@@ -89,8 +89,24 @@ type Config struct {
 	// a command actually runs. (starter-go-redis performs this probe
 	// unconditionally; here it is opt-in.)
 	StartupPing bool `value:"${startup-ping:=false}"`
+
+	// ObserveEnabled turns this instance's instrumentation layer (trace span +
+	// metric + access log) on/off. Defaults to true. It is distinct from the
+	// GLOBAL observability.* keys (which configure the access-log level shared
+	// across ALL client starters): this is a hard per-instance kill switch.
+	// When false, no observer is built and the Conn wrapper becomes a
+	// near-zero-cost pass-through (it still wraps, to stay transparent for
+	// DoContext / DoWithTimeout, but emits no span/metric/log).
+	ObserveEnabled bool `value:"${observe.enabled:=true}"`
+
+	// HealthEnabled controls whether the starter contributes a health.Indicator
+	// (named redigo:<name>) for this instance. Defaults to true; set false for a
+	// pool that should not roll into aggregate health (e.g. a non-critical
+	// cache). When false, no indicator bean is registered for this instance.
+	HealthEnabled bool `value:"${health.enabled:=true}"`
 }
 
-// Resilience and Observability are no longer fields of Config: they moved onto
-// the Pool wrapper bean, field-injected by gs (Resilience via
-// gs.Dync, hot-reloadable) and consumed by Init (the gs InitMethod).
+// Resilience and Observability policy are no longer fields of Config: they
+// moved onto the Pool wrapper bean, field-injected by gs (Resilience via
+// gs.Dync, hot-reloadable) and consumed by Init (the gs InitMethod). Config
+// carries only their per-instance on/off switches (ObserveEnabled, HealthEnabled).

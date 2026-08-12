@@ -45,19 +45,15 @@ type Executor interface {
 	// Close releases any background resources held by the executor (e.g. metric
 	// pumps in a production driver). It is safe to call more than once.
 	Close() error
-}
 
-// RefreshableExecutor is optionally implemented by Executors that can adopt a
-// new [Policy] at runtime — hot-reloading rate/breaker/bulkhead/retry thresholds
-// without rebuilding the bean. Refreshing resets per-resource protection state
-// (breaker counters, token buckets, bulkhead slots): a new policy starts clean,
-// which is the intended semantic of "the threshold changed".
-//
-// The default driver implements it. Adapters that hold an executor and want to
-// surface runtime refresh (e.g. driven by a gs.Dync config binding) type-assert
-// against this interface and call Refresh when the bound policy changes.
-type RefreshableExecutor interface {
-	Refresh(Policy) error
+	// Refresh adopts p as the new policy at runtime — hot-reloading
+	// rate/breaker/bulkhead/retry thresholds without rebuilding the bean.
+	// Refreshing resets per-resource protection state (breaker counters, token
+	// buckets, bulkhead slots): a new policy starts clean, which is the
+	// intended semantic of "the threshold changed". Every driver implements
+	// this so adapters driven by a gs.Dync config binding can call it directly
+	// when the bound policy changes.
+	Refresh(p Policy) error
 }
 
 // Fallback runs fn through exec and, when the operation is rejected (rate
@@ -102,9 +98,10 @@ func (e *defaultExecutor) SetBreakerEventListener(l BreakerEventListener) {
 
 // Refresh adopts p as the new policy and resets all per-resource state, so the
 // next Execute rebuilds breakers/limiters/bulkheads against the new thresholds.
-// It satisfies [RefreshableExecutor]. Per-resource state is discarded: a fresh
-// breaker/limiter starts from zero, which is the intended semantic of a
-// threshold change (the old failure counts were counted under the old policy).
+// It is the [Executor.Refresh] implementation for the default driver.
+// Per-resource state is discarded: a fresh breaker/limiter starts from zero,
+// which is the intended semantic of a threshold change (the old failure counts
+// were counted under the old policy).
 func (e *defaultExecutor) Refresh(p Policy) error {
 	if p.RateLimit < 0 {
 		return fmt.Errorf("resilience: negative rate limit %v", p.RateLimit)

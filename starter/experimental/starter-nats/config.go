@@ -19,6 +19,7 @@ package StarterNats
 import (
 	"time"
 
+	"go-spring.org/cloud/fault"
 	"go-spring.org/cloud/resilience"
 	"go-spring.org/cloud/tlsconf"
 	observe "go-spring.org/observe"
@@ -74,6 +75,10 @@ type Config struct {
 	// middleware seam, so plain Publish/Request stay unchanged — callers pick
 	// per-call whether they want the guard.
 	Resilience resilience.Config `value:"${resilience:=}"`
+
+	// Fault optionally injects failures/latency into outbound calls so retry/
+	// breaker can be proven under load. Disabled by default.
+	Fault fault.Config `value:"${fault:=}"`
 
 	// Observability configures the per-operation instrumentation (producer span +
 	// duration/in-flight metric + access log off/brief/detailed) emitted by the

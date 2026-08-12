@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"go-spring.org/cloud/experimental/httpx"
+	"go-spring.org/cloud/fault"
 	"go-spring.org/cloud/resilience"
 	observe "go-spring.org/observe"
 	"go-spring.org/observe/resilience"
@@ -67,6 +68,11 @@ type Config struct {
 	// circuit breaking and retry. Disabled by default.
 	Resilience resilience.Config `value:"${resilience:=}"`
 
+	// Fault optionally injects failures/latency into outbound requests (via the
+	// same executor seam as Resilience) so retry/breaker/timeout can be proven
+	// under load. Disabled by default.
+	Fault fault.Config `value:"${fault:=}"`
+
 	// Observability configures the resilience access log (off/brief/detailed)
 	// emitted alongside the trace span + metrics that observe-resilience wraps
 	// the executor with.
@@ -111,12 +117,23 @@ func (c Config) toTransportConfig(base http.RoundTripper) httpx.Config {
 		EjectFor:       c.EjectFor,
 		Base:           base,
 	}
-	if c.Resilience.Enabled {
-		cfg.ResilienceDriver = c.Resilience.Driver
+	if c.Resilience.Enabled || c.Fault.Enabled {
+		// Fault can run standalone (resilience off): build the executor with a
+		// zero policy then let fault wrap it, so injecting failures does not
+		// require also enabling retry/breaker.
+		driver := c.Resilience.Driver
+		if driver == "" {
+			driver = "default"
+		}
+		cfg.ResilienceDriver = driver
 		cfg.ResiliencePolicy = c.Resilience.Policy()
-		// Attach span + metric + log to the executor via observe-resilience,
-		// injected as a wrap hook so the otel-free httpx core stays decoupled.
+		// Attach fault (innermost) then span + metric + log via observe-
+		// resilience, injected as a wrap hook so the otel-free httpx core stays
+		// decoupled. Stack order: observe( fault( rawExec ) ).
 		cfg.WrapExec = func(e resilience.Executor) resilience.Executor {
+			if c.Fault.Enabled {
+				e = fault.WrapExecutor(e, fault.NewInjector(c.Fault))
+			}
 			return resilobserve.WrapExecutor(e, "http", c.Observability)
 		}
 	}

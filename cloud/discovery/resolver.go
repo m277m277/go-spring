@@ -19,8 +19,11 @@ package discovery
 import (
 	"context"
 	"fmt"
+	"io"
 	"sync"
 	"sync/atomic"
+
+	"go-spring.org/cloud/mesh"
 )
 
 // Resolver is the stateful counterpart of [Discovery.Resolve]: it resolves a
@@ -44,19 +47,43 @@ type Resolver struct {
 	stopOnce sync.Once
 }
 
-// NewResolver returns a Resolver for name, narrowed by opts (e.g.
-// [WithScheme]). It seeds the snapshot with one explicit [Discovery.Resolve] —
-// a synchronous read of the current state that also fails fast when the service
-// is unknown — then opens a [Discovery.Watch] to keep that snapshot fresh. The
-// caller owns the lifecycle and must call Stop to release the background watch;
-// Stop cancels the derived context, which closes the watch channel and ends the
-// loop.
+// NewResolver returns a Resolver watching name through the Discovery registered
+// as backend, narrowed by opts (e.g. [WithScheme], [WithTag], [WithGroup]). It
+// is the single constructor every infrastructure-client starter (Redis, MySQL,
+// MongoDB, ...) and every discovery-aware transport (the gateway, httpx) reuses:
+// each reduces its config to (backend, name) plus options and calls this.
 //
-// name is required; opts are the same [Option] values Resolve/Watch take, so a
-// starter wires scheme as discovery.NewResolver(ctx, d, c.ServiceName,
-// discovery.WithScheme(c.Scheme)) and a starter that does not care about scheme
-// passes none.
-func NewResolver(ctx context.Context, d Discovery, name string, opts ...Option) (*Resolver, error) {
+// It seeds the snapshot with one explicit [Discovery.Resolve] — a synchronous
+// read of the current state that also fails fast when the service is unknown —
+// then opens a [Discovery.Watch] to keep that snapshot fresh. The caller owns
+// the lifecycle and must call Stop to release the background watch; Stop cancels
+// the derived context, which closes the watch channel and ends the loop.
+//
+// It returns (nil, nil) — "discovery not in effect" — when name is empty or mesh
+// mode is on (a sidecar owns discovery+LB), in which case the caller dials the
+// configured address directly. The mesh check reads the GS_MESH switch (see
+// [go-spring.org/cloud/mesh.Enabled]); it is folded in here so no caller repeats
+// the same gate. opts are the same [Option] values Resolve/Watch take, so a
+// starter wires scheme as discovery.NewResolver(ctx, c.Discovery, c.ServiceName,
+// discovery.WithScheme(c.Scheme)) and one that does not care about scheme passes
+// none.
+func NewResolver(ctx context.Context, backend, name string, opts ...Option) (*Resolver, error) {
+	if name == "" || mesh.Enabled() {
+		return nil, nil
+	}
+	d, err := GetDiscovery(backend)
+	if err != nil {
+		return nil, err
+	}
+	return newResolver(ctx, d, name, opts...)
+}
+
+// newResolver is the gate-free, registry-free mechanism behind [NewResolver]: it
+// seeds the snapshot from one explicit [Discovery.Resolve], then keeps it fresh
+// via a background [Discovery.Watch]. It is unexported so tests can inject a
+// Discovery directly (bypassing the global registry and the mesh switch) while
+// every external caller goes through NewResolver.
+func newResolver(ctx context.Context, d Discovery, name string, opts ...Option) (*Resolver, error) {
 	ctx, cancel := context.WithCancel(ctx)
 
 	eps, err := d.Resolve(ctx, name, opts...)
@@ -135,3 +162,23 @@ func (r *Resolver) Stop() error {
 	r.stopOnce.Do(r.cancel)
 	return nil
 }
+
+// CloserFunc adapts a plain function to io.Closer, so a client starter's Driver
+// can hand back the teardown for whatever it built (e.g. stopping a discovery
+// resolver watch) without keeping a client->resolver side-channel registry. A
+// nil CloserFunc is a valid no-op Close.
+type CloserFunc func() error
+
+// Close implements io.Closer. It is a no-op for a nil CloserFunc.
+func (f CloserFunc) Close() error {
+	if f == nil {
+		return nil
+	}
+	return f()
+}
+
+// NopCloser returns an io.Closer whose Close is a no-op, for a client starter's
+// Driver that needs no extra teardown (e.g. one that never created a discovery
+// resolver). It is the shared no-op the redigo/go-redis starters used to define
+// privately.
+func NopCloser() io.Closer { return CloserFunc(nil) }

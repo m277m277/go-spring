@@ -103,13 +103,16 @@ func (t *RouteTable) resolver(disName, name string) (*discovery.Resolver, error)
 	if d, ok := t.dialers[key]; ok {
 		return d, nil
 	}
-	dis, err := discovery.GetDiscovery(disName)
+	d, err := discovery.NewResolver(t.ctx, disName, name)
 	if err != nil {
 		return nil, err
 	}
-	d, err := discovery.NewResolver(t.ctx, dis, name)
-	if err != nil {
-		return nil, err
+	if d == nil {
+		// NewResolver yields (nil, nil) when discovery is not in effect — empty
+		// name or mesh mode active. A gateway lb:// upstream needs a live
+		// resolver, so surface that as a route-table compile error rather than
+		// handing a nil dialer to the load-balancing pool.
+		return nil, &parseError{what: "lb:// upstream cannot resolve (empty service name or mesh mode active — in mesh mode route to the service's stable address instead)", token: name}
 	}
 	t.dialers[key] = d
 	return d, nil

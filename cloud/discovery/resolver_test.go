@@ -26,7 +26,7 @@ func TestResolver_ColdStartSeedsFromResolve(t *testing.T) {
 	d := newStaticDiscovery()
 	d.set("svc", Endpoint{Addr: "10.0.0.1:6379"}, Endpoint{Addr: "10.0.0.2:6379"})
 
-	r, err := NewResolver(context.Background(), d, "svc")
+	r, err := newResolver(context.Background(), d, "svc")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -42,7 +42,7 @@ func TestResolver_PickRoundRobin(t *testing.T) {
 	d := newStaticDiscovery()
 	d.set("svc", Endpoint{Addr: "a:1"}, Endpoint{Addr: "b:2"}, Endpoint{Addr: "c:3"})
 
-	r, err := NewResolver(context.Background(), d, "svc")
+	r, err := newResolver(context.Background(), d, "svc")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestResolver_PickPrefersHealthy(t *testing.T) {
 		Endpoint{Addr: "up:2", Healthy: true},
 	)
 
-	r, err := NewResolver(context.Background(), d, "svc")
+	r, err := newResolver(context.Background(), d, "svc")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -97,7 +97,7 @@ func TestResolver_PickFallsBackWhenNoneHealthy(t *testing.T) {
 	// No endpoint marked healthy — all eligible so discovery still works.
 	d.set("svc", Endpoint{Addr: "x:1"}, Endpoint{Addr: "y:2"})
 
-	r, err := NewResolver(context.Background(), d, "svc")
+	r, err := newResolver(context.Background(), d, "svc")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -120,7 +120,7 @@ func TestResolver_PickExcludesDisabled(t *testing.T) {
 		Endpoint{Addr: "live:2", Healthy: true},
 	)
 
-	r, err := NewResolver(context.Background(), d, "svc")
+	r, err := newResolver(context.Background(), d, "svc")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -142,7 +142,7 @@ func TestResolver_PickExcludesDisabled(t *testing.T) {
 		Endpoint{Addr: "off:1", Disabled: true},
 		Endpoint{Addr: "off:2", Disabled: true},
 	)
-	r2, err := NewResolver(context.Background(), d2, "svc")
+	r2, err := newResolver(context.Background(), d2, "svc")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -156,7 +156,7 @@ func TestResolver_PickEmpty(t *testing.T) {
 	d := newStaticDiscovery()
 	d.set("svc") // empty
 
-	r, err := NewResolver(context.Background(), d, "svc")
+	r, err := newResolver(context.Background(), d, "svc")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -171,7 +171,7 @@ func TestResolver_WatchUpdatesSnapshot(t *testing.T) {
 	d := newStaticDiscovery()
 	d.set("svc", Endpoint{Addr: "old:1"})
 
-	r, err := NewResolver(context.Background(), d, "svc")
+	r, err := newResolver(context.Background(), d, "svc")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -193,7 +193,7 @@ func TestResolver_StopIdempotent(t *testing.T) {
 	d := newStaticDiscovery()
 	d.set("svc", Endpoint{Addr: "a:1"})
 
-	r, err := NewResolver(context.Background(), d, "svc")
+	r, err := newResolver(context.Background(), d, "svc")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}

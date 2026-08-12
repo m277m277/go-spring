@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go"
+	"go-spring.org/cloud/fault"
 	"go-spring.org/cloud/resilience"
 	"go-spring.org/observe/resilience"
 )
@@ -32,12 +33,18 @@ import (
 // through opt-in call-site guards (PublishGuarded/RequestGuarded) rather than a
 // transparent interceptor. Only the adapter shape differs — the core is reused.
 func applyResilience(c Config, conn *Conn) error {
-	if !c.Resilience.Enabled {
+	rc := c.Resilience
+	fc := c.Fault
+	if !rc.Enabled && !fc.Enabled {
 		return nil
 	}
-	exec, err := resilience.NewExecutor(c.Resilience.Driver, c.Resilience.Policy())
+	rawExec, err := resilience.NewExecutor(rc.Driver, rc.Policy())
 	if err != nil {
 		return err
+	}
+	exec := rawExec
+	if fc.Enabled {
+		exec = fault.WrapExecutor(rawExec, fault.NewInjector(fc))
 	}
 	// Wrap so breaker trips / rejects / retries emit span + counter + histogram
 	// + access log (the resilience core emits none). nil-safe, no-op without

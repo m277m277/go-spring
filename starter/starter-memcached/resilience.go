@@ -52,7 +52,13 @@ func guard[T any](exec resilience.Executor, resource string, fn func() (T, error
 			// Rejected before (or around) the op: surface the rejection.
 			return zero, execErr
 		}
-		// A real op error propagated through the executor; callErr holds it.
+		// On the normal failure path execErr equals callErr. They diverge only
+		// when the closure body never ran — e.g. a fault injector short-circuited
+		// the attempt before reaching fn — leaving callErr nil. Prefer execErr so
+		// the failure is not swallowed as success.
+		if callErr == nil {
+			return zero, execErr
+		}
 		return result, callErr
 	}
 	return result, callErr
@@ -78,6 +84,11 @@ func guardErr(exec resilience.Executor, resource string, fn func() error) error 
 		if errors.Is(execErr, resilience.ErrRateLimited) ||
 			errors.Is(execErr, resilience.ErrCircuitOpen) ||
 			errors.Is(execErr, resilience.ErrBulkheadFull) {
+			return execErr
+		}
+		// Prefer execErr when the closure never ran (fault injected before fn);
+		// see guard for the rationale.
+		if callErr == nil {
 			return execErr
 		}
 		return callErr

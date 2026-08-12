@@ -19,6 +19,7 @@ package StarterPulsar
 import (
 	"time"
 
+	"go-spring.org/cloud/fault"
 	"go-spring.org/cloud/resilience"
 	observe "go-spring.org/observe"
 )
@@ -85,6 +86,10 @@ type Config struct {
 	// path) through the selected resilience driver. The asynchronous SendAsync
 	// path is untouched.
 	Resilience resilience.Config `value:"${resilience:=}"`
+
+	// Fault optionally injects failures/latency into outbound calls so retry/
+	// breaker can be proven under load. Disabled by default.
+	Fault fault.Config `value:"${fault:=}"`
 
 	// Observability configures the per-operation access log emitted by the
 	// resilience executor (off/brief/detailed). Defaults to "brief". This

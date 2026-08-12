@@ -3,7 +3,6 @@ go 1.26.1
 use (
 	./cloud
 	./cloud/event/example
-	./starter/starter-gorm
 	./cloud/observe
 	./contrib/dubbo-go/dubbo
 	./contrib/dubbo-go/jsonrpc
@@ -74,6 +73,7 @@ use (
 	./starter/experimental/starter-elasticsearch
 	./starter/experimental/starter-elasticsearch/example
 	./starter/experimental/starter-elasticsearch/example-cloudnative
+	./starter/experimental/starter-elasticsearch/example-load
 	./starter/experimental/starter-elasticsearch/example-otel
 	./starter/experimental/starter-gateway
 	./starter/experimental/starter-gateway/example
@@ -91,9 +91,11 @@ use (
 	./starter/experimental/starter-goframe/ws/example
 	./starter/experimental/starter-gorm-clickhouse
 	./starter/experimental/starter-gorm-clickhouse/example
+	./starter/experimental/starter-gorm-clickhouse/example-load
 	./starter/experimental/starter-gorm-clickhouse/example-otel
 	./starter/experimental/starter-gorm-sqlserver
 	./starter/experimental/starter-gorm-sqlserver/example
+	./starter/experimental/starter-gorm-sqlserver/example-load
 	./starter/experimental/starter-gorm-sqlserver/example-otel
 	./starter/experimental/starter-grpc
 	./starter/experimental/starter-grpc/example
@@ -104,6 +106,7 @@ use (
 	./starter/experimental/starter-http-client
 	./starter/experimental/starter-http-client/example
 	./starter/experimental/starter-http-client/example-otel
+	./starter/experimental/starter-http-client/example-load
 	./starter/experimental/starter-kafka
 	./starter/experimental/starter-kafka-sarama
 	./starter/experimental/starter-kafka-sarama/example
@@ -136,6 +139,7 @@ use (
 	./starter/experimental/starter-mongodb
 	./starter/experimental/starter-mongodb/example
 	./starter/experimental/starter-mongodb/example-cloudnative
+	./starter/experimental/starter-mongodb/example-load
 	./starter/experimental/starter-mongodb/example-otel
 	./starter/experimental/starter-mqtt
 	./starter/experimental/starter-mqtt/example
@@ -145,6 +149,7 @@ use (
 	./starter/experimental/starter-neo4j
 	./starter/experimental/starter-neo4j/example
 	./starter/experimental/starter-neo4j/example-cloudnative
+	./starter/experimental/starter-neo4j/example-load
 	./starter/experimental/starter-neo4j/example-otel
 	./starter/experimental/starter-oauth2-client
 	./starter/experimental/starter-oauth2-client/example
@@ -195,6 +200,7 @@ use (
 	./starter/starter-bigcache
 	./starter/starter-bigcache/example
 	./starter/starter-bigcache/example-cloudnative
+	./starter/starter-bigcache/example-load
 	./starter/starter-bigcache/example-otel
 	./starter/starter-config-etcd
 	./starter/starter-config-etcd/example
@@ -214,21 +220,26 @@ use (
 	./starter/starter-go-redis
 	./starter/starter-go-redis/example
 	./starter/starter-go-redis/example-cloudnative
+	./starter/starter-go-redis/example-load
 	./starter/starter-go-redis/example-otel
 	./starter/starter-go-redis/example-resilience
+	./starter/starter-gorm
 	./starter/starter-gorm-mysql
 	./starter/starter-gorm-mysql/example
 	./starter/starter-gorm-mysql/example-cloudnative
 	./starter/starter-gorm-mysql/example-health
+	./starter/starter-gorm-mysql/example-load
 	./starter/starter-gorm-mysql/example-otel
 	./starter/starter-gorm-postgres
 	./starter/starter-gorm-postgres/example
 	./starter/starter-gorm-postgres/example-cloudnative
 	./starter/starter-gorm-postgres/example-health
+	./starter/starter-gorm-postgres/example-load
 	./starter/starter-gorm-postgres/example-otel
 	./starter/starter-memcached
 	./starter/starter-memcached/example
 	./starter/starter-memcached/example-cloudnative
+	./starter/starter-memcached/example-load
 	./starter/starter-memcached/example-otel
 	./starter/starter-otel
 	./starter/starter-otel/example
@@ -237,6 +248,7 @@ use (
 	./starter/starter-redigo
 	./starter/starter-redigo/example
 	./starter/starter-redigo/example-cloudnative
+	./starter/starter-redigo/example-load
 	./starter/starter-redigo/example-otel
 	./starter/starter-registry-etcd
 	./starter/starter-registry-etcd/example

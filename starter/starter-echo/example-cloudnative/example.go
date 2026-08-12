@@ -177,11 +177,7 @@ func runTest() {
 	fmt.Println("health: readiness aggregate OK (UP -> DOWN when dependency down -> UP)")
 
 	// --- 2. Discovery ----------------------------------------------------
-	d, err := discovery.GetDiscovery("static")
-	if err != nil {
-		fail("get discovery backend: %v", err)
-	}
-	r, err := discovery.NewResolver(ctx, d, "cloudnative-echo")
+	r, err := discovery.NewResolver(ctx, "static", "cloudnative-echo")
 	if err != nil {
 		fail("new resolver: %v", err)
 	}

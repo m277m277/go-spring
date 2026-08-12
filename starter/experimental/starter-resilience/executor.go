@@ -165,6 +165,26 @@ func (e *sentinelExecutor) loadBreakerRule(resource string) error {
 	return nil
 }
 
+// Refresh adopts p as the new policy and clears the per-resource loaded set, so
+// the next Execute reloads flow/breaker/isolation rules under the new thresholds.
+// It is the [resilience.Executor.Refresh] implementation for the sentinel driver.
+//
+// sentinel's LoadRulesOfResource replaces a resource's existing rules, so an
+// already-loaded resource gets fresh rules (and a reset breaker stat window) on
+// its next Execute. This mirrors the default driver's "discard state, rebuild on
+// next call" lazy semantic. Already-registered breaker route listeners are
+// re-registered when ensureRules re-runs for each resource.
+func (e *sentinelExecutor) Refresh(p resilience.Policy) error {
+	if p.RateLimit < 0 {
+		return fmt.Errorf("resilience: negative rate limit %v", p.RateLimit)
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.policy = p
+	e.loaded = map[string]bool{}
+	return nil
+}
+
 func (e *sentinelExecutor) Execute(ctx context.Context, resource string, fn func(context.Context) error) error {
 	if err := e.ensureRules(resource); err != nil {
 		return err

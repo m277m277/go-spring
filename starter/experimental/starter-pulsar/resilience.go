@@ -21,6 +21,7 @@ import (
 	"sync"
 
 	"github.com/apache/pulsar-client-go/pulsar"
+	"go-spring.org/cloud/fault"
 	"go-spring.org/cloud/resilience"
 	resilobserve "go-spring.org/observe/resilience"
 )
@@ -41,12 +42,18 @@ var resilienceResources sync.Map // pulsar.Client -> string
 // producers are caller-created, so the executor is driven through an opt-in
 // call-site guard (GuardedSend) on the synchronous Producer.Send path.
 func applyResilience(c Config, cl pulsar.Client) error {
-	if !c.Resilience.Enabled {
+	rc := c.Resilience
+	fc := c.Fault
+	if !rc.Enabled && !fc.Enabled {
 		return nil
 	}
-	exec, err := resilience.NewExecutor(c.Resilience.Driver, c.Resilience.Policy())
+	rawExec, err := resilience.NewExecutor(rc.Driver, rc.Policy())
 	if err != nil {
 		return err
+	}
+	exec := rawExec
+	if fc.Enabled {
+		exec = fault.WrapExecutor(rawExec, fault.NewInjector(fc))
 	}
 	exec = resilobserve.WrapExecutor(exec, "pulsar", c.Observability)
 	resilienceExecs.Store(cl, exec)

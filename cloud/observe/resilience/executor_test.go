@@ -34,6 +34,7 @@ func (f fakeExecutor) Execute(ctx context.Context, resource string, fn func(cont
 	return f.err
 }
 func (fakeExecutor) Close() error { return nil }
+func (fakeExecutor) Refresh(p resilience.Policy) error { return nil }
 
 func TestWrapExecutor_NilInnerReturnsNil(t *testing.T) {
 	assert.That(t, WrapExecutor(nil, "redis", observe.ObserveConfig{})).Nil()

@@ -19,6 +19,7 @@ package StarterKafka
 import (
 	"time"
 
+	"go-spring.org/cloud/fault"
 	"go-spring.org/cloud/resilience"
 	"go-spring.org/cloud/tlsconf"
 	observe "go-spring.org/observe"
@@ -62,6 +63,10 @@ type Config struct {
 	// asynchronous Produce (callback) path is untouched — wrapping an immediate
 	// return has no meaning.
 	Resilience resilience.Config `value:"${resilience:=}"`
+
+	// Fault optionally injects failures/latency into outbound calls so retry/
+	// breaker can be proven under load. Disabled by default.
+	Fault fault.Config `value:"${fault:=}"`
 }
 
 // Resilience binds the backend-neutral resilience knobs shared by every client

@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"go-spring.org/cloud/discovery"
 	"go-spring.org/log"
 	"go-spring.org/spring/gs"
 	StarterGoRedis "go-spring.org/starter-go-redis"
@@ -47,7 +48,7 @@ func (AnotherRedisDriver) CreateClient(ctx context.Context, c StarterGoRedis.Con
 	return redis.NewClient(&redis.Options{
 		Addr:     c.Addr,
 		Password: c.Password,
-	}), StarterGoRedis.NopCloser(), nil
+	}), discovery.NopCloser(), nil
 }
 
 type Service struct {

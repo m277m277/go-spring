@@ -21,6 +21,7 @@ import (
 	"sync"
 
 	"github.com/twmb/franz-go/pkg/kgo"
+	"go-spring.org/cloud/fault"
 	"go-spring.org/cloud/resilience"
 	resilobserve "go-spring.org/observe/resilience"
 )
@@ -43,12 +44,18 @@ var resilienceResources sync.Map // *kgo.Client -> string
 // which blocks until the broker acknowledges, is what GuardedProduceSync
 // protects.
 func applyResilience(c Config, cl *kgo.Client) error {
-	if !c.Resilience.Enabled {
+	rc := c.Resilience
+	fc := c.Fault
+	if !rc.Enabled && !fc.Enabled {
 		return nil
 	}
-	exec, err := resilience.NewExecutor(c.Resilience.Driver, c.Resilience.Policy())
+	rawExec, err := resilience.NewExecutor(rc.Driver, rc.Policy())
 	if err != nil {
 		return err
+	}
+	exec := rawExec
+	if fc.Enabled {
+		exec = fault.WrapExecutor(rawExec, fault.NewInjector(fc))
 	}
 	exec = resilobserve.WrapExecutor(exec, "kafka", c.Observability)
 	resilienceExecs.Store(cl, exec)

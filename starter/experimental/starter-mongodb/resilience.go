@@ -21,6 +21,7 @@ import (
 	"sync/atomic"
 
 	"go-spring.org/cloud/discovery"
+	"go-spring.org/cloud/fault"
 	"go-spring.org/cloud/resilience"
 	observe "go-spring.org/observe"
 	"go-spring.org/observe/resilience"
@@ -50,6 +51,7 @@ type Client struct {
 	// Config.Resilience/Observability fields so the wrapper bean owns its own
 	// protection + observability policy.
 	Resilience    gs.Dync[resilience.Config] `value:"${resilience:=}"`
+	Fault         gs.Dync[fault.Config]      `value:"${fault:=}"`
 	Observability observe.ObserveConfig      `value:"${observability:=}"`
 
 	// cfg is the connection config, retained for the resilience resource label.
@@ -66,6 +68,9 @@ type Client struct {
 	// exec is the resilience executor protecting dials, set by Init
 	// when resilience is enabled. nil on an unarmed client.
 	exec resilience.Executor
+	// faultInj is the fault injector short-circuiting dials when fault
+	// injection is enabled. nil when fault is off.
+	faultInj *fault.Injector
 	// resource is the resilience resource key ("mongodb:<...>") exec scopes
 	// limiter/breaker state by. Only meaningful when exec != nil.
 	resource string
@@ -79,12 +84,18 @@ type Client struct {
 func (o *Client) Init() error {
 	o.obs.Store(observe.NewClient("mongodb", o.Observability))
 	rc := o.Resilience.Value()
-	if !rc.Enabled {
+	fc := o.Fault.Value()
+	if !rc.Enabled && !fc.Enabled {
 		return nil
 	}
-	exec, err := resilience.NewExecutor(rc.Driver, rc.Policy())
+	rawExec, err := resilience.NewExecutor(rc.Driver, rc.Policy())
 	if err != nil {
 		return err
+	}
+	exec := rawExec
+	if fc.Enabled {
+		o.faultInj = fault.NewInjector(fc)
+		exec = fault.WrapExecutor(rawExec, o.faultInj)
 	}
 	exec = resilobserve.WrapExecutor(exec, "mongodb", o.Observability)
 	o.exec = exec
@@ -97,10 +108,11 @@ func (o *Client) Init() error {
 	// without a restart. Refresh resets per-resource state (the intended semantic
 	// of a threshold change - old failure counts were under the old policy).
 	o.Resilience.OnChanged(func(new, _ resilience.Config) {
-		if r, ok := exec.(resilience.RefreshableExecutor); ok {
-			_ = r.Refresh(new.Policy())
-		}
+		_ = exec.Refresh(new.Policy())
 	})
+	if o.faultInj != nil {
+		o.Fault.OnChanged(func(new, _ fault.Config) { o.faultInj.SetConfig(new) })
+	}
 	return nil
 }
 

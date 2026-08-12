@@ -45,7 +45,6 @@ import (
 
 	"go-spring.org/cloud/discovery"
 	"go-spring.org/cloud/loadbalance"
-	"go-spring.org/cloud/mesh"
 	"go-spring.org/cloud/resilience"
 )
 
@@ -120,19 +119,15 @@ func NewTransport(cfg Config) (rt http.RoundTripper, close func() error, err err
 	var rsv *discovery.Resolver
 	closeFns := []func() error{}
 
-	// Discovery + load balancing: only when a service name is configured AND
-	// mesh mode is off. In mesh mode a sidecar owns discovery+LB, so skip this
-	// layer and let requests flow to whatever host the caller set (the service's
-	// stable mesh address).
-	if cfg.ServiceName != "" && !mesh.Enabled() {
-		d, err := discovery.GetDiscovery(cfg.Discovery)
-		if err != nil {
-			return nil, nil, err
-		}
-		rsv, err = discovery.NewResolver(context.Background(), d, cfg.ServiceName, discovery.WithScheme(cfg.Scheme))
-		if err != nil {
-			return nil, nil, err
-		}
+	// Discovery + load balancing. NewResolver returns (nil, nil) — "discovery
+	// not in effect" — when no service name is configured or mesh mode is on
+	// (a sidecar then owns discovery+LB); in that case requests flow to whatever
+	// host the caller set (the service's stable mesh address).
+	rsv, err = discovery.NewResolver(context.Background(), cfg.Discovery, cfg.ServiceName, discovery.WithScheme(cfg.Scheme))
+	if err != nil {
+		return nil, nil, err
+	}
+	if rsv != nil {
 		closeFns = append(closeFns, rsv.Stop)
 
 		balName := cfg.Balancer

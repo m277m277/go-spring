@@ -21,6 +21,7 @@ import (
 	"sync"
 
 	"github.com/IBM/sarama"
+	"go-spring.org/cloud/fault"
 	"go-spring.org/cloud/resilience"
 	resilobserve "go-spring.org/observe/resilience"
 )
@@ -42,12 +43,18 @@ var resilienceResources sync.Map // sarama.Client -> string
 // executor is driven through a transparent SyncProducer wrapper (see
 // WrapSyncProducer) that callers opt into once after creating their producer.
 func applyResilience(c Config, client sarama.Client) error {
-	if !c.Resilience.Enabled {
+	rc := c.Resilience
+	fc := c.Fault
+	if !rc.Enabled && !fc.Enabled {
 		return nil
 	}
-	exec, err := resilience.NewExecutor(c.Resilience.Driver, c.Resilience.Policy())
+	rawExec, err := resilience.NewExecutor(rc.Driver, rc.Policy())
 	if err != nil {
 		return err
+	}
+	exec := rawExec
+	if fc.Enabled {
+		exec = fault.WrapExecutor(rawExec, fault.NewInjector(fc))
 	}
 	// Wrap so breaker trips / rejects / retries emit span + counter + histogram
 	// + access log (the resilience core emits none). nil-safe, no-op without

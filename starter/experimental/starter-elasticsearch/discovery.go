@@ -31,11 +31,7 @@ import (
 // must only be called when service discovery is in effect (the caller has already
 // gated on service-name being set and mesh mode being off).
 func resolveAddresses(ctx context.Context, c Config) ([]string, *discovery.Resolver, error) {
-	backend, err := discovery.GetDiscovery(c.Discovery)
-	if err != nil {
-		return nil, nil, err
-	}
-	r, err := discovery.NewResolver(ctx, backend, c.ServiceName, discovery.WithScheme(c.Scheme))
+	r, err := discovery.NewResolver(ctx, c.Discovery, c.ServiceName, discovery.WithScheme(c.Scheme))
 	if err != nil {
 		return nil, nil, errutil.Explain(err, "elasticsearch: resolve service %s", c.ServiceName)
 	}

@@ -20,7 +20,6 @@ import (
 	"context"
 
 	"go-spring.org/cloud/discovery"
-	"go-spring.org/cloud/mesh"
 )
 
 // newLiveResolver resolves the registered discovery backend for c and returns a
@@ -30,14 +29,7 @@ import (
 // directly. The caller owns the lifecycle and must release the resolver via
 // stopLiveResolver.
 func newLiveResolver(ctx context.Context, c Config) (*discovery.Resolver, error) {
-	if c.ServiceName == "" || mesh.Enabled() {
-		return nil, nil
-	}
-	d, err := discovery.GetDiscovery(c.Discovery)
-	if err != nil {
-		return nil, err
-	}
-	return discovery.NewResolver(ctx, d, c.ServiceName, discovery.WithScheme(c.Scheme))
+	return discovery.NewResolver(ctx, c.Discovery, c.ServiceName, discovery.WithScheme(c.Scheme))
 }
 
 // stopLiveResolver stops the discovery watch behind a client. It is the

@@ -22,6 +22,7 @@ import (
 	"io"
 
 	"github.com/redis/go-redis/v9"
+	"go-spring.org/cloud/fault"
 	"go-spring.org/cloud/resilience"
 	observe "go-spring.org/observe"
 	"go-spring.org/observe/resilience"
@@ -36,10 +37,12 @@ import (
 type Client struct {
 	redis.UniversalClient
 	Resilience    gs.Dync[resilience.Config] `value:"${resilience:=}"`
+	Fault         gs.Dync[fault.Config]      `value:"${fault:=}"`
 	Observability observe.ObserveConfig      `value:"${observability:=}"`
 
 	cfg      Config // for resourceLabel (address fields)
 	exec     resilience.Executor
+	faultInj *fault.Injector
 	resource string
 	stop     io.Closer // driver-supplied teardown (e.g. discovery resolver watch)
 }
@@ -49,22 +52,31 @@ type Client struct {
 // per-command hook, and subscribes to policy changes for hot Refresh.
 func (o *Client) Init() error {
 	rc := o.Resilience.Value()
-	if !rc.Enabled {
+	fc := o.Fault.Value()
+	if !rc.Enabled && !fc.Enabled {
 		return nil
 	}
-	exec, err := resilience.NewExecutor(rc.Driver, rc.Policy())
+	rawExec, err := resilience.NewExecutor(rc.Driver, rc.Policy())
 	if err != nil {
 		return err
+	}
+	exec := rawExec
+	if fc.Enabled {
+		o.faultInj = fault.NewInjector(fc)
+		exec = fault.WrapExecutor(rawExec, o.faultInj)
 	}
 	exec = resilobserve.WrapExecutor(exec, "redis", o.Observability)
 	o.exec = exec
 	o.resource = resourceLabel(o.cfg)
 	o.AddHook(&resilienceHook{exec: exec, resource: o.resource})
 	o.Resilience.OnChanged(func(new, _ resilience.Config) {
-		if r, ok := exec.(resilience.RefreshableExecutor); ok {
-			_ = r.Refresh(new.Policy())
-		}
+		_ = exec.Refresh(new.Policy())
 	})
+	if o.faultInj != nil {
+		o.Fault.OnChanged(func(new, _ fault.Config) {
+			o.faultInj.SetConfig(new)
+		})
+	}
 	// Attach the access-log Hook (trace+metric come from redisotel above). It
 	// rides the observe kit and defaults to a no-op pass-through when off.
 	applyObservability(o.Observability, o.UniversalClient)
@@ -154,8 +166,17 @@ func (h *resilienceHook) run(ctx context.Context, setErr func(error), call func(
 			setErr(execErr)
 			return execErr
 		}
-		// A real command error propagated through the executor; it is already the
-		// callErr recorded on the command by go-redis.
+		// A non-nil executor error that is not a protection rejection. On the
+		// normal failure path it equals callErr (the closure returned it) and is
+		// already recorded on the command by go-redis. They diverge only when the
+		// closure body never ran — e.g. a fault injector (cloud/fault) short-
+		// circuited the attempt before reaching call — leaving callErr nil while
+		// the executor still returns the injected error. Prefer execErr and tag
+		// the command so the failure is not silently swallowed as success.
+		if callErr == nil {
+			setErr(execErr)
+			return execErr
+		}
 		return callErr
 	}
 	return callErr

@@ -19,6 +19,7 @@ package StarterRabbitMQ
 import (
 	"time"
 
+	"go-spring.org/cloud/fault"
 	"go-spring.org/cloud/resilience"
 	"go-spring.org/cloud/tlsconf"
 	observe "go-spring.org/observe"
@@ -53,6 +54,10 @@ type Config struct {
 	// is guarded — publisher confirms (which are async via NotifyConfirm) are
 	// untouched.
 	Resilience resilience.Config `value:"${resilience:=}"`
+
+	// Fault optionally injects failures/latency into outbound calls so retry/
+	// breaker can be proven under load. Disabled by default.
+	Fault fault.Config `value:"${fault:=}"`
 
 	// Observability configures the per-operation access log emitted by the
 	// resilience executor (off/brief/detailed). Defaults to "brief". This

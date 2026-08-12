@@ -23,6 +23,7 @@ import (
 
 	"github.com/elastic/go-elasticsearch/v8"
 	"go-spring.org/cloud/discovery"
+	"go-spring.org/cloud/fault"
 	"go-spring.org/cloud/resilience"
 	observe "go-spring.org/observe"
 	"go-spring.org/observe/resilience"
@@ -52,6 +53,7 @@ type Client struct {
 	// Config.Resilience/Observability fields so the wrapper bean owns its own
 	// protection + observability policy.
 	Resilience    gs.Dync[resilience.Config] `value:"${resilience:=}"`
+	Fault         gs.Dync[fault.Config]      `value:"${fault:=}"`
 	Observability observe.ObserveConfig      `value:"${observability:=}"`
 
 	// cfg is the connection config, retained for the resilience resource label.
@@ -65,6 +67,9 @@ type Client struct {
 	// exec is the resilience executor protecting requests, set by
 	// Init when resilience is enabled. nil on an unarmed client.
 	exec resilience.Executor
+	// faultInj is the fault injector short-circuiting requests when
+	// fault injection is enabled. nil when fault is off.
+	faultInj *fault.Injector
 	// resource is the resilience resource key ("elasticsearch:<...>") exec
 	// scopes limiter/breaker state by. Only meaningful when exec != nil.
 	resource string
@@ -79,15 +84,24 @@ func (o *Client) Init() error {
 	obs := observe.NewClient("elasticsearch", o.Observability, observe.WithoutTrace())
 	observeTransport := &obsTransport{base: http.DefaultTransport, obs: obs}
 	rc := o.Resilience.Value()
-	if !rc.Enabled {
+	fc := o.Fault.Value()
+	if !rc.Enabled && !fc.Enabled {
+		// Neither resilience nor fault is on: install the observe-only transport
+		// (access logs, no policy) and bail. When fault is on but resilience off
+		// we fall through to build a zero-policy executor and the fault wrap.
 		if o.dyn != nil {
 			o.dyn.Swap(observeTransport)
 		}
 		return nil
 	}
-	exec, err := resilience.NewExecutor(rc.Driver, rc.Policy())
+	rawExec, err := resilience.NewExecutor(rc.Driver, rc.Policy())
 	if err != nil {
 		return err
+	}
+	exec := rawExec
+	if fc.Enabled {
+		o.faultInj = fault.NewInjector(fc)
+		exec = fault.WrapExecutor(rawExec, o.faultInj)
 	}
 	// Wrap the executor with observe-resilience so circuit-breaker trips,
 	// rate-limit rejects, bulkhead rejections and retries emit a span + call
@@ -105,10 +119,11 @@ func (o *Client) Init() error {
 	// without a restart. Refresh resets per-resource state (the intended semantic
 	// of a threshold change - old failure counts were under the old policy).
 	o.Resilience.OnChanged(func(new, _ resilience.Config) {
-		if r, ok := exec.(resilience.RefreshableExecutor); ok {
-			_ = r.Refresh(new.Policy())
-		}
+		_ = exec.Refresh(new.Policy())
 	})
+	if o.faultInj != nil {
+		o.Fault.OnChanged(func(new, _ fault.Config) { o.faultInj.SetConfig(new) })
+	}
 	return nil
 }
 

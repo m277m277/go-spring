@@ -17,6 +17,7 @@
 package StarterGormPostgres
 
 import (
+	"go-spring.org/cloud/fault"
 	"go-spring.org/cloud/resilience"
 	gormobserve "go-spring.org/starter-gorm/observe"
 	"go-spring.org/starter-gorm/resilience"
@@ -35,10 +36,12 @@ import (
 type DB struct {
 	*gorm.DB
 	Resilience    gs.Dync[resilience.Config] `value:"${resilience:=}"`
+	Fault         gs.Dync[fault.Config]      `value:"${fault:=}"`
 	Observability observe.ObserveConfig      `value:"${observability:=}"`
 
 	cfg      Config // for resourceLabel (host/service-name)
 	exec     resilience.Executor
+	faultInj *fault.Injector
 	resource string
 }
 
@@ -52,12 +55,18 @@ func (o *DB) Init() error {
 		return err
 	}
 	rc := o.Resilience.Value()
-	if !rc.Enabled {
+	fc := o.Fault.Value()
+	if !rc.Enabled && !fc.Enabled {
 		return nil
 	}
-	exec, err := resilience.NewExecutor(rc.Driver, rc.Policy())
+	rawExec, err := resilience.NewExecutor(rc.Driver, rc.Policy())
 	if err != nil {
 		return err
+	}
+	exec := rawExec
+	if fc.Enabled {
+		o.faultInj = fault.NewInjector(fc)
+		exec = fault.WrapExecutor(rawExec, o.faultInj)
 	}
 	exec = resilobserve.WrapExecutor(exec, "postgresql", o.Observability)
 	o.exec = exec
@@ -66,10 +75,13 @@ func (o *DB) Init() error {
 		return err
 	}
 	o.Resilience.OnChanged(func(new, _ resilience.Config) {
-		if r, ok := exec.(resilience.RefreshableExecutor); ok {
-			_ = r.Refresh(new.Policy())
-		}
+		_ = exec.Refresh(new.Policy())
 	})
+	if o.faultInj != nil {
+		o.Fault.OnChanged(func(new, _ fault.Config) {
+			o.faultInj.SetConfig(new)
+		})
+	}
 	return nil
 }
 

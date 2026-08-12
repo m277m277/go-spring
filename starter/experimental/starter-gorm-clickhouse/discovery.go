@@ -21,7 +21,6 @@ import (
 	"sync"
 
 	"go-spring.org/cloud/discovery"
-	"go-spring.org/cloud/mesh"
 	"gorm.io/gorm"
 )
 
@@ -35,14 +34,7 @@ var liveDialers sync.Map // *gorm.DB -> *discovery.Resolver
 // owns discovery+LB), in which case the caller dials the configured Addr directly.
 // The caller owns the lifecycle and must release the resolver via stopLiveResolver.
 func newLiveResolver(ctx context.Context, c Config) (*discovery.Resolver, error) {
-	if c.ServiceName == "" || mesh.Enabled() {
-		return nil, nil
-	}
-	d, err := discovery.GetDiscovery(c.Discovery)
-	if err != nil {
-		return nil, err
-	}
-	return discovery.NewResolver(ctx, d, c.ServiceName, discovery.WithScheme(c.Scheme))
+	return discovery.NewResolver(ctx, c.Discovery, c.ServiceName, discovery.WithScheme(c.Scheme))
 }
 
 // stopLiveResolver stops the discovery watch behind the given client value. It is

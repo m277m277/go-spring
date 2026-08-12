@@ -1,0 +1,10 @@
+module go-spring.org/starter-neo4j/example-load
+
+go 1.26.1
+
+require (
+	github.com/neo4j/neo4j-go-driver/v5 v5.28.4
+	go-spring.org/cloud v0.0.0
+)
+
+replace go-spring.org/cloud => ../../../../cloud
