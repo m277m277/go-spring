@@ -36,8 +36,8 @@ import (
 )
 
 type Service struct {
-	Mongo     *StarterMongoDB.ObservedMongoClient `autowire:"a"`
-	DiscMongo *StarterMongoDB.ObservedMongoClient `autowire:"disc"`
+	Mongo     *StarterMongoDB.Client `autowire:"a"`
+	DiscMongo *StarterMongoDB.Client `autowire:"disc"`
 }
 
 func (s *Service) coll() *mongo.Collection {

@@ -44,7 +44,7 @@ import (
 
 	"github.com/gomodule/redigo/redis"
 	"go-spring.org/cloud/discovery"
-	"go-spring.org/cloud/experimental/resilience"
+	"go-spring.org/cloud/resilience"
 	"go-spring.org/spring/gs"
 
 	_ "go-spring.org/starter-actuator"    // aggregates the redigo health.Indicator
@@ -72,7 +72,7 @@ func init() {
 // discovery (service-name), its commands are protected by resilience, and its
 // pool health is exported as a health.Indicator the actuator collects.
 type Service struct {
-	Redis *StarterRedigo.ObservedRedisPool `autowire:"cache"`
+	Redis *StarterRedigo.Pool `autowire:"cache"`
 }
 
 var manual = flag.Bool("manual", false, "run in manual verification mode (server stays up)")

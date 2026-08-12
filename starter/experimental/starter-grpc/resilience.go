@@ -19,8 +19,8 @@ package StarterGrpc
 import (
 	"context"
 
+	"go-spring.org/cloud/resilience"
 	"go-spring.org/observe/resilience"
-	"go-spring.org/cloud/experimental/resilience"
 	"google.golang.org/grpc"
 )
 
@@ -39,20 +39,16 @@ type resilienceInterceptors struct {
 // protect the server from overload; ErrRateLimited / ErrBulkheadFull /
 // ErrCircuitOpen surface as the executor's error on the RPC. Do NOT configure
 // retry for inbound (a handler that has already produced side effects cannot be
-// replayed) — leave MaxRetries at 0, matching resilience.NewHandler's contract.
+// replayed) — leave MaxRetries at 0: inbound serving is not idempotent.
 // Returns ok=false when resilience is disabled, so buildOptions skips it.
 func (s *SimpleGrpcServer) buildResilienceInterceptors() (resilienceInterceptors, bool) {
 	c := s.cfg
 	if !c.Resilience.Enabled {
 		return resilienceInterceptors{}, false
 	}
-	drv, err := resilience.MustGetDriver(c.Resilience.Driver)
+	exec, err := resilience.NewExecutor(c.Resilience.Driver, c.Resilience.Policy())
 	if err != nil {
 		// A missing driver is fatal at boot — same posture as the other starters.
-		panic(err)
-	}
-	exec, err := drv.NewExecutor(c.Resilience.Policy())
-	if err != nil {
 		panic(err)
 	}
 	exec = resilobserve.WrapExecutor(exec, "grpc", c.Observability)

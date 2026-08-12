@@ -5,7 +5,7 @@
 `starter-otel` 属于 Global/infrastructure 形态（`starter/DESIGN.md` §2.4）
 的 starter：根据 `${spring.observability}` 构建进程级 OpenTelemetry
 `TracerProvider` / `MeterProvider` 并装成 OTel 全局，让所有被埋点的组件
-（starter-gorm-*、starter-mesh、http/gRPC middleware……）无需逐组件接线
+（starter-gorm-*、http/gRPC middleware……）无需逐组件接线
 即可打通。
 
 ## 1. 职责与边界

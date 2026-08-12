@@ -19,8 +19,8 @@ package StarterTransactionTCC
 import (
 	"context"
 
-	"go-spring.org/log"
 	"go-spring.org/cloud/experimental/transaction/tcc"
+	"go-spring.org/log"
 )
 
 // recoveryRunner drives transactions a crash left in flight to their decided

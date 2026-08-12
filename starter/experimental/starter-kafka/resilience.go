@@ -21,8 +21,8 @@ import (
 	"sync"
 
 	"github.com/twmb/franz-go/pkg/kgo"
+	"go-spring.org/cloud/resilience"
 	resilobserve "go-spring.org/observe/resilience"
-	"go-spring.org/cloud/experimental/resilience"
 )
 
 // resilienceExecs tracks the resilience executor attached to each client, so
@@ -46,17 +46,13 @@ func applyResilience(c Config, cl *kgo.Client) error {
 	if !c.Resilience.Enabled {
 		return nil
 	}
-	drv, err := resilience.MustGetDriver(c.Resilience.Driver)
-	if err != nil {
-		return err
-	}
-	exec, err := drv.NewExecutor(c.Resilience.Policy())
+	exec, err := resilience.NewExecutor(c.Resilience.Driver, c.Resilience.Policy())
 	if err != nil {
 		return err
 	}
 	exec = resilobserve.WrapExecutor(exec, "kafka", c.Observability)
 	resilienceExecs.Store(cl, exec)
-	resilienceResources.Store(cl, resourceLabel(c))
+	resilienceResources.Store(cl, resilience.ResourceLabel("kafka", c.Brokers))
 	return nil
 }
 
@@ -68,13 +64,6 @@ func closeResilience(cl *kgo.Client) {
 	resilienceResources.Delete(cl)
 }
 
-// resourceLabel derives a stable, human-readable resilience resource key for a
-// client, so limiter and breaker state is scoped per Kafka cluster (by broker
-// seed list) rather than per message. Uses the shared [resilience.ResourceLabel]
-// helper.
-func resourceLabel(c Config) string {
-	return resilience.ResourceLabel("kafka", c.Brokers)
-}
 
 // guard routes call through the executor attached to cl, and otherwise runs it
 // inline. When resilience is disabled for the client this is a no-op

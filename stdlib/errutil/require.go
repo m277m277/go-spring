@@ -14,15 +14,35 @@
  * limitations under the License.
  */
 
+// require.go holds the precondition helpers of errutil. Each returns a
+// structured error (built via Explain) when a constructor's required input is
+// missing, so a misconfigured component fails fast with a clear message instead
+// of slipping through to a cryptic downstream error.
+//
+// These are imperative, runtime checks — the natural fit for cross-field rules
+// (e.g. "addr OR service-name") that spring/conf's declarative, per-field
+// `expr:` tag cannot express. They are intentionally general: pure string
+// checks with no dependency on the config engine, so they apply to any struct
+// field, not only bound configuration.
+
 package errutil
 
 import "strings"
 
-// RequireField returns a fail-fast error when a required configuration value is
-// empty, using the standard "<component>: <field> is required" wording that the
-// starters were each spelling out by hand. component is the starter's short
-// name (e.g. "redis", "mail"); field is the human-readable property name (e.g.
-// "host", "addr"). It returns nil when the value is present.
+// Field is a named string value passed to RequireAny. Name is the
+// human-readable property name used in the error message (e.g. "addr",
+// "service-name"); Value is the field's current value.
+type Field struct {
+	Name  string
+	Value string
+}
+
+// RequireField returns a fail-fast error when a required value is empty, using
+// the standard "<component>: <field> is required" wording that the starters
+// were each spelling out by hand. component is the component's short name
+// (e.g. "redis", "mail"); field is the human-readable property name (e.g.
+// "host", "addr"). value is tested with strings.TrimSpace, so a whitespace-only
+// string counts as empty. It returns nil when the value is present.
 //
 //	if err := errutil.RequireField("mail", "host", cfg.Host); err != nil {
 //	    return nil, err
@@ -35,10 +55,12 @@ func RequireField(component, field, value string) error {
 }
 
 // RequireAny returns a fail-fast error when every one of the alternative fields
-// is empty, for the common "addr OR service-name" rule that go-spring's `expr:`
-// tag cannot express (it validates one field at a time). The message reads
-// "<component>: one of <a> or <b> is required". It returns nil as soon as any
-// value is present.
+// is empty, for the common "addr OR service-name" rule that spring/conf's
+// `expr:` tag cannot express (it validates one field at a time). It scans the
+// fields in order and returns nil as soon as the first non-empty (after
+// TrimSpace) value is found; only when all are empty does it build an error
+// reading "<component>: one of <a> or <b> [or <c>...] is required", where the
+// field names are joined with " or " in the order given.
 //
 //	if err := errutil.RequireAny("http-client",
 //	    errutil.Field{Name: "addr", Value: cfg.Addr},
@@ -55,10 +77,4 @@ func RequireAny(component string, fields ...Field) error {
 		names = append(names, f.Name)
 	}
 	return Explain(nil, "%s: one of %s is required", component, strings.Join(names, " or "))
-}
-
-// Field is a named configuration value passed to RequireAny.
-type Field struct {
-	Name  string
-	Value string
 }

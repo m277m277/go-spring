@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-// Package mesh holds the process-global service-mesh switch.
+// Package mesh holds the service-mesh switch.
 //
 // When a sidecar (Istio/Envoy, Linkerd, ...) is injected it already does
 // discovery and load balancing at L4/L7. Leaving the application's own
@@ -25,26 +25,40 @@
 // address (letting the sidecar balance) instead of building a discovery
 // [Resolver] or a load-balance Pool.
 //
-// This switch lives in its own package — not in discovery — because "am I in a
-// mesh?" is a deployment/infra question, orthogonal to name resolution.
+// Mesh mode is a fixed trait of a deployment, so the environment — not runtime
+// config or code — is its natural carrier. [Enabled] resolves the GS_MESH
+// environment variable:
+//
+//   - "on"  — forced on (a sidecar owns discovery + load balancing).
+//   - "off" — forced off (the app's client-side discovery/LB stays active).
+//   - "auto" or unset — on iff a sidecar is detected ([Detect]).
+//
+// The package is a pure leaf (stdlib only): no logging, no config binding.
 package mesh
 
 import (
 	"os"
 	"strings"
-	"sync/atomic"
 )
 
-// enabled is the process-global service-mesh switch.
-var enabled atomic.Bool
+// ModeEnv is the environment variable that selects mesh mode. See the package
+// doc for the accepted values ("on", "off", "auto"/unset).
+const ModeEnv = "GS_MESH"
 
-// SetEnabled turns mesh mode on or off for the whole process. It is intended to
-// be set once at startup, before any client builds, from process-level infra
-// config such as ${spring.mesh.enabled}.
-func SetEnabled(on bool) { enabled.Store(on) }
-
-// Enabled reports whether mesh mode is currently on.
-func Enabled() bool { return enabled.Load() }
+// Enabled reports whether mesh mode is currently on. It resolves [ModeEnv]:
+// "on"/"off" force the answer; any other value (including unset and "auto")
+// infers it from sidecar-injected environment variables via [Detect]. The value
+// is matched case-insensitively after trimming surrounding whitespace.
+func Enabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(ModeEnv))) {
+	case "on":
+		return true
+	case "off":
+		return false
+	default: // unset, "auto", or unrecognized — infer from the environment.
+		return Detect()
+	}
+}
 
 // envPrefixes are environment-variable name prefixes injected into a workload
 // container by common service meshes. Their presence is a reliable,
@@ -59,9 +73,8 @@ var envPrefixes = []string{
 // mesh, inferred from sidecar-injected environment variables. It performs no
 // network I/O and is safe to call at startup.
 //
-// It backs the "auto" mesh mode: an explicit ${spring.mesh.enabled}=true|false
-// stays the single source of truth (see [SetEnabled]); auto consults this
-// inference only when the operator has not decided.
+// It backs the "auto" mode of [Enabled]: when GS_MESH is unset or "auto", this
+// inference decides whether mesh mode is on.
 func Detect() bool {
 	for _, kv := range os.Environ() {
 		for _, p := range envPrefixes {

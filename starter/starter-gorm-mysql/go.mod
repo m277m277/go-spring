@@ -49,8 +49,8 @@ require (
 
 require go-spring.org/cloud v0.0.0
 
-require go-spring.org/gorm-cloud v0.0.0
+require go-spring.org/starter-gorm v0.0.0
 
 replace go-spring.org/cloud => ../../cloud
 
-replace go-spring.org/gorm-cloud => ../../cloud/gorm-cloud
+replace go-spring.org/starter-gorm => ../../starter/starter-gorm

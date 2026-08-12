@@ -26,7 +26,7 @@ import (
 )
 
 func init() {
-	gs.Provide(newDyncPoller, gs.IndexArg(0, gs.TagArg("${spring.dubbo.application}"))).InitMethod("Init")
+	gs.Provide(newDyncPoller, gs.IndexArg(0, gs.TagArg("${spring.dubbo.application}"))).Init((*dyncPoller).Init)
 }
 
 // dyncPoller watches ${spring.dubbo.consumer} (the entire consumer node:

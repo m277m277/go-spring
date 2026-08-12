@@ -20,8 +20,8 @@ import (
 	"context"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
-	"go-spring.org/log"
 	"go-spring.org/cloud/experimental/messaging"
+	"go-spring.org/log"
 )
 
 // defaultQoS is the MQTT quality-of-service level the binder publishes and

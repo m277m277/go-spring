@@ -92,7 +92,7 @@ func TestGetDriverNotFound(t *testing.T) {
 // caller's codec by identity rather than the default.
 type fakeCodec struct{}
 
-func (fakeCodec) Marshal(v any) ([]byte, error)  { return nil, nil }
+func (fakeCodec) Marshal(v any) ([]byte, error)   { return nil, nil }
 func (fakeCodec) Unmarshal(b []byte, v any) error { return nil }
 
 // fakeByteCache is an in-memory ByteCache for exercising the Cache façade

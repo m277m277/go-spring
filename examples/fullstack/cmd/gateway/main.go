@@ -52,7 +52,7 @@ const consulAddr = "127.0.0.1:8500"
 func init() {
 	// Publish the Consul resolver before the gateway compiles its lb://order
 	// upstream (route compilation is deferred to warmup/first use, so registering
-	// here is in time). discovery.MustGet(discoveryName) inside the gateway then
+	// here is in time). discovery.GetDiscovery(discoveryName) inside the gateway then
 	// finds it.
 	if err := consuldisc.Register(discoveryName, consulAddr); err != nil {
 		panic(err)

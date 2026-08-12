@@ -38,7 +38,7 @@ import (
 	"net/url"
 	"time"
 
-	"go-spring.org/cloud/experimental/resilience"
+	"go-spring.org/cloud/resilience"
 )
 
 // Predicate reports whether a request matches a route. It is the Go-idiomatic
@@ -125,22 +125,22 @@ type policyRaw struct {
 	// which blocked gateway routes from using sentinel.
 	Driver string `value:"${driver:=}"`
 
-	RateLimit           float64                `value:"${rate-limit:=0}"`
-	Burst               int                    `value:"${burst:=0}"`
-	ErrorThreshold      int                    `value:"${error-threshold:=0}"`
-	OpenDuration        time.Duration          `value:"${open-duration:=0}"`
+	RateLimit           float64                    `value:"${rate-limit:=0}"`
+	Burst               int                        `value:"${burst:=0}"`
+	ErrorThreshold      int                        `value:"${error-threshold:=0}"`
+	OpenDuration        time.Duration              `value:"${open-duration:=0}"`
 	BreakerStrategy     resilience.BreakerStrategy `value:"${breaker-strategy:=}"`
-	ErrorRateThreshold  float64                `value:"${error-rate-threshold:=0}"`
-	MinRequests         int                    `value:"${min-requests:=0}"`
-	BreakerWindow       time.Duration          `value:"${breaker-window:=0}"`
-	MaxConcurrent       int                    `value:"${max-concurrent:=0}"`
-	MaxRetries          int                    `value:"${max-retries:=0}"`
-	InitialInterval     time.Duration          `value:"${initial-interval:=0}"`
-	Multiplier          float64                `value:"${multiplier:=0}"`
-	MaxInterval         time.Duration          `value:"${max-interval:=0}"`
-	RandomizationFactor float64                `value:"${randomization-factor:=0}"`
-	Timeout             time.Duration          `value:"${attempt-timeout:=0}"`
-	MaxDuration         time.Duration          `value:"${max-duration:=0}"`
+	ErrorRateThreshold  float64                    `value:"${error-rate-threshold:=0}"`
+	MinRequests         int                        `value:"${min-requests:=0}"`
+	BreakerWindow       time.Duration              `value:"${breaker-window:=0}"`
+	MaxConcurrent       int                        `value:"${max-concurrent:=0}"`
+	MaxRetries          int                        `value:"${max-retries:=0}"`
+	InitialInterval     time.Duration              `value:"${initial-interval:=0}"`
+	Multiplier          float64                    `value:"${multiplier:=0}"`
+	MaxInterval         time.Duration              `value:"${max-interval:=0}"`
+	RandomizationFactor float64                    `value:"${randomization-factor:=0}"`
+	Timeout             time.Duration              `value:"${attempt-timeout:=0}"`
+	MaxDuration         time.Duration              `value:"${max-duration:=0}"`
 }
 
 // toPolicy maps the bound policyRaw onto the driver-neutral resilience.Policy.

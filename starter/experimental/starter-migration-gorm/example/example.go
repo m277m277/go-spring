@@ -28,7 +28,7 @@ import (
 	"time"
 
 	"go-spring.org/log"
-	"go-spring.org/spring/experimental/data/migration"
+	"go-spring.org/spring/data/experimental/data/migration"
 	"go-spring.org/spring/gs"
 	migrationgorm "go-spring.org/starter-migration-gorm"
 	sqlite "gorm.io/driver/sqlite"

@@ -17,8 +17,8 @@
 package StarterSwagger
 
 import (
-	"go-spring.org/log"
 	"go-spring.org/cloud/actuator/endpoint"
+	"go-spring.org/log"
 	"go-spring.org/spring/gs"
 )
 

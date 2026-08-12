@@ -26,7 +26,7 @@ import (
 
 	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
 	"github.com/neo4j/neo4j-go-driver/v5/neo4j/auth"
-	"go-spring.org/cloud/experimental/tlsconf"
+	"go-spring.org/cloud/tlsconf"
 )
 
 var driverRegistry = map[string]Driver{}

@@ -19,42 +19,40 @@ package StarterGoRedis
 import (
 	"context"
 	"errors"
+	"io"
 
 	"github.com/redis/go-redis/v9"
+	"go-spring.org/cloud/resilience"
 	observe "go-spring.org/observe"
 	"go-spring.org/observe/resilience"
-	"go-spring.org/cloud/experimental/resilience"
 	"go-spring.org/spring/gs"
 )
 
-// ObservedRedisClient is the wrapper bean go-redis clients are injected as. It
+// Client is the wrapper bean go-redis clients are injected as. It
 // embeds the concrete redis.UniversalClient (a *redis.Client or *redis.ClusterClient
 // depending on mode, so methods promote unchanged) and field-injects the resilience
 // policy via gs.Dync so it hot-reloads on config change. newClient returns one; gs
-// field-injects Resilience + Observability, then calls ApplyResilience (InitMethod).
-type ObservedRedisClient struct {
+// field-injects Resilience + Observability, then calls Init (InitMethod).
+type Client struct {
 	redis.UniversalClient
 	Resilience    gs.Dync[resilience.Config] `value:"${resilience:=}"`
-	Observability observe.LogConfig          `value:"${observability:=}"`
+	Observability observe.ObserveConfig      `value:"${observability:=}"`
 
 	cfg      Config // for resourceLabel (address fields)
 	exec     resilience.Executor
 	resource string
+	stop     io.Closer // driver-supplied teardown (e.g. discovery resolver watch)
 }
 
-// ApplyResilience is the gs InitMethod (runs after gs field-injects Resilience +
+// Init is the gs InitMethod (runs after gs field-injects Resilience +
 // Observability). It builds the executor when resilience is enabled, attaches the
 // per-command hook, and subscribes to policy changes for hot Refresh.
-func (o *ObservedRedisClient) ApplyResilience() error {
+func (o *Client) Init() error {
 	rc := o.Resilience.Value()
 	if !rc.Enabled {
 		return nil
 	}
-	drv, err := resilience.MustGetDriver(rc.Driver)
-	if err != nil {
-		return err
-	}
-	exec, err := drv.NewExecutor(rc.Policy())
+	exec, err := resilience.NewExecutor(rc.Driver, rc.Policy())
 	if err != nil {
 		return err
 	}
@@ -73,15 +71,14 @@ func (o *ObservedRedisClient) ApplyResilience() error {
 	return nil
 }
 
-// Close is the gs destroy method: closes the resilience executor (if armed) and
-// the underlying client.
-func (o *ObservedRedisClient) Close() error {
+// Destroy is the gs destroy method: closes the resilience executor (if armed),
+// stops any driver-supplied teardown (the discovery resolver watch, when armed),
+// and closes the underlying client.
+func (o *Client) Destroy() error {
 	if o.exec != nil {
 		_ = o.exec.Close()
 	}
-	// Stop any discovery-backed resolver watch behind a single-mode client so the
-	// background endpoint refresher does not leak on shutdown.
-	stopLiveResolver(o.UniversalClient)
+	_ = o.stop.Close()
 	return o.UniversalClient.Close()
 }
 

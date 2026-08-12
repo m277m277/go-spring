@@ -131,26 +131,19 @@ func Register(name string, s SessionStore) {
 	registry[name] = s
 }
 
-// Get returns the SessionStore registered under name.
-func Get(name string) (SessionStore, bool) {
+// Get returns the SessionStore registered under name, or an error that lists
+// the available stores when none matches.
+func Get(name string) (SessionStore, error) {
 	mu.RLock()
 	defer mu.RUnlock()
 	s, ok := registry[name]
-	return s, ok
-}
-
-// MustGet returns the SessionStore registered under name, or an error that lists
-// the available stores when none matches.
-func MustGet(name string) (SessionStore, error) {
-	if s, ok := Get(name); ok {
-		return s, nil
+	if !ok {
+		names := make([]string, 0, len(registry))
+		for k := range registry {
+			names = append(names, k)
+		}
+		sort.Strings(names)
+		return nil, fmt.Errorf("session: no store registered as %q (registered: %v)", name, names)
 	}
-	mu.RLock()
-	names := make([]string, 0, len(registry))
-	for k := range registry {
-		names = append(names, k)
-	}
-	mu.RUnlock()
-	sort.Strings(names)
-	return nil, fmt.Errorf("session: no store registered as %q (registered: %v)", name, names)
+	return s, nil
 }

@@ -51,18 +51,18 @@ func init() {
 // AnotherRedisDriver is a custom implementation of the Driver interface.
 type AnotherRedisDriver struct{}
 
-func (AnotherRedisDriver) CreateClient(ctx context.Context, c StarterRedigo.Config) (*redis.Pool, error) {
+func (AnotherRedisDriver) CreateClient(ctx context.Context, c StarterRedigo.Config) (*redis.Pool, io.Closer, error) {
 	log.Infof(context.Background(), log.TagAppDef, "AnotherRedisDriver::CreateClient")
 	return &redis.Pool{
 		Dial: func() (redis.Conn, error) {
 			return redis.Dial("tcp", c.Addr, redis.DialPassword(c.Password))
 		},
-	}, nil
+	}, StarterRedigo.NopCloser(), nil
 }
 
 type Service struct {
-	Redis          *StarterRedigo.ObservedRedisPool `autowire:"cache"`
-	DiscoveryRedis *StarterRedigo.ObservedRedisPool `autowire:"discovery"`
+	Redis          *StarterRedigo.Pool `autowire:"cache"`
+	DiscoveryRedis *StarterRedigo.Pool `autowire:"discovery"`
 }
 
 var manual = flag.Bool("manual", false, "run in manual verification mode (server stays up)")

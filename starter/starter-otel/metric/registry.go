@@ -17,8 +17,8 @@
 package metric
 
 import (
-	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go-spring.org/starter-otel/internal/registry"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 )
 
 // MeterExporterFactory builds a metric reader (and, for pull-based exporters,

@@ -19,12 +19,11 @@ package StarterGormSqlserver
 import (
 	"database/sql"
 	"net"
-	"runtime"
 
 	mssql "github.com/microsoft/go-mssqldb"
 	"github.com/microsoft/go-mssqldb/msdsn"
-	"go-spring.org/log"
 	"go-spring.org/cloud/actuator/health"
+	"go-spring.org/log"
 	"go-spring.org/spring/conf"
 	"go-spring.org/spring/gs"
 	health2 "go-spring.org/starter-gorm-sqlserver/health"
@@ -42,24 +41,17 @@ func init() {
 	// each instance's *gorm.DB bean can be paired with a health.Indicator
 	// registered under the same name — and to attach the file:line of this
 	// registration to the bean for diagnostics.
-	_, file, line, _ := runtime.Caller(0)
 	gs.Module(gs.OnProperty("spring.gorm.sqlserver"), func(r gs.BeanProvider, p flatten.Storage) error {
-		var m map[string]Config
-		if err := conf.Bind(p, &m, "${spring.gorm.sqlserver}"); err != nil {
-			return err
-		}
-		for name, c := range m {
-			b := r.Provide(newClient, gs.IndexArg(1, gs.ValueArg(c))).Name(name).InitMethod("ApplyResilience").Destroy((*ObservedGormDB).Close)
-			b.SetFileLine(file, line)
+		return conf.BindEach(p, "${spring.gorm.sqlserver}", func(name string, c Config) error {
+			r.Provide(newClient, gs.IndexArg(1, gs.ValueArg(c))).Name(name).Init((*DB).Init).Destroy((*DB).Destroy).Caller(1)
 			// Contribute a health indicator for this instance, injecting the
 			// wrapper just registered above by name (the embedded *gorm.DB is
 			// passed through to the indicator).
-			h := r.Provide(func(w *ObservedGormDB) health.Indicator {
+			r.Provide(func(w *DB) health.Indicator {
 				return health2.NewGormHealth(name, w.DB)
-			}, gs.TagArg(name)).Name(name).Export(gs.As[health.Indicator]())
-			h.SetFileLine(file, line)
-		}
-		return nil
+			}, gs.TagArg(name)).Name("gorm:sqlserver:" + name).Export(gs.As[health.Indicator]()).Caller(1)
+			return nil
+		})
 	})
 }
 
@@ -75,7 +67,7 @@ func init() {
 // resolverDialer adapter, which implements mssql.Dialer. In mesh mode a sidecar
 // owns discovery+LB, so the configured Host is used as-is. When c.ServiceName
 // is empty this stays a plain DSN dial, unchanged from before.
-func newClient(ctx *gs.ContextProvider, c Config) (*ObservedGormDB, error) {
+func newClient(ctx *gs.ContextProvider, c Config) (*DB, error) {
 	if c.Host == "" && c.ServiceName == "" {
 		return nil, errutil.Explain(nil, "gorm sqlserver: one of host or service-name must be set")
 	}
@@ -107,7 +99,7 @@ func newClient(ctx *gs.ContextProvider, c Config) (*ObservedGormDB, error) {
 		}
 		// Fail fast: verify connectivity and apply pool settings at creation time.
 		// The observe plugin + resilience callbacks are installed later by the
-		// wrapper's ApplyResilience (InitMethod).
+		// wrapper's Init (InitMethod).
 		if err := applyPool(db, c); err != nil {
 			log.Errorf(ctx.Context, starterTag, "gorm sqlserver: ping failed: %v", err)
 			_ = ld.Stop()
@@ -116,7 +108,7 @@ func newClient(ctx *gs.ContextProvider, c Config) (*ObservedGormDB, error) {
 		}
 		liveDialers.Store(db, ld)
 		log.Infof(ctx.Context, starterTag, "gorm sqlserver client initialized, service-name=%s db=%s", c.ServiceName, c.DB)
-		return &ObservedGormDB{DB: db, cfg: c}, nil
+		return &DB{DB: db, cfg: c}, nil
 	}
 
 	db, err := gorm.Open(sqlserver.Open(c.DSN()), gormConfig(c))
@@ -126,7 +118,7 @@ func newClient(ctx *gs.ContextProvider, c Config) (*ObservedGormDB, error) {
 	}
 	// Fail fast: verify connectivity and apply pool settings at creation time.
 	// The observe plugin + resilience callbacks are installed later by the
-	// wrapper's ApplyResilience (InitMethod).
+	// wrapper's Init (InitMethod).
 	if err := applyPool(db, c); err != nil {
 		log.Errorf(ctx.Context, starterTag, "gorm sqlserver: ping failed: %v", err)
 		if sqlDB, derr := db.DB(); derr == nil {
@@ -135,5 +127,5 @@ func newClient(ctx *gs.ContextProvider, c Config) (*ObservedGormDB, error) {
 		return nil, err
 	}
 	log.Infof(ctx.Context, starterTag, "gorm sqlserver client initialized, host=%s db=%s", c.Host, c.DB)
-	return &ObservedGormDB{DB: db, cfg: c}, nil
+	return &DB{DB: db, cfg: c}, nil
 }

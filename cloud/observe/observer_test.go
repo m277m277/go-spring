@@ -24,12 +24,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 )
 
 // installGlobals wires in-memory OTel providers so a test can assert the three
@@ -92,7 +92,7 @@ func histPoints(t *testing.T, rdr metric.Reader, name string) []metricdata.Histo
 // path most apps run until they import starter-otel.
 func TestStartEnd_NoopGlobals_NeverPanics(t *testing.T) {
 	for _, level := range []string{levelOff, levelBrief, levelDetailed} {
-		o := NewClient("redis", LogConfig{Level: level, MaxArgBytes: 8})
+		o := NewClient("redis", ObserveConfig{Level: level, MaxArgBytes: 8})
 		ctx, sp := o.Start(context.Background(), "GET", "user:1")
 		assert.Equal(t, "GET", sp.op)
 		assert.False(t, sp.skipped)
@@ -109,7 +109,7 @@ func TestSpanEmitted(t *testing.T) {
 	spanExp, _, cleanup := installGlobals(t)
 	defer cleanup()
 
-	o := NewClient("redis", LogConfig{Level: levelOff, MaxArgBytes: 100})
+	o := NewClient("redis", ObserveConfig{Level: levelOff, MaxArgBytes: 100})
 	ctx, sp := o.Start(context.Background(), "GET", "user:1")
 	_ = ctx
 	sp.End(errors.New("boom"))
@@ -132,7 +132,7 @@ func TestMetricEmitted(t *testing.T) {
 	_, rdr, cleanup := installGlobals(t)
 	defer cleanup()
 
-	o := NewClient("redis", LogConfig{Level: levelOff})
+	o := NewClient("redis", ObserveConfig{Level: levelOff})
 	_, sp := o.Start(context.Background(), "GET", "")
 	sp.End(nil)
 
@@ -148,7 +148,7 @@ func TestSkipOps(t *testing.T) {
 	spanExp, rdr, cleanup := installGlobals(t)
 	defer cleanup()
 
-	o := NewClient("redis", LogConfig{Level: levelBrief, SkipOps: []string{"PING"}})
+	o := NewClient("redis", ObserveConfig{Level: levelBrief, SkipOps: []string{"PING"}})
 	_, sp := o.Start(context.Background(), "PING", "")
 	require.True(t, sp.skipped, "PING must be skipped")
 	assert.NotPanics(t, func() { sp.End(nil) })
@@ -163,7 +163,7 @@ func TestMessagingAttrs(t *testing.T) {
 	spanExp, _, cleanup := installGlobals(t)
 	defer cleanup()
 
-	o := NewProducer("nats", LogConfig{Level: levelOff})
+	o := NewProducer("nats", ObserveConfig{Level: levelOff})
 	_, sp := o.Start(context.Background(), "publish", "events.created")
 	sp.End(nil)
 

@@ -37,11 +37,11 @@ func TestMemoryStore(t *testing.T) {
 }
 
 func TestRegistryMemoryDefault(t *testing.T) {
-	s, ok := session.Get("memory")
-	assert.That(t, ok).True()
+	s, err := session.Get("memory")
+	assert.Error(t, err).Nil()
 	assert.That(t, s).NotNil()
 
-	_, err := session.MustGet("nope")
+	_, err = session.Get("nope")
 	assert.Error(t, err)
 }
 

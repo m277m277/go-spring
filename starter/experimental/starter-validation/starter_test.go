@@ -20,7 +20,7 @@ import (
 	"context"
 	"testing"
 
-	"go-spring.org/spring/experimental/web/validation"
+	"go-spring.org/spring/web/experimental/web/validation"
 	"go-spring.org/stdlib/testing/assert"
 )
 
@@ -32,13 +32,13 @@ type user struct {
 // TestDriverRegisteredAsDefault proves the blank-import wiring: the "default"
 // driver resolves through the neutral registry with no code change.
 func TestDriverRegisteredAsDefault(t *testing.T) {
-	d, err := validation.MustGetDriver("default")
+	d, err := validation.GetDriver("default")
 	assert.Error(t, err).Nil()
 	assert.That(t, d).NotNil()
 }
 
 func TestValidatePassesValidStruct(t *testing.T) {
-	d, _ := validation.MustGetDriver("default")
+	d, _ := validation.GetDriver("default")
 	v, err := d.NewValidator()
 	assert.Error(t, err).Nil()
 	assert.Error(t, v.Validate(context.Background(), &user{Email: "a@b.com", Age: 20})).Nil()
@@ -48,7 +48,7 @@ func TestValidatePassesValidStruct(t *testing.T) {
 // validation.ValidationErrors with the tag as Rule, so "validation.<tag>" i18n
 // keys resolve and the field path is preserved.
 func TestValidateMapsErrorsToNeutralShape(t *testing.T) {
-	d, _ := validation.MustGetDriver("default")
+	d, _ := validation.GetDriver("default")
 	v, _ := d.NewValidator()
 	err := v.Validate(context.Background(), &user{Email: "not-an-email", Age: 5})
 	assert.Error(t, err).NotNil()

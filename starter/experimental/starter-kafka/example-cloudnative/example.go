@@ -51,7 +51,7 @@ import (
 
 	"github.com/twmb/franz-go/pkg/kgo"
 	"go-spring.org/cloud/actuator/health"
-	"go-spring.org/cloud/experimental/resilience"
+	"go-spring.org/cloud/resilience"
 	"go-spring.org/spring/gs"
 
 	_ "go-spring.org/starter-actuator"    // aggregates health.Indicator beans on :9370

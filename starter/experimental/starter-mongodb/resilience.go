@@ -20,19 +20,19 @@ import (
 	"context"
 	"sync/atomic"
 
+	"go-spring.org/cloud/discovery"
+	"go-spring.org/cloud/resilience"
 	observe "go-spring.org/observe"
 	"go-spring.org/observe/resilience"
-	"go-spring.org/cloud/discovery"
-	"go-spring.org/cloud/experimental/resilience"
 	"go-spring.org/spring/gs"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
-// ObservedMongoClient is the wrapper bean MongoDB clients are injected as. It
+// Client is the wrapper bean MongoDB clients are injected as. It
 // embeds the concrete *mongo.Client (so every driver method promotes
 // unchanged) and field-injects the resilience policy via gs.Dync so it
 // hot-reloads on config change. newClient returns one; gs field-injects
-// Resilience + Observability, then calls ApplyResilience (InitMethod) to build
+// Resilience + Observability, then calls Init (InitMethod) to build
 // the observer and, when resilience is enabled, the executor + wrapped dialer.
 //
 // The resilience seam is the dial layer: the mongo driver v2 exposes no single
@@ -41,29 +41,29 @@ import (
 // limiter caps connection churn, a bulkhead bounds concurrent dials).
 // Already-open connections run at full speed — this is connection-level
 // protection, not per-command. newClient installs a shared dialer instance and
-// ApplyResilience mutates its dial function to the resilience-wrapped one, so
+// Init mutates its dial function to the resilience-wrapped one, so
 // the swap takes effect without rebuilding the client.
-type ObservedMongoClient struct {
+type Client struct {
 	*mongo.Client
 	// Resilience is field-injected (gs.Dync, hot-reloadable); Observability is
 	// the startup access-log config (not hot). These replace the old
 	// Config.Resilience/Observability fields so the wrapper bean owns its own
 	// protection + observability policy.
 	Resilience    gs.Dync[resilience.Config] `value:"${resilience:=}"`
-	Observability observe.LogConfig          `value:"${observability:=}"`
+	Observability observe.ObserveConfig      `value:"${observability:=}"`
 
 	// cfg is the connection config, retained for the resilience resource label.
 	cfg Config
-	// dialer is the shared dialer handed to the driver; ApplyResilience swaps
+	// dialer is the shared dialer handed to the driver; Init swaps
 	// its dial field to the resilience-wrapped function.
 	dialer *dialerWrapper
 	// resolver is the discovery watch behind a service-name client (nil when
 	// direct/mesh); Close stops it on shutdown.
 	resolver *discovery.Resolver
-	// obs is the observe observer built by ApplyResilience from the injected
+	// obs is the observe observer built by Init from the injected
 	// Observability; the command monitor reads it lazily.
 	obs atomic.Pointer[observe.Observer]
-	// exec is the resilience executor protecting dials, set by ApplyResilience
+	// exec is the resilience executor protecting dials, set by Init
 	// when resilience is enabled. nil on an unarmed client.
 	exec resilience.Executor
 	// resource is the resilience resource key ("mongodb:<...>") exec scopes
@@ -71,22 +71,18 @@ type ObservedMongoClient struct {
 	resource string
 }
 
-// ApplyResilience is the gs InitMethod: gs field-injects Resilience + Observability
+// Init is the gs InitMethod: gs field-injects Resilience + Observability
 // after newClient returns, then calls this. It builds the observe.Observer (needs
 // Observability) and, when resilience is enabled, the executor + the
 // resilience-wrapped dial function (needs the Resilience policy), swaps it into
 // the shared dialer, and subscribes to policy changes for hot Refresh.
-func (o *ObservedMongoClient) ApplyResilience() error {
+func (o *Client) Init() error {
 	o.obs.Store(observe.NewClient("mongodb", o.Observability))
 	rc := o.Resilience.Value()
 	if !rc.Enabled {
 		return nil
 	}
-	drv, err := resilience.MustGetDriver(rc.Driver)
-	if err != nil {
-		return err
-	}
-	exec, err := drv.NewExecutor(rc.Policy())
+	exec, err := resilience.NewExecutor(rc.Driver, rc.Policy())
 	if err != nil {
 		return err
 	}
@@ -108,9 +104,9 @@ func (o *ObservedMongoClient) ApplyResilience() error {
 	return nil
 }
 
-// Close is the gs destroy method: it closes the resilience executor (if armed),
+// Destroy is the gs destroy method: it closes the resilience executor (if armed),
 // stops any discovery watch, and disconnects the underlying client.
-func (o *ObservedMongoClient) Close() error {
+func (o *Client) Destroy() error {
 	if o.exec != nil {
 		_ = o.exec.Close()
 	}

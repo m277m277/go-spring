@@ -20,6 +20,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -41,19 +42,19 @@ func init() {
 // AnotherRedisDriver is a custom implementation of the Driver interface.
 type AnotherRedisDriver struct{}
 
-func (AnotherRedisDriver) CreateClient(ctx context.Context, c StarterGoRedis.Config) (*redis.Client, error) {
+func (AnotherRedisDriver) CreateClient(ctx context.Context, c StarterGoRedis.Config) (*redis.Client, io.Closer, error) {
 	log.Infof(context.Background(), log.TagAppDef, "AnotherRedisDriver::CreateClient")
 	return redis.NewClient(&redis.Options{
 		Addr:     c.Addr,
 		Password: c.Password,
-	}), nil
+	}), StarterGoRedis.NopCloser(), nil
 }
 
 type Service struct {
-	Redis          *StarterGoRedis.ObservedRedisClient        `autowire:"cache"`
-	DiscoveryRedis *StarterGoRedis.ObservedRedisClient        `autowire:"discovery"`
-	SentinelRedis  *StarterGoRedis.ObservedRedisClient        `autowire:"sentinel"`
-	ClusterRedis   *StarterGoRedis.ObservedRedisClient        `autowire:"cluster"`
+	Redis          *StarterGoRedis.Client `autowire:"cache"`
+	DiscoveryRedis *StarterGoRedis.Client `autowire:"discovery"`
+	SentinelRedis  *StarterGoRedis.Client `autowire:"sentinel"`
+	ClusterRedis   *StarterGoRedis.Client `autowire:"cluster"`
 }
 
 var manual = flag.Bool("manual", false, "run in manual verification mode (server stays up)")

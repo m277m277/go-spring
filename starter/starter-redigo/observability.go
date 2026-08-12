@@ -23,14 +23,14 @@ import (
 	"time"
 
 	"github.com/gomodule/redigo/redis"
+	"go-spring.org/cloud/resilience"
 	observe "go-spring.org/observe"
-	"go-spring.org/cloud/experimental/resilience"
 )
 
-// installObsConn wraps the pool's Dial / DialContext so every connection handed
-// out is an obsConn that instruments each command through the shared observe kit
+// wrapDial wraps the pool's Dial / DialContext so every connection handed out
+// is an obsConn that instruments each command through the shared observe kit
 // (trace span + duration/in-flight metric + access log) and, when resilience is
-// armed, through the executor. It is called by ApplyResilience (the gs
+// armed, through the executor. It is called by Init (the gs
 // InitMethod) after the observer + executor are built; the obsConn captures them
 // at install time, so a nil o.exec (resilience disabled) means the inner conn is
 // called directly with no executor overhead.
@@ -39,7 +39,7 @@ import (
 // a near-zero-cost opt-in that needs no per-component adaptation: when
 // starter-otel is absent, trace+metric are no-ops; the access log is gated by
 // cfg.Level (default brief).
-func (o *ObservedRedisPool) installObsConn() {
+func (o *Pool) wrapDial() {
 	pool := o.Pool
 	if pool == nil {
 		return
@@ -103,7 +103,7 @@ type obsConn struct {
 }
 
 func (c *obsConn) Do(cmd string, args ...interface{}) (interface{}, error) {
-	_, sp := c.obs.Start(context.Background(), cmd, doArg(cmd, args))
+	_, sp := c.obs.Start(context.Background(), cmd, summarizeCommand(cmd, args))
 	reply, err := c.run(context.Background(), func(context.Context) (interface{}, error) {
 		return c.Conn.Do(cmd, args...)
 	})
@@ -121,7 +121,7 @@ func (c *obsConn) DoContext(ctx context.Context, cmd string, args ...interface{}
 		// Inner conn has no DoContext — best-effort fallback to the plain path.
 		return c.Do(cmd, args...)
 	}
-	ctx, sp := c.obs.Start(ctx, cmd, doArg(cmd, args))
+	ctx, sp := c.obs.Start(ctx, cmd, summarizeCommand(cmd, args))
 	// Pass the executor's per-attempt context through to the inner DoContext so a
 	// policy attempt-timeout can actually interrupt the call.
 	reply, err := c.run(ctx, func(actx context.Context) (interface{}, error) {
@@ -141,7 +141,7 @@ func (c *obsConn) DoWithTimeout(timeout time.Duration, cmd string, args ...inter
 	if !ok {
 		return c.Do(cmd, args...)
 	}
-	_, sp := c.obs.Start(context.Background(), cmd, doArg(cmd, args))
+	_, sp := c.obs.Start(context.Background(), cmd, summarizeCommand(cmd, args))
 	reply, err := c.run(context.Background(), func(context.Context) (interface{}, error) {
 		return inner.DoWithTimeout(timeout, cmd, args...)
 	})
@@ -182,11 +182,11 @@ func (c *obsConn) run(ctx context.Context, call func(context.Context) (interface
 	return reply, callErr
 }
 
-// doArg renders a short, loggable summary of the command — the command name plus
-// the first argument (typically the key) — bounded by the Observer's
-// LogConfig.MaxArgBytes. The full argument list is intentionally not logged
-// (keys are enough to locate an op; values may be sensitive or large).
-func doArg(cmd string, args []interface{}) string {
+// summarizeCommand renders a short, loggable summary of the command — the
+// command name plus the first argument (typically the key) — bounded by the
+// Observer's ObserveConfig.MaxArgBytes. The full argument list is intentionally not
+// logged (keys are enough to locate an op; values may be sensitive or large).
+func summarizeCommand(cmd string, args []interface{}) string {
 	if len(args) == 0 {
 		return cmd
 	}

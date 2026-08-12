@@ -38,9 +38,9 @@ import (
 	"syscall"
 	"time"
 
-	"go-spring.org/log"
 	"go-spring.org/cloud/discovery"
-	"go-spring.org/cloud/experimental/resilience"
+	"go-spring.org/cloud/resilience"
+	"go-spring.org/log"
 	"go-spring.org/spring/gs"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"

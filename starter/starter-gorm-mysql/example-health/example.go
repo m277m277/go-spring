@@ -41,7 +41,7 @@ import (
 // Service autowires the "primary" gorm instance; instantiating it registers the
 // per-instance health.Indicator the actuator collects.
 type Service struct {
-	DB *starter.ObservedGormDB `autowire:"primary"`
+	DB *starter.DB `autowire:"primary"`
 }
 
 var manual = flag.Bool("manual", false, "run in manual verification mode (server stays up)")

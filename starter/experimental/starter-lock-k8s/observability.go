@@ -17,8 +17,8 @@
 package StarterLockK8s
 
 import (
-	"go-spring.org/observe/lock"
 	"go-spring.org/cloud/experimental/lock"
+	"go-spring.org/observe/lock"
 )
 
 func wrapLockerBean(c Config, inner lock.Locker) lock.Locker {

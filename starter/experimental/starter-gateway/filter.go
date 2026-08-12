@@ -24,8 +24,8 @@ import (
 	"strings"
 	"sync"
 
+	"go-spring.org/cloud/resilience"
 	"go-spring.org/log"
-	"go-spring.org/cloud/experimental/resilience"
 )
 
 // FilterFactory builds a self-contained [Filter] from its config arguments (the
@@ -251,7 +251,7 @@ func rateLimitFilter(args []string) (Filter, error) {
 	if driver == "" {
 		driver = "default"
 	}
-	d, err := resilience.MustGetLimiter(driver)
+	d, err := resilience.GetLimiter(driver)
 	if err != nil {
 		return nil, err
 	}

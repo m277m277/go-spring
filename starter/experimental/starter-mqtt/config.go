@@ -19,9 +19,9 @@ package StarterMQTT
 import (
 	"time"
 
+	"go-spring.org/cloud/resilience"
+	"go-spring.org/cloud/tlsconf"
 	observe "go-spring.org/observe"
-	"go-spring.org/cloud/experimental/resilience"
-	"go-spring.org/cloud/experimental/tlsconf"
 )
 
 // Config defines MQTT client connection configuration.
@@ -73,7 +73,7 @@ type Config struct {
 	// resilience executor (off/brief/detailed). Defaults to "brief". This
 	// complements the package-level trace helpers in observability.go, which are
 	// driven by their own default level.
-	Observability observe.LogConfig `value:"${observability:=}"`
+	Observability observe.ObserveConfig `value:"${observability:=}"`
 }
 
 // Resilience binds the backend-neutral resilience knobs shared by every client

@@ -25,13 +25,17 @@
 // starter-otel installs. When starter-otel is absent those globals are no-ops, so
 // trace and metric cost almost nothing and change no behavior; the access log
 // (the third signal) always emits through the project log package, gated only by
-// LogConfig.Level.
+// ObserveConfig.Level.
 package observe
 
-// LogConfig controls the per-operation access log emitted by an Observer. It is
-// bound per client instance under spring.<client>.<name>.observability.log.* by
-// each starter's own Config (mirroring gin's AccessLogConfig.PayloadConfig).
-type LogConfig struct {
+// ObserveConfig is the per-instance observability config, bound under
+// spring.<client>.<name>.observability by each starter's own Config. It carries
+// only the knobs that are meaningfully per-instance: the access-log level/detail
+// and SkipOps (which suppresses span + metric + log together for chatty ops).
+// Trace and metric themselves ride the global OTel pipeline that starter-otel
+// installs, so they have no per-instance config here. Mirrors gin's
+// AccessLogConfig.PayloadConfig.
+type ObserveConfig struct {
 	// Level controls access-log detail:
 	//
 	//   "off"      - no access log. Trace and metric still emit; only the log
@@ -66,19 +70,19 @@ const (
 	levelDetailed = "detailed"
 
 	// DefaultBrief is the default Level value ("brief"), exported so starters
-	// that build a LogConfig programmatically (rather than binding from config)
+	// that build an ObserveConfig programmatically (rather than binding from config)
 	// reference the same default.
 	DefaultBrief = levelBrief
 )
 
 // enabled reports whether the access log emits at the configured level.
-func (c LogConfig) enabled() bool { return c.Level != levelOff }
+func (c ObserveConfig) enabled() bool { return c.Level != levelOff }
 
 // detailed reports whether the operation argument is captured into the log.
-func (c LogConfig) detailed() bool { return c.Level == levelDetailed }
+func (c ObserveConfig) detailed() bool { return c.Level == levelDetailed }
 
 // maxArg returns the argument capture bound, defaulting to 512 when unset.
-func (c LogConfig) maxArg() int {
+func (c ObserveConfig) maxArg() int {
 	if c.MaxArgBytes > 0 {
 		return c.MaxArgBytes
 	}

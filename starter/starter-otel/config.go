@@ -27,8 +27,8 @@ import (
 // providers through the OTel process globals set by this starter, so a project
 // configures observability once here instead of adapting each component.
 type Config struct {
-	Enable      bool                `value:"${enable:=true}"`
-	ServiceName string              `value:"${service-name:=${spring.application.name:=go-spring-app}}"`
-	Trace       trace.TraceConfig   `value:"${trace}"`
+	Enable      bool                 `value:"${enable:=true}"`
+	ServiceName string               `value:"${service-name:=${spring.application.name:=go-spring-app}}"`
+	Trace       trace.TraceConfig    `value:"${trace}"`
 	Metrics     metric.MetricsConfig `value:"${metrics}"`
 }

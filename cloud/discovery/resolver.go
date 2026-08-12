@@ -36,7 +36,7 @@ import (
 // decision layer over discovery, mirroring how loadbalance.Pick sits above
 // discovery for per-request RPC selection.
 type Resolver struct {
-	q        Query   // materialized lookup, for error messages
+	q        Query    // materialized lookup, for error messages
 	opts     []Option // replayed into Resolve/Watch on (re)open
 	eps      atomic.Pointer[[]Endpoint]
 	next     atomic.Uint64

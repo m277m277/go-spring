@@ -2,8 +2,8 @@ go 1.26.1
 
 use (
 	./cloud
-	./cloud/experimental/event/example
-	./cloud/gorm-cloud
+	./cloud/event/example
+	./starter/starter-gorm
 	./cloud/observe
 	./contrib/dubbo-go/dubbo
 	./contrib/dubbo-go/jsonrpc
@@ -131,8 +131,6 @@ use (
 	./starter/experimental/starter-mail
 	./starter/experimental/starter-mail/example
 	./starter/experimental/starter-mail/example-otel
-	./starter/experimental/starter-mesh
-	./starter/experimental/starter-mesh/example
 	./starter/experimental/starter-migration-gorm
 	./starter/experimental/starter-migration-gorm/example
 	./starter/experimental/starter-mongodb

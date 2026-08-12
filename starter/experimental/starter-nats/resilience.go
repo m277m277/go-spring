@@ -21,8 +21,8 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go"
+	"go-spring.org/cloud/resilience"
 	"go-spring.org/observe/resilience"
-	"go-spring.org/cloud/experimental/resilience"
 )
 
 // applyResilience builds an executor from the configured driver and attaches it
@@ -35,11 +35,7 @@ func applyResilience(c Config, conn *Conn) error {
 	if !c.Resilience.Enabled {
 		return nil
 	}
-	drv, err := resilience.MustGetDriver(c.Resilience.Driver)
-	if err != nil {
-		return err
-	}
-	exec, err := drv.NewExecutor(c.Resilience.Policy())
+	exec, err := resilience.NewExecutor(c.Resilience.Driver, c.Resilience.Policy())
 	if err != nil {
 		return err
 	}
@@ -48,17 +44,10 @@ func applyResilience(c Config, conn *Conn) error {
 	// starter-otel.
 	exec = resilobserve.WrapExecutor(exec, "nats", c.Observability)
 	conn.exec = exec
-	conn.resource = resourceLabel(c)
+	conn.resource = resilience.ResourceLabel("nats", c.Name, c.URL)
 	return nil
 }
 
-// resourceLabel derives a stable, human-readable resilience resource key for a
-// connection, so limiter and breaker state is scoped per NATS instance rather
-// than per subject. Name is preferred (it's set explicitly by the operator);
-// URL is the natural fallback. Uses the shared [resilience.ResourceLabel] helper.
-func resourceLabel(c Config) string {
-	return resilience.ResourceLabel("nats", c.Name, c.URL)
-}
 
 // guard routes call through the executor when one is attached, and otherwise
 // runs it inline. Splitting this out keeps the guarded methods trivial and

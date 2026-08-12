@@ -21,7 +21,7 @@ import (
 	"strings"
 	"time"
 
-	"go-spring.org/cloud/experimental/tlsconf"
+	"go-spring.org/cloud/tlsconf"
 )
 
 // Config holds the configuration parameters for a MySQL connection.

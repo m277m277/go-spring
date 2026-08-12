@@ -17,37 +17,37 @@
 package StarterGormPostgres
 
 import (
+	"go-spring.org/cloud/resilience"
+	gormobserve "go-spring.org/starter-gorm/observe"
+	"go-spring.org/starter-gorm/resilience"
 	observe "go-spring.org/observe"
-	gormobserve "go-spring.org/gorm-cloud/observe"
 	"go-spring.org/observe/resilience"
-	"go-spring.org/gorm-cloud/resilience"
-	"go-spring.org/cloud/experimental/resilience"
 	"go-spring.org/spring/gs"
 	"gorm.io/gorm"
 )
 
-// ObservedGormDB is the wrapper bean gorm-postgres clients are injected as. It
+// DB is the wrapper bean gorm-postgres clients are injected as. It
 // embeds *gorm.DB so all gorm methods promote unchanged, and field-injects the
 // resilience policy via gs.Dync so it hot-reloads on config change. newClient
 // returns one; gs field-injects Resilience + Observability, then calls
-// ApplyResilience (InitMethod) to install the observe plugin and, when armed,
+// Init (InitMethod) to install the observe plugin and, when armed,
 // the resilience callbacks.
-type ObservedGormDB struct {
+type DB struct {
 	*gorm.DB
 	Resilience    gs.Dync[resilience.Config] `value:"${resilience:=}"`
-	Observability observe.LogConfig          `value:"${observability:=}"`
+	Observability observe.ObserveConfig      `value:"${observability:=}"`
 
 	cfg      Config // for resourceLabel (host/service-name)
 	exec     resilience.Executor
 	resource string
 }
 
-// ApplyResilience is the gs InitMethod (runs after gs field-injects Resilience +
+// Init is the gs InitMethod (runs after gs field-injects Resilience +
 // Observability). It installs the shared gorm observe plugin and, when
 // resilience is enabled, builds the executor and routes every gorm processor
 // through it via [gormresilience.ApplyCallbacks], then subscribes to policy
 // changes for hot Refresh.
-func (o *ObservedGormDB) ApplyResilience() error {
+func (o *DB) Init() error {
 	if err := o.DB.Use(gormobserve.NewPlugin("postgresql", o.Observability)); err != nil {
 		return err
 	}
@@ -55,17 +55,13 @@ func (o *ObservedGormDB) ApplyResilience() error {
 	if !rc.Enabled {
 		return nil
 	}
-	drv, err := resilience.MustGetDriver(rc.Driver)
-	if err != nil {
-		return err
-	}
-	exec, err := drv.NewExecutor(rc.Policy())
+	exec, err := resilience.NewExecutor(rc.Driver, rc.Policy())
 	if err != nil {
 		return err
 	}
 	exec = resilobserve.WrapExecutor(exec, "postgresql", o.Observability)
 	o.exec = exec
-	o.resource = resourceLabel(o.cfg)
+	o.resource = resilience.ResourceLabel("gorm:postgresql", o.cfg.ServiceName, o.cfg.Host)
 	if err := gormresilience.ApplyCallbacks(o.DB, exec, o.resource); err != nil {
 		return err
 	}
@@ -77,10 +73,10 @@ func (o *ObservedGormDB) ApplyResilience() error {
 	return nil
 }
 
-// Close is the gs destroy method: closes the resilience executor (if armed),
+// Destroy is the gs destroy method: closes the resilience executor (if armed),
 // stops any discovery watch behind the client, then closes the underlying
 // connection pool.
-func (o *ObservedGormDB) Close() error {
+func (o *DB) Destroy() error {
 	if o.exec != nil {
 		_ = o.exec.Close()
 	}
@@ -91,8 +87,3 @@ func (o *ObservedGormDB) Close() error {
 	return nil
 }
 
-// resourceLabel derives a stable resilience resource key for a client, so
-// limiter and breaker state is scoped per DB instance rather than per statement.
-func resourceLabel(c Config) string {
-	return resilience.ResourceLabel("gorm:postgresql", c.ServiceName, c.Host)
-}

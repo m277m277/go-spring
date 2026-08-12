@@ -21,8 +21,8 @@ import (
 	"sync"
 
 	amqp "github.com/rabbitmq/amqp091-go"
+	"go-spring.org/cloud/resilience"
 	resilobserve "go-spring.org/observe/resilience"
-	"go-spring.org/cloud/experimental/resilience"
 )
 
 // resilienceExecs tracks the resilience executor attached to each connection,
@@ -44,17 +44,13 @@ func applyResilience(c Config, conn *amqp.Connection) error {
 	if !c.Resilience.Enabled {
 		return nil
 	}
-	drv, err := resilience.MustGetDriver(c.Resilience.Driver)
-	if err != nil {
-		return err
-	}
-	exec, err := drv.NewExecutor(c.Resilience.Policy())
+	exec, err := resilience.NewExecutor(c.Resilience.Driver, c.Resilience.Policy())
 	if err != nil {
 		return err
 	}
 	exec = resilobserve.WrapExecutor(exec, "rabbitmq", c.Observability)
 	resilienceExecs.Store(conn, exec)
-	resilienceResources.Store(conn, resourceLabel(c))
+	resilienceResources.Store(conn, resilience.ResourceLabel("rabbitmq", c.Vhost, c.URL))
 	return nil
 }
 
@@ -66,12 +62,6 @@ func closeResilience(conn *amqp.Connection) {
 	resilienceResources.Delete(conn)
 }
 
-// resourceLabel derives a stable, human-readable resilience resource key for a
-// connection, so limiter and breaker state is scoped per broker (by URL) rather
-// than per message. Uses the shared [resilience.ResourceLabel] helper.
-func resourceLabel(c Config) string {
-	return resilience.ResourceLabel("rabbitmq", c.Vhost, c.URL)
-}
 
 // guard routes call through the executor attached to conn, and otherwise runs it
 // inline. When resilience is disabled for the connection this is a no-op

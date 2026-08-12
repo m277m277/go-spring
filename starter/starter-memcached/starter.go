@@ -17,10 +17,8 @@
 package StarterMemcached
 
 import (
-	"runtime"
-
-	"go-spring.org/log"
 	"go-spring.org/cloud/actuator/health"
+	"go-spring.org/log"
 	"go-spring.org/spring/conf"
 	"go-spring.org/spring/data/cache"
 	"go-spring.org/spring/gs"
@@ -42,27 +40,20 @@ func init() {
 	// The memcache client keeps a lazy connection pool and exposes no Close
 	// method, so the destroy callback only stops any discovery Resolver watch
 	// behind the client (added when ServiceName is set).
-	_, file, line, _ := runtime.Caller(0)
 	gs.Module(gs.OnProperty("spring.memcached"), func(r gs.BeanProvider, p flatten.Storage) error {
-		var m map[string]Config
-		if err := conf.Bind(p, &m, "${spring.memcached}"); err != nil {
-			return err
-		}
-		for name, c := range m {
+		return conf.BindEach(p, "${spring.memcached}", func(name string, c Config) error {
 			// IndexArg(1, ...) binds c to index 1, leaving index 0 (*gs.ContextProvider)
 			// to be autowired — the documented pattern for a ctor whose first param
 			// is ContextProvider (a bare ValueArg would bind to index 0 instead).
-			b := r.Provide(newClient,
+			r.Provide(newClient,
 				gs.IndexArg(1, gs.ValueArg(name)),
 				gs.IndexArg(2, gs.ValueArg(c)),
-			).Name(name).InitMethod("ApplyResilience").Destroy((*ObservedClient).Close)
-			b.SetFileLine(file, line)
+			).Name(name).Init((*Client).Init).Destroy((*Client).Destroy).Caller(1)
 			// Contribute a health indicator for this instance, injecting the
 			// client just registered above by name.
-			h := r.Provide(func(c *ObservedClient) health.Indicator { return health2.NewClientHealth(name, c.Client) }, gs.TagArg(name)).Name(name).Export(gs.As[health.Indicator]())
-			h.SetFileLine(file, line)
-		}
-		return nil
+			r.Provide(func(c *Client) health.Indicator { return health2.NewClientHealth(name, c.Client) }, gs.TagArg(name)).Name("memcache:" + name).Export(gs.As[health.Indicator]()).Caller(1)
+			return nil
+		})
 	})
 }
 
@@ -76,7 +67,7 @@ func init() {
 func init() {
 	cache.RegisterDriver("memcached", func(beanID string) gs.ModuleFunc {
 		return func(r gs.BeanProvider, p flatten.Storage) error {
-			r.Provide(func(c *ObservedClient) *cache.Cache {
+			r.Provide(func(c *Client) *cache.Cache {
 				return &cache.Cache{ByteCache: bytecache.NewByteCache(c.Client)}
 			}, gs.TagArg(beanID)).Name(beanID)
 			return nil
@@ -86,7 +77,7 @@ func init() {
 
 // newClient creates a new Memcached client based on the provided configuration,
 // wrapped so every operation flows through the observe kit (trace+metric+log).
-func newClient(ctx *gs.ContextProvider, name string, c Config) (*ObservedClient, error) {
+func newClient(ctx *gs.ContextProvider, name string, c Config) (*Client, error) {
 	log.Debugf(ctx.Context, starterTag, "creating memcached client, servers=%v service-name=%s", c.Servers, c.ServiceName)
 
 	if len(c.Servers) == 0 && c.ServiceName == "" {
@@ -111,8 +102,8 @@ func newClient(ctx *gs.ContextProvider, name string, c Config) (*ObservedClient,
 	}
 	log.Infof(ctx.Context, starterTag, "memcached client initialized, servers=%v", c.Servers)
 	// Return the wrapper; gs field-injects Resilience (gs.Dync, hot-reloadable)
-	// + Observability after this returns, then calls ApplyResilience (InitMethod)
+	// + Observability after this returns, then calls Init (InitMethod)
 	// to build the observer + executor. Close (Destroy) stops any discovery
 	// Resolver watch and closes the executor.
-	return &ObservedClient{Client: client, name: name}, nil
+	return &Client{Client: client, name: name}, nil
 }

@@ -44,7 +44,7 @@ import (
 	"time"
 
 	"go-spring.org/cloud/discovery"
-	"go-spring.org/cloud/experimental/resilience"
+	"go-spring.org/cloud/resilience"
 	"go-spring.org/spring/gs"
 
 	_ "go-spring.org/starter-actuator"    // aggregates the gorm health.Indicator
@@ -72,7 +72,7 @@ func init() {
 // discovery (service-name), its queries are protected by resilience, and its
 // pool health is exported as a health.Indicator the actuator collects.
 type Service struct {
-	DB *starter.ObservedGormDB `autowire:"primary"`
+	DB *starter.DB `autowire:"primary"`
 }
 
 var manual = flag.Bool("manual", false, "run in manual verification mode (server stays up)")

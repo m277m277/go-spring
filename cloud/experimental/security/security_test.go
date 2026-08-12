@@ -74,13 +74,13 @@ func (s stubValidator) Validate(_ context.Context, token string) (*Authenticatio
 func TestRegistry(t *testing.T) {
 	RegisterValidator("stub-a", stubValidator{subject: "a"})
 
-	v, ok := GetValidator("stub-a")
-	assert.That(t, ok).True()
+	v, err := GetValidator("stub-a")
+	assert.Error(t, err).Nil()
 	got, err := v.Validate(context.Background(), "tok")
 	assert.Error(t, err).Nil()
 	assert.String(t, got.Principal.Subject).Equal("a")
 
-	_, err = MustGetValidator("missing")
+	_, err = GetValidator("missing")
 	assert.Error(t, err).Matches("no validator registered as \"missing\"")
 
 	assert.Panic(t, func() { RegisterValidator("stub-a", stubValidator{}) }, "already registered")

@@ -50,26 +50,19 @@ func RegisterValidator(name string, v TokenValidator) {
 	registry[name] = v
 }
 
-// GetValidator returns the [TokenValidator] registered under name.
-func GetValidator(name string) (TokenValidator, bool) {
+// GetValidator returns the [TokenValidator] registered under name, or an error
+// that lists the available validators when none matches.
+func GetValidator(name string) (TokenValidator, error) {
 	mu.RLock()
 	defer mu.RUnlock()
 	v, ok := registry[name]
-	return v, ok
-}
-
-// MustGetValidator returns the [TokenValidator] registered under name, or an
-// error that lists the available validators when none matches.
-func MustGetValidator(name string) (TokenValidator, error) {
-	if v, ok := GetValidator(name); ok {
-		return v, nil
+	if !ok {
+		names := make([]string, 0, len(registry))
+		for k := range registry {
+			names = append(names, k)
+		}
+		sort.Strings(names)
+		return nil, fmt.Errorf("security: no validator registered as %q (registered: %v)", name, names)
 	}
-	mu.RLock()
-	names := make([]string, 0, len(registry))
-	for k := range registry {
-		names = append(names, k)
-	}
-	mu.RUnlock()
-	sort.Strings(names)
-	return nil, fmt.Errorf("security: no validator registered as %q (registered: %v)", name, names)
+	return v, nil
 }

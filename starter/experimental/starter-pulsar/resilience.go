@@ -21,8 +21,8 @@ import (
 	"sync"
 
 	"github.com/apache/pulsar-client-go/pulsar"
+	"go-spring.org/cloud/resilience"
 	resilobserve "go-spring.org/observe/resilience"
-	"go-spring.org/cloud/experimental/resilience"
 )
 
 // resilienceExecs tracks the resilience executor attached to each client, so
@@ -44,17 +44,13 @@ func applyResilience(c Config, cl pulsar.Client) error {
 	if !c.Resilience.Enabled {
 		return nil
 	}
-	drv, err := resilience.MustGetDriver(c.Resilience.Driver)
-	if err != nil {
-		return err
-	}
-	exec, err := drv.NewExecutor(c.Resilience.Policy())
+	exec, err := resilience.NewExecutor(c.Resilience.Driver, c.Resilience.Policy())
 	if err != nil {
 		return err
 	}
 	exec = resilobserve.WrapExecutor(exec, "pulsar", c.Observability)
 	resilienceExecs.Store(cl, exec)
-	resilienceResources.Store(cl, resourceLabel(c))
+	resilienceResources.Store(cl, resilience.ResourceLabel("pulsar", c.URL))
 	return nil
 }
 
@@ -66,12 +62,6 @@ func closeResilience(cl pulsar.Client) {
 	resilienceResources.Delete(cl)
 }
 
-// resourceLabel derives a stable, human-readable resilience resource key for a
-// client, so limiter and breaker state is scoped per Pulsar cluster (by URL)
-// rather than per message. Uses the shared [resilience.ResourceLabel] helper.
-func resourceLabel(c Config) string {
-	return resilience.ResourceLabel("pulsar", c.URL)
-}
 
 // guard routes call through the executor attached to cl, and otherwise runs it
 // inline. When resilience is disabled for the client this is a no-op

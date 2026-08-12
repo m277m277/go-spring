@@ -50,26 +50,19 @@ func RegisterBinder(name string, b Binder) {
 	registry[name] = b
 }
 
-// GetBinder returns the [Binder] registered under name.
-func GetBinder(name string) (Binder, bool) {
+// GetBinder returns the [Binder] registered under name, or an error that lists
+// the available binders when none matches.
+func GetBinder(name string) (Binder, error) {
 	mu.RLock()
 	defer mu.RUnlock()
 	b, ok := registry[name]
-	return b, ok
-}
-
-// MustGetBinder returns the [Binder] registered under name, or an error that
-// lists the available binders when none matches.
-func MustGetBinder(name string) (Binder, error) {
-	if b, ok := GetBinder(name); ok {
-		return b, nil
+	if !ok {
+		names := make([]string, 0, len(registry))
+		for k := range registry {
+			names = append(names, k)
+		}
+		sort.Strings(names)
+		return nil, fmt.Errorf("messaging: no binder registered as %q (registered: %v)", name, names)
 	}
-	mu.RLock()
-	names := make([]string, 0, len(registry))
-	for k := range registry {
-		names = append(names, k)
-	}
-	mu.RUnlock()
-	sort.Strings(names)
-	return nil, fmt.Errorf("messaging: no binder registered as %q (registered: %v)", name, names)
+	return b, nil
 }

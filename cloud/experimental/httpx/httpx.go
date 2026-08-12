@@ -44,9 +44,9 @@ import (
 	"time"
 
 	"go-spring.org/cloud/discovery"
+	"go-spring.org/cloud/loadbalance"
 	"go-spring.org/cloud/mesh"
-	"go-spring.org/cloud/experimental/loadbalance"
-	"go-spring.org/cloud/experimental/resilience"
+	"go-spring.org/cloud/resilience"
 )
 
 // Config describes how to assemble the transport for one declarative client.
@@ -168,12 +168,7 @@ func NewTransport(cfg Config) (rt http.RoundTripper, close func() error, err err
 	// carried by the generated client (the logical service name in discovery
 	// mode). Disabled when no driver is configured, leaving base unchanged.
 	if cfg.ResilienceDriver != "" {
-		drv, err := resilience.MustGetDriver(cfg.ResilienceDriver)
-		if err != nil {
-			closeAll(closeFns)
-			return nil, nil, err
-		}
-		exec, err := drv.NewExecutor(cfg.ResiliencePolicy)
+		exec, err := resilience.NewExecutor(cfg.ResilienceDriver, cfg.ResiliencePolicy)
 		if err != nil {
 			closeAll(closeFns)
 			return nil, nil, err

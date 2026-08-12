@@ -23,7 +23,7 @@ import (
 	"slices"
 	"time"
 
-	"go-spring.org/cloud/experimental/resilience"
+	"go-spring.org/cloud/resilience"
 )
 
 // Option configures the in-process [Coordinator] built by [NewCoordinator].
@@ -314,11 +314,7 @@ func runWithPolicy(ctx context.Context, p RetryPolicy, resource string, fn func(
 	if p.IsZero() {
 		return fn(ctx)
 	}
-	drv, err := resilience.MustGetDriver("default")
-	if err != nil {
-		return err
-	}
-	exec, err := drv.NewExecutor(p)
+	exec, err := resilience.NewExecutor("default", p)
 	if err != nil {
 		return err
 	}

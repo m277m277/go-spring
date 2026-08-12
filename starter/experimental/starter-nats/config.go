@@ -19,9 +19,9 @@ package StarterNats
 import (
 	"time"
 
+	"go-spring.org/cloud/resilience"
+	"go-spring.org/cloud/tlsconf"
 	observe "go-spring.org/observe"
-	"go-spring.org/cloud/experimental/resilience"
-	"go-spring.org/cloud/experimental/tlsconf"
 )
 
 // Config defines NATS client connection configuration.
@@ -79,7 +79,7 @@ type Config struct {
 	// duration/in-flight metric + access log off/brief/detailed) emitted by the
 	// Conn.PublishMsg wrapper and the binder's consume callback. Defaults to
 	// "brief".
-	Observability observe.LogConfig `value:"${observability:=}"`
+	Observability observe.ObserveConfig `value:"${observability:=}"`
 }
 
 // Resilience binds the backend-neutral resilience knobs shared by every client
@@ -90,7 +90,6 @@ type Config struct {
 //
 // Keep MaxRetries at 0 for publishing — retrying a publish can duplicate a
 // message; leave retry to the caller who knows whether the message is idempotent.
-
 
 // JetStream context is created from the connection and exposed on Conn.JetStream;
 // otherwise Conn.JetStream is nil.

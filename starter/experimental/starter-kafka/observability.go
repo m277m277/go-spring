@@ -31,7 +31,7 @@ import (
 // OnProduceRecordBuffered (start) with OnProduceRecordUnbuffered (end) so the
 // log carries accurate duration; consume has no paired start hook, so it emits
 // a duration-less record (the metric covers consume latency).
-func newObserveHook(cfg observe.LogConfig) kgo.Hook {
+func newObserveHook(cfg observe.ObserveConfig) kgo.Hook {
 	return &observeHook{
 		pubObs: observe.NewProducer("kafka", cfg, observe.WithoutTraceAndMetric()),
 		subObs: observe.NewConsumer("kafka", cfg, observe.WithoutTraceAndMetric()),

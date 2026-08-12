@@ -21,7 +21,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
-	"go-spring.org/cloud/experimental/resilience"
+	"go-spring.org/cloud/resilience"
 )
 
 // redisTokenBucket is the atomic token-bucket refill/consume, evaluated entirely
@@ -70,7 +70,7 @@ var _ resilience.RateLimiter = (*redisRateLimiter)(nil)
 
 // redisLimiterDriver adapts a bound Redis client into a [resilience.LimiterDriver]
 // so it can be registered under a name and looked up by gateway or any other
-// caller via [resilience.MustGetLimiter]. The [resilience.LimiterDriver] interface
+// caller via [resilience.GetLimiter]. The [resilience.LimiterDriver] interface
 // takes only a [resilience.LimitPolicy] (no client), so the client must be bound
 // at registration time — hence RegisterLimiterDriver(name, client) below rather
 // than a package-level init.
@@ -83,7 +83,7 @@ func (d redisLimiterDriver) NewRateLimiter(p resilience.LimitPolicy) (resilience
 
 // RegisterLimiterDriver registers a Redis-backed [resilience.LimiterDriver] under
 // name, bound to client, so callers can resolve it with
-// [resilience.MustGetLimiter](name). This closes the gap where the Redis limiter
+// [resilience.GetLimiter](name). This closes the gap where the Redis limiter
 // existed as a constructor (NewRateLimiter) but was not reachable through the
 // driver registry that gateway and other starters use. Panics on empty name or
 // nil client, matching the registry's posture.

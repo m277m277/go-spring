@@ -36,13 +36,13 @@ import (
 
 // Service injects the per-instance wrapped clients. bigcache exposes no hook/
 // plugin extension point, so per-operation observability is delivered through
-// the *ObservedBigCache wrapper itself (Get/Set/Delete emit span+metric+log);
+// the *Cache wrapper itself (Get/Set/Delete emit span+metric+log);
 // inject that type rather than the raw *bigcache.BigCache. The embedded
 // *bigcache.BigCache is still reachable via the field for any raw API need.
 type Service struct {
-	Hot   *StarterBigCache.ObservedBigCache `autowire:"hot"`
-	Cold  *StarterBigCache.ObservedBigCache `autowire:"cold"`
-	Evict *StarterBigCache.ObservedBigCache `autowire:"evict"`
+	Hot   *StarterBigCache.Cache `autowire:"hot"`
+	Cold  *StarterBigCache.Cache `autowire:"cold"`
+	Evict *StarterBigCache.Cache `autowire:"evict"`
 }
 
 var manual = flag.Bool("manual", false, "run in manual verification mode (server stays up)")

@@ -27,11 +27,11 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"go-spring.org/cloud/discovery"
+	"go-spring.org/cloud/resilience"
 	"go-spring.org/log"
 	observe "go-spring.org/observe"
 	"go-spring.org/observe/resilience"
-	"go-spring.org/cloud/discovery"
-	"go-spring.org/cloud/experimental/resilience"
 	"go-spring.org/spring/gs"
 )
 
@@ -202,17 +202,13 @@ func (t *RouteTable) buildExecutors() (map[string]resilience.Executor, error) {
 		if driverName == "" {
 			driverName = "default"
 		}
-		driver, err := resilience.MustGetDriver(driverName)
-		if err != nil {
-			return nil, err
-		}
-		exec, err := driver.NewExecutor(p.toPolicy())
+		exec, err := resilience.NewExecutor(driverName, p.toPolicy())
 		if err != nil {
 			return nil, fmt.Errorf("resilience policy %q: %w", name, err)
 		}
 		// Wrap so breaker trips / rejects / retries emit span + counter +
 		// histogram + access log (the resilience core emits none).
-		out[name] = resilobserve.WrapExecutor(exec, "gateway:"+name, observe.LogConfig{})
+		out[name] = resilobserve.WrapExecutor(exec, "gateway:"+name, observe.ObserveConfig{})
 	}
 	return out, nil
 }

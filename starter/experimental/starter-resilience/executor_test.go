@@ -26,7 +26,7 @@ import (
 	"testing"
 	"time"
 
-	"go-spring.org/cloud/experimental/resilience"
+	"go-spring.org/cloud/resilience"
 	"go-spring.org/stdlib/testing/assert"
 )
 
@@ -34,13 +34,13 @@ import (
 // module makes "sentinel" resolvable through the framework's registry, so any
 // adapter selects it by name with no compile-time dependency on sentinel.
 func TestDriverRegistered(t *testing.T) {
-	d, err := resilience.MustGetDriver("sentinel")
+	d, err := resilience.GetDriver("sentinel")
 	assert.Error(t, err).Nil()
 	assert.That(t, d).NotNil()
 }
 
 func newExec(t *testing.T, p resilience.Policy) resilience.Executor {
-	d, err := resilience.MustGetDriver("sentinel")
+	d, err := resilience.GetDriver("sentinel")
 	assert.Error(t, err).Nil()
 	e, err := d.NewExecutor(p)
 	assert.Error(t, err).Nil()

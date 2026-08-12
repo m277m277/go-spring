@@ -14,11 +14,10 @@
  * limitations under the License.
  */
 
-// Command example is a self-contained smoke test for the resilience seams that
-// were not already covered by starter-oauth2-client's HTTP round-tripper demo:
+// Command example is a self-contained smoke test for the resilience client-side
+// seams that were not already covered by starter-oauth2-client's HTTP
+// round-tripper demo:
 //
-//   - the server-side inbound Handler seam (resilience.NewHandler), exercising
-//     rate limiting at admission;
 //   - the client-side dialer seam (resilience.NewDialer), exercising the circuit
 //     breaker at connection establishment;
 //   - the three composable policies acceptance calls for — rate limit + circuit
@@ -39,75 +38,21 @@ import (
 	"sync/atomic"
 	"time"
 
-	"go-spring.org/cloud/experimental/resilience"
+	"go-spring.org/cloud/resilience"
 
 	_ "go-spring.org/starter-resilience"
 )
 
 func main() {
-	driver, err := resilience.MustGetDriver("sentinel")
+	driver, err := resilience.GetDriver("sentinel")
 	if err != nil {
 		fail("driver: %v", err)
 	}
 
-	demoInboundHandler(driver)
 	demoClientDialer(driver)
 	demoComposedRetry(driver)
 
 	fmt.Println("resilience seams smoke: OK")
-}
-
-// demoInboundHandler wraps a business handler with the server-side seam under a
-// 5 QPS rate limit, fires a burst of requests and asserts that admission both
-// serves and sheds load (some 200, some 429) without the handler ever seeing the
-// rejected requests.
-func demoInboundHandler(driver resilience.Driver) {
-	exec, err := driver.NewExecutor(resilience.Policy{RateLimit: 5})
-	if err != nil {
-		fail("inbound executor: %v", err)
-	}
-
-	var served int32
-	mux := http.NewServeMux()
-	mux.HandleFunc("/hello", func(w http.ResponseWriter, _ *http.Request) {
-		atomic.AddInt32(&served, 1)
-		_, _ = w.Write([]byte("ok"))
-	})
-	handler := resilience.NewHandler(mux, exec, func(*http.Request) string { return "inbound-hello" })
-
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		fail("listen: %v", err)
-	}
-	srv := &http.Server{Handler: handler}
-	go func() { _ = srv.Serve(ln) }()
-	defer func() { _ = srv.Close() }()
-
-	url := "http://" + ln.Addr().String() + "/hello"
-	var ok, limited int
-	for range 20 {
-		resp, err := http.Get(url)
-		if err != nil {
-			fail("inbound request: %v", err)
-		}
-		_ = resp.Body.Close()
-		switch resp.StatusCode {
-		case http.StatusOK:
-			ok++
-		case http.StatusTooManyRequests:
-			limited++
-		default:
-			fail("inbound unexpected status %d", resp.StatusCode)
-		}
-	}
-
-	if ok == 0 || limited == 0 {
-		fail("inbound rate limit ineffective: ok=%d limited=%d", ok, limited)
-	}
-	if int(atomic.LoadInt32(&served)) != ok {
-		fail("inbound handler saw %d calls but %d were admitted", served, ok)
-	}
-	fmt.Printf("inbound Handler: %d served, %d rejected with 429\n", ok, limited)
 }
 
 // demoClientDialer drives the dialer seam against an address with no listener.

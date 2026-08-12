@@ -19,12 +19,11 @@ package StarterElasticsearch
 import (
 	"context"
 	"fmt"
-	"runtime"
 
-	"go-spring.org/log"
 	"go-spring.org/cloud/actuator/health"
 	"go-spring.org/cloud/discovery"
 	"go-spring.org/cloud/mesh"
+	"go-spring.org/log"
 	"go-spring.org/spring/conf"
 	"go-spring.org/spring/gs"
 	health2 "go-spring.org/starter-elasticsearch/health"
@@ -38,29 +37,22 @@ func init() {
 	// each instance's *elasticsearch.Client bean can be paired with a
 	// health.Indicator registered under the same name — and to attach the
 	// file:line of this registration to the bean for diagnostics.
-	_, file, line, _ := runtime.Caller(0)
 	gs.Module(gs.OnProperty("spring.elasticsearch"), func(r gs.BeanProvider, p flatten.Storage) error {
-		var m map[string]Config
-		if err := conf.Bind(p, &m, "${spring.elasticsearch}"); err != nil {
-			return err
-		}
-		for name, c := range m {
+		return conf.BindEach(p, "${spring.elasticsearch}", func(name string, c Config) error {
 			// The wrapper bean owns the resilience executor + discovery watch, so
-			// ApplyResilience arms it (InitMethod) and Close tears it down (Destroy).
-			b := r.Provide(newClient,
+			// Init arms it (InitMethod) and Close tears it down (Destroy).
+			r.Provide(newClient,
 				gs.IndexArg(1, gs.ValueArg(c)),
-			).Name(name).InitMethod("ApplyResilience").Destroy((*ObservedElasticClient).Close)
-			b.SetFileLine(file, line)
+			).Name(name).Init((*Client).Init).Destroy((*Client).Destroy).Caller(1)
 			// Contribute a health indicator for this instance, injecting the
 			// client just registered above by name. The wrapper is what is
 			// autowired; the embedded *elasticsearch.Client is handed to the
 			// indicator.
-			h := r.Provide(func(w *ObservedElasticClient) health.Indicator {
+			r.Provide(func(w *Client) health.Indicator {
 				return health2.NewClientHealth(name, w.Client)
-			}, gs.TagArg(name)).Name(name).Export(gs.As[health.Indicator]())
-			h.SetFileLine(file, line)
-		}
-		return nil
+			}, gs.TagArg(name)).Name("elasticsearch:" + name).Export(gs.As[health.Indicator]()).Caller(1)
+			return nil
+		})
 	})
 }
 
@@ -78,7 +70,7 @@ var starterTag = log.RegisterInfraTag("elasticsearch", "")
 // only to keep the lifecycle uniform with the other client starters and is
 // stopped on shutdown. In mesh mode the sidecar owns discovery+LB, so the static
 // Addresses (or CloudID) are used unchanged. See Config.ServiceName.
-func newClient(ctx *gs.ContextProvider, c Config) (*ObservedElasticClient, error) {
+func newClient(ctx *gs.ContextProvider, c Config) (*Client, error) {
 	var resolver *discovery.Resolver
 	if c.ServiceName != "" && !mesh.Enabled() {
 		addrs, r, err := resolveAddresses(ctx.Context, c)
@@ -103,9 +95,9 @@ func newClient(ctx *gs.ContextProvider, c Config) (*ObservedElasticClient, error
 		}
 		return nil, errutil.Explain(err, "failed to create elasticsearch client")
 	}
-	w := &ObservedElasticClient{Client: client, cfg: c, resolver: resolver}
+	w := &Client{Client: client, cfg: c, resolver: resolver}
 	// The DefaultDriver attaches a dynamic transport (its executor swapped in by
-	// ApplyResilience); pick it up so the wrapper can arm it. Custom drivers may
+	// Init); pick it up so the wrapper can arm it. Custom drivers may
 	// not install one - resilience is then simply unavailable for that client.
 	if v, ok := dynamicTransports.LoadAndDelete(client); ok {
 		w.dyn = v.(*dynamicTransport)
@@ -125,7 +117,7 @@ func newClient(ctx *gs.ContextProvider, c Config) (*ObservedElasticClient, error
 // health endpoint. A context is always passed to Info because the transport's
 // OpenTelemetry instrumentation derives its span from it and panics on a nil
 // parent context.
-func HealthCheck(ctx context.Context, client *ObservedElasticClient) error {
+func HealthCheck(ctx context.Context, client *Client) error {
 	res, err := client.Info(client.Info.WithContext(ctx))
 	if err != nil {
 		return err

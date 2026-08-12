@@ -180,9 +180,10 @@ WebSocket(`websocket`、`websocket-coder`)、中间件(`lua-filter`)、鉴权
   consul/etcd/nacos/zookeeper/polaris 的示例见 `contrib/registry/`。
 - **服务网格模式集中退化客户端栈,而非逐 starter 判断。** 注入 sidecar
   (Istio/Envoy、Linkerd)后它已负责发现与负载均衡,应用自带的再叠加就会双重负载
-  均衡,并让拓扑/离群逻辑错乱。用一个进程级全局开关(`spring.mesh.enabled`,由
-  `starter-mesh` 接线),在发现与负载均衡的 Factory 装配处 —— 各 client starter 的
-  `newLiveResolver`(见 §2.2)与 `loadbalance.Pool` —— 读取一次并统一退化为直通:
+  均衡,并让拓扑/离群逻辑错乱。用一个进程级全局开关(`mesh.Enabled`,默认按 sidecar
+  环境变量自动探测;`GS_MESH` 环境变量 on/off/auto 可覆盖),在发现与负载均衡的
+  Factory 装配处 —— 各 client starter 的
+  `newLiveResolver`(见 §2.2)与 `loadbalance.Pool` —— 读取并统一退化为直通:
   服务名解析为唯一稳定的 Service 地址(ClusterIP)交给 sidecar 拦截,负载均衡器不再
   选择、不再剔除。因为 `newLiveResolver` 内部读取 `mesh.Enabled()`、mesh 开启时返回
   `nil`,client starter 无需在调用处逐分支即可感知开关 —— driver 直接跳过安装

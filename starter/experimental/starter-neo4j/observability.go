@@ -34,11 +34,11 @@ import (
 // directly — one symbol swap, full instrumentation. The low-level StartSpan/
 // EndSpan helpers remain for code that drives sessions manually.
 //
-// A package-level default Observer backs both (no per-instance LogConfig wiring,
+// A package-level default Observer backs both (no per-instance ObserveConfig wiring,
 // because the kit cannot bind to a free-function call path; the default level is
 // "brief"). It rides the OTel globals starter-otel installs.
 
-var defaultObs = observe.NewClient("neo4j", observe.LogConfig{Level: observe.DefaultBrief})
+var defaultObs = observe.NewClient("neo4j", observe.ObserveConfig{Level: observe.DefaultBrief})
 
 // Query runs a Cypher query via neo4j.ExecuteQuery, wrapped with the observe kit
 // (trace span + duration/in-flight metric + access log) and, when resilience is

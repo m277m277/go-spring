@@ -35,8 +35,8 @@ import (
 
 	"go-spring.org/spring/conf"
 	"go-spring.org/spring/conf/reader"
-	"go-spring.org/spring/experimental/web/i18n"
-	"go-spring.org/spring/experimental/web/validation"
+	"go-spring.org/spring/web/experimental/web/i18n"
+	"go-spring.org/spring/web/experimental/web/validation"
 	"go-spring.org/stdlib/flatten"
 
 	_ "go-spring.org/starter-validation" // registers the "default" driver
@@ -123,7 +123,7 @@ func demoWeb(src *i18n.MapSource, locale, body string) {
 }
 
 func mustValidator() (validation.Validator, error) {
-	d, err := validation.MustGetDriver("default")
+	d, err := validation.GetDriver("default")
 	if err != nil {
 		return nil, err
 	}

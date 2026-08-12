@@ -25,7 +25,7 @@
 //     starter-actuator on :9370 (/readyz reflects the cluster).
 //   - DYNAMIC CONFIG: a gs.Dync[string] field is bound to a watched file; editing
 //     it hot-reloads the value with no restart.
-//   - OBSERVABILITY: the ObservedClient wrapper + the observe kit ride the OTel
+//   - OBSERVABILITY: the Client wrapper + the observe kit ride the OTel
 //     globals.
 //
 // The app self-tests every capability and exits non-zero on failure.
@@ -45,7 +45,7 @@ import (
 
 	"github.com/bradfitz/gomemcache/memcache"
 	"go-spring.org/cloud/discovery"
-	"go-spring.org/cloud/experimental/resilience"
+	"go-spring.org/cloud/resilience"
 	"go-spring.org/spring/gs"
 
 	_ "go-spring.org/starter-actuator"    // aggregates the memcached health.Indicator
@@ -74,7 +74,7 @@ func init() {
 // discovery (service-name), its ops are protected by resilience, and its Ping
 // health is exported as a health.Indicator the actuator collects.
 type Service struct {
-	Memcached *StarterMemcached.ObservedClient `autowire:"cache"`
+	Memcached *StarterMemcached.Client `autowire:"cache"`
 }
 
 var manual = flag.Bool("manual", false, "run in manual verification mode (server stays up)")

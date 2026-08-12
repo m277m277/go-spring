@@ -22,12 +22,12 @@ import (
 	"testing"
 
 	"github.com/redis/go-redis/v9"
-	"go-spring.org/cloud/experimental/resilience"
+	"go-spring.org/cloud/resilience"
 	"go-spring.org/stdlib/testing/assert"
 )
 
 func newHook(t *testing.T, p resilience.Policy) *resilienceHook {
-	d, err := resilience.MustGetDriver("default")
+	d, err := resilience.GetDriver("default")
 	assert.Error(t, err).Nil()
 	exec, err := d.NewExecutor(p)
 	assert.Error(t, err).Nil()

@@ -19,9 +19,9 @@ package StarterNats
 import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+	"go-spring.org/cloud/resilience"
 	"go-spring.org/log"
 	observe "go-spring.org/observe"
-	"go-spring.org/cloud/experimental/resilience"
 	"go-spring.org/spring/gs"
 	"go-spring.org/stdlib/errutil"
 )
@@ -42,8 +42,8 @@ type Conn struct {
 
 	// pubObs/subObs drive the observe kit (trace+metric+log) for publishes and
 	// consumes. nil-safe: when nil the instrumented methods delegate unchanged.
-	pubObs   *observe.Observer
-	subObs   *observe.Observer
+	pubObs *observe.Observer
+	subObs *observe.Observer
 
 	// exec is nil unless Config.Resilience.Enabled; when set, the guarded
 	// methods route through it. resource is the stable per-instance key so the

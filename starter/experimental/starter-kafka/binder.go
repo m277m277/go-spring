@@ -21,8 +21,8 @@ import (
 	"sync"
 
 	"github.com/twmb/franz-go/pkg/kgo"
-	"go-spring.org/log"
 	"go-spring.org/cloud/experimental/messaging"
+	"go-spring.org/log"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 )

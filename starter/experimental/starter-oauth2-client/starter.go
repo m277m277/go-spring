@@ -20,10 +20,10 @@ import (
 	"io"
 	"net/http"
 
+	"go-spring.org/cloud/resilience"
 	"go-spring.org/log"
-	"go-spring.org/observe/resilience"
 	observe "go-spring.org/observe"
-	"go-spring.org/cloud/experimental/resilience"
+	"go-spring.org/observe/resilience"
 	"go-spring.org/spring/gs"
 	"golang.org/x/oauth2/clientcredentials"
 )
@@ -70,18 +70,14 @@ func newClient(ctx *gs.ContextProvider, name string, c Config) (*http.Client, er
 	}
 
 	if c.Resilience.Enabled {
-		drv, err := resilience.MustGetDriver(c.Resilience.Driver)
-		if err != nil {
-			return nil, err
-		}
-		exec, err := drv.NewExecutor(c.Resilience.Policy())
+		exec, err := resilience.NewExecutor(c.Resilience.Driver, c.Resilience.Policy())
 		if err != nil {
 			return nil, err
 		}
 		// Wrap so breaker trips / rejects / retries emit span + counter +
 		// histogram + access log (the resilience core emits none). nil-safe,
 		// no-op without starter-otel.
-		exec = resilobserve.WrapExecutor(exec, "oauth2", observe.LogConfig{})
+		exec = resilobserve.WrapExecutor(exec, "oauth2", observe.ObserveConfig{})
 		client.Transport = resilience.NewRoundTripper(client.Transport, exec, nil)
 	}
 	return client, nil

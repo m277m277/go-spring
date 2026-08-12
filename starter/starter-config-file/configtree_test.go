@@ -54,10 +54,10 @@ func TestWalkConfigTree_NestedKeysAndTrim(t *testing.T) {
 	}
 
 	want := map[string]string{
-		"db.user":       "alice",
-		"db.password":   "s3cr3t",
-		"server.port":   "8080",
-		"flat":          "spaced", // TrimSpace, not just trailing newline
+		"db.user":     "alice",
+		"db.password": "s3cr3t",
+		"server.port": "8080",
+		"flat":        "spaced", // TrimSpace, not just trailing newline
 	}
 	for k, v := range want {
 		if got := m[k]; got != v {

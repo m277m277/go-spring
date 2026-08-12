@@ -54,8 +54,8 @@ func (AnotherESDriver) CreateClient(ctx context.Context, c StarterElasticsearch.
 const indexName = "starter-es-example"
 
 type Service struct {
-	ES     *StarterElasticsearch.ObservedElasticClient `autowire:"docs"`
-	DiscES *StarterElasticsearch.ObservedElasticClient `autowire:"disc"`
+	ES     *StarterElasticsearch.Client `autowire:"docs"`
+	DiscES *StarterElasticsearch.Client `autowire:"disc"`
 }
 
 var manual = flag.Bool("manual", false, "run in manual verification mode (server stays up)")

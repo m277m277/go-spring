@@ -34,7 +34,7 @@ func newOtelInstrumentation() *elastictransport.ElasticsearchOpenTelemetry {
 }
 
 // obsTransport wraps the underlying HTTP round-tripper so each request emits a
-// duration metric + access log via the observe kit. ApplyResilience builds it
+// duration metric + access log via the observe kit. Init builds it
 // with WithoutTrace: the trace span comes from newOtelInstrumentation above
 // (applied at the elastictransport.Perform layer, above this round-tripper), so
 // the kit only fills the metric+log gap - no duplicate span. The operation is

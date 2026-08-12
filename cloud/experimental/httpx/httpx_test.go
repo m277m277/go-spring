@@ -23,7 +23,7 @@ import (
 	"testing"
 
 	"go-spring.org/cloud/discovery"
-	"go-spring.org/cloud/experimental/resilience"
+	"go-spring.org/cloud/resilience"
 	"go-spring.org/stdlib/testing/assert"
 )
 

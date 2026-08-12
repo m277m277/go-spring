@@ -118,11 +118,11 @@ func TestBinder_RoundTrip(t *testing.T) {
 func TestRegistry(t *testing.T) {
 	RegisterBinder("mem", newMemBinder())
 
-	b, ok := GetBinder("mem")
-	assert.That(t, ok).True()
+	b, err := GetBinder("mem")
+	assert.Error(t, err).Nil()
 	assert.That(t, b).NotNil()
 
-	_, err := MustGetBinder("missing")
+	_, err = GetBinder("missing")
 	assert.Error(t, err).Matches("no binder registered as \"missing\"")
 
 	assert.Panic(t, func() { RegisterBinder("mem", newMemBinder()) }, "already registered")

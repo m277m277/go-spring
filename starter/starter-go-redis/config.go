@@ -17,20 +17,10 @@
 package StarterGoRedis
 
 import (
-	"context"
-	"net"
 	"time"
 
-	"github.com/redis/go-redis/v9"
-	"go-spring.org/cloud/experimental/tlsconf"
-	"go-spring.org/stdlib/errutil"
+	"go-spring.org/cloud/tlsconf"
 )
-
-var driverRegistry = map[string]Driver{}
-
-func init() {
-	RegisterDriver("DefaultDriver", DefaultDriver{})
-}
 
 // Config defines Redis connection configuration.
 type Config struct {
@@ -134,8 +124,8 @@ type Config struct {
 }
 
 // Resilience and Observability are no longer fields of Config: they moved onto
-// the ObservedRedisClient wrapper bean, field-injected by gs (Resilience via
-// gs.Dync, hot-reloadable) and consumed by the ApplyResilience InitMethod.
+// the Client wrapper bean, field-injected by gs (Resilience via
+// gs.Dync, hot-reloadable) and consumed by Init (the gs InitMethod).
 
 // Resilience binds the backend-neutral resilience knobs shared by every client
 // starter (see [resilience.Config]). Driver selects which registered backend
@@ -145,140 +135,3 @@ type Config struct {
 //
 // Keep resilience MaxRetries at 0 for Redis: go-redis already retries via its
 // own MaxRetries, and re-sending non-idempotent commands is unsafe.
-
-// Driver interface defines how to create a single/sentinel Redis client, whose
-// bean type is *redis.Client.
-type Driver interface {
-	CreateClient(ctx context.Context, c Config) (*redis.Client, error)
-}
-
-// ClusterDriver is an optional interface a Driver may also implement to support
-// cluster mode, whose bean type is *redis.ClusterClient. It is kept separate
-// from Driver so existing custom drivers that only build *redis.Client continue
-// to compile unchanged. The starter type-asserts to ClusterDriver only when
-// Mode=cluster.
-type ClusterDriver interface {
-	CreateClusterClient(ctx context.Context, c Config) (*redis.ClusterClient, error)
-}
-
-// RegisterDriver registers a Redis driver with the given name.
-// It panics if the driver name has already been registered.
-func RegisterDriver(name string, driver Driver) {
-	if _, ok := driverRegistry[name]; ok {
-		panic("redis driver already registered: " + name)
-	}
-	driverRegistry[name] = driver
-}
-
-// DefaultDriver is the default implementation of the Driver interface. It also
-// implements ClusterDriver, so it can build all three topologies.
-type DefaultDriver struct{}
-
-var (
-	_ Driver        = DefaultDriver{}
-	_ ClusterDriver = DefaultDriver{}
-)
-
-// CreateClient creates a single or sentinel Redis client based on c.Mode. Both
-// topologies return *redis.Client.
-//
-// In single mode, when c.ServiceName is set the address is resolved through the
-// registered discovery backend (c.Discovery) instead of c.Addr: a LiveDialer
-// keeps the endpoint set fresh and the client dials a live instance on each new
-// connection. Combined with c.ConnMaxLifetime, connections recycle onto updated
-// addresses without rebuilding the client. When c.ServiceName is empty this is a
-// plain Addr dial.
-//
-// In sentinel mode the client connects to the master resolved by c.MasterName
-// through c.SentinelAddrs; service discovery is not used.
-func (DefaultDriver) CreateClient(ctx context.Context, c Config) (*redis.Client, error) {
-	tlsConfig, err := c.TLS.Build()
-	if err != nil {
-		return nil, errutil.Explain(err, "redis: build TLS")
-	}
-
-	if c.Mode == "sentinel" {
-		client := redis.NewFailoverClient(&redis.FailoverOptions{
-			MasterName:       c.MasterName,
-			SentinelAddrs:    c.SentinelAddrs,
-			SentinelPassword: c.SentinelPassword,
-			Password:         c.Password,
-			DB:               c.DB,
-			Username:         c.Username,
-			PoolSize:         c.PoolSize,
-			MaxIdleConns:     c.MaxIdle,
-			ConnMaxLifetime:  c.ConnMaxLifetime,
-			MaxRetries:       c.MaxRetries,
-			DialTimeout:      c.DialTimeout,
-			ReadTimeout:      c.ReadTimeout,
-			WriteTimeout:     c.WriteTimeout,
-			TLSConfig:        tlsConfig,
-		})
-		return client, nil
-	}
-
-	opts := &redis.Options{
-		Addr:            c.Addr,
-		Password:        c.Password,
-		DB:              c.DB,
-		Username:        c.Username,
-		PoolSize:        c.PoolSize,
-		MaxIdleConns:    c.MaxIdle,
-		ConnMaxLifetime: c.ConnMaxLifetime,
-		MaxRetries:      c.MaxRetries,
-		DialTimeout:     c.DialTimeout,
-		ReadTimeout:     c.ReadTimeout,
-		WriteTimeout:    c.WriteTimeout,
-		TLSConfig:       tlsConfig,
-	}
-
-	resolver, err := newLiveResolver(ctx, c)
-	if err != nil {
-		return nil, err
-	}
-	if resolver != nil {
-		nd := &net.Dialer{Timeout: c.DialTimeout}
-		// Addr becomes a label for the pool; the dialer picks a live endpoint.
-		opts.Addr = c.ServiceName
-		opts.Dialer = func(ctx context.Context, network, _ string) (net.Conn, error) {
-			ep, err := resolver.Pick()
-			if err != nil {
-				return nil, err
-			}
-			return nd.DialContext(ctx, network, ep.Addr)
-		}
-	}
-
-	client := redis.NewClient(opts)
-	if resolver != nil {
-		liveDialers.Store(client, resolver)
-	}
-	return client, nil
-}
-
-// CreateClusterClient creates a cluster Redis client seeded by c.Addrs. The bean
-// type is *redis.ClusterClient. Cluster mode self-discovers its nodes, so
-// c.ServiceName / LiveDialer is not used here.
-func (DefaultDriver) CreateClusterClient(ctx context.Context, c Config) (*redis.ClusterClient, error) {
-	tlsConfig, err := c.TLS.Build()
-	if err != nil {
-		return nil, errutil.Explain(err, "redis: build TLS")
-	}
-	client := redis.NewClusterClient(&redis.ClusterOptions{
-		Addrs:           c.Addrs,
-		Password:        c.Password,
-		Username:        c.Username,
-		MaxRedirects:    c.MaxRedirects,
-		RouteByLatency:  c.RouteByLatency,
-		RouteRandomly:   c.RouteRandomly,
-		PoolSize:        c.PoolSize,
-		MaxIdleConns:    c.MaxIdle,
-		ConnMaxLifetime: c.ConnMaxLifetime,
-		MaxRetries:      c.MaxRetries,
-		DialTimeout:     c.DialTimeout,
-		ReadTimeout:     c.ReadTimeout,
-		WriteTimeout:    c.WriteTimeout,
-		TLSConfig:       tlsConfig,
-	})
-	return client, nil
-}

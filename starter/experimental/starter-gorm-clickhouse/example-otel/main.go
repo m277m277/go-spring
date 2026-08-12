@@ -55,8 +55,8 @@ type KV struct {
 func (KV) TableName() string { return "kv" }
 
 type Service struct {
-	DB          *starter.ObservedGormDB `autowire:"primary"`
-	DiscoveryDB *starter.ObservedGormDB `autowire:"discovery"`
+	DB          *starter.DB `autowire:"primary"`
+	DiscoveryDB *starter.DB `autowire:"discovery"`
 }
 
 var manual = flag.Bool("manual", false, "run in manual verification mode (server stays up)")

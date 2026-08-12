@@ -18,13 +18,12 @@ package StarterNeo4j
 
 import (
 	"context"
-	"runtime"
 	"time"
 
-	"go-spring.org/log"
 	"go-spring.org/cloud/actuator/health"
 	"go-spring.org/cloud/discovery"
 	"go-spring.org/cloud/mesh"
+	"go-spring.org/log"
 	"go-spring.org/spring/conf"
 	"go-spring.org/spring/gs"
 	health2 "go-spring.org/starter-neo4j/health"
@@ -38,29 +37,22 @@ func init() {
 	// instance's neo4j.DriverWithContext bean can be paired with a health.Indicator
 	// registered under the same name — and to attach the file:line of this
 	// registration to the bean for diagnostics.
-	_, file, line, _ := runtime.Caller(0)
 	gs.Module(gs.OnProperty("spring.neo4j"), func(r gs.BeanProvider, p flatten.Storage) error {
-		var m map[string]Config
-		if err := conf.Bind(p, &m, "${spring.neo4j}"); err != nil {
-			return err
-		}
-		for name, c := range m {
+		return conf.BindEach(p, "${spring.neo4j}", func(name string, c Config) error {
 			// The wrapper bean owns the resilience executor + discovery watch, so
-			// ApplyResilience arms it (InitMethod) and Close tears it down (Destroy).
-			b := r.Provide(newClient,
+			// Init arms it (InitMethod) and Close tears it down (Destroy).
+			r.Provide(newClient,
 				gs.IndexArg(1, gs.ValueArg(c)),
-			).Name(name).InitMethod("ApplyResilience").Destroy((*ObservedNeo4jDriver).CloseDriver)
-			b.SetFileLine(file, line)
+			).Name(name).Init((*Client).Init).Destroy((*Client).Destroy).Caller(1)
 			// Contribute a health indicator for this instance, injecting the
 			// driver just registered above by name. The wrapper is what is
 			// autowired; the embedded neo4j.DriverWithContext is handed to the
 			// indicator.
-			h := r.Provide(func(w *ObservedNeo4jDriver) health.Indicator {
+			r.Provide(func(w *Client) health.Indicator {
 				return health2.NewDriverHealth(name, w.DriverWithContext)
-			}, gs.TagArg(name)).Name(name).Export(gs.As[health.Indicator]())
-			h.SetFileLine(file, line)
-		}
-		return nil
+			}, gs.TagArg(name)).Name("neo4j:" + name).Export(gs.As[health.Indicator]()).Caller(1)
+			return nil
+		})
 	})
 }
 
@@ -84,7 +76,7 @@ var starterTag = log.RegisterInfraTag("neo4j", "")
 // Resolver is kept alive only to keep the lifecycle uniform with the other
 // client starters and is stopped on shutdown. In mesh mode the sidecar owns
 // discovery+LB, so the URI is used unchanged. See Config.ServiceName.
-func newClient(ctx *gs.ContextProvider, c Config) (*ObservedNeo4jDriver, error) {
+func newClient(ctx *gs.ContextProvider, c Config) (*Client, error) {
 	log.Debugf(ctx.Context, starterTag, "creating neo4j client, uri=%s service-name=%s driver=%s", c.URI, c.ServiceName, c.Driver)
 
 	var resolver *discovery.Resolver
@@ -115,7 +107,7 @@ func newClient(ctx *gs.ContextProvider, c Config) (*ObservedNeo4jDriver, error) 
 		return nil, errutil.Explain(err, "failed to create neo4j client")
 	}
 
-	w := &ObservedNeo4jDriver{DriverWithContext: client, cfg: c, resolver: resolver}
+	w := &Client{DriverWithContext: client, cfg: c, resolver: resolver}
 	// Fail fast: verify the server is reachable before handing out the driver.
 	vctx, cancel := verifyContext(ctx.Context, c.SocketConnectTimeout)
 	defer cancel()
@@ -133,7 +125,7 @@ func newClient(ctx *gs.ContextProvider, c Config) (*ObservedNeo4jDriver, error) 
 
 // HealthCheck reports whether the Neo4j driver can reach the server. It is a
 // thin readiness probe suitable for wiring into a health endpoint.
-func HealthCheck(ctx context.Context, client *ObservedNeo4jDriver) error {
+func HealthCheck(ctx context.Context, client *Client) error {
 	return client.VerifyConnectivity(ctx)
 }
 

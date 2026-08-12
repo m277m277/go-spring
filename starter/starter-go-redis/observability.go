@@ -29,9 +29,9 @@ import (
 // instrument()), so the Hook's Observer is built with WithoutTraceAndMetric:
 // the kit only fills the access-log gap, avoiding duplicate spans/metrics. The
 // log rides the caller's ctx, so it picks up redisotel's span for trace_id
-// correlation. When LogConfig.Level is "off" the Observer emits nothing, so the
+// correlation. When ObserveConfig.Level is "off" the Observer emits nothing, so the
 // Hook is a no-op pass-through.
-func applyObservability(cfg observe.LogConfig, client redis.UniversalClient) {
+func applyObservability(cfg observe.ObserveConfig, client redis.UniversalClient) {
 	obs := observe.NewClient("redis", cfg, observe.WithoutTraceAndMetric())
 	client.AddHook(&observeHook{obs: obs})
 }

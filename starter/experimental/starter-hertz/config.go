@@ -19,7 +19,7 @@ package StarterHertz
 import (
 	"time"
 
-	"go-spring.org/cloud/experimental/tlsconf"
+	"go-spring.org/cloud/tlsconf"
 )
 
 // HealthConfig exposes an optional liveness/readiness endpoint served by the

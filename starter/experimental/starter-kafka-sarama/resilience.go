@@ -21,8 +21,8 @@ import (
 	"sync"
 
 	"github.com/IBM/sarama"
+	"go-spring.org/cloud/resilience"
 	resilobserve "go-spring.org/observe/resilience"
-	"go-spring.org/cloud/experimental/resilience"
 )
 
 // resilienceExecs tracks the resilience executor attached to each client, so
@@ -45,11 +45,7 @@ func applyResilience(c Config, client sarama.Client) error {
 	if !c.Resilience.Enabled {
 		return nil
 	}
-	drv, err := resilience.MustGetDriver(c.Resilience.Driver)
-	if err != nil {
-		return err
-	}
-	exec, err := drv.NewExecutor(c.Resilience.Policy())
+	exec, err := resilience.NewExecutor(c.Resilience.Driver, c.Resilience.Policy())
 	if err != nil {
 		return err
 	}
@@ -58,7 +54,7 @@ func applyResilience(c Config, client sarama.Client) error {
 	// starter-otel.
 	exec = resilobserve.WrapExecutor(exec, "kafka", c.Observability)
 	resilienceExecs.Store(client, exec)
-	resilienceResources.Store(client, resourceLabel(c))
+	resilienceResources.Store(client, resilience.ResourceLabel("kafka", c.Brokers))
 	return nil
 }
 
@@ -70,13 +66,6 @@ func closeResilience(client sarama.Client) {
 	resilienceResources.Delete(client)
 }
 
-// resourceLabel derives a stable, human-readable resilience resource key for a
-// client, so limiter and breaker state is scoped per Kafka cluster (by broker
-// seed list) rather than per message. Uses the shared [resilience.ResourceLabel]
-// helper.
-func resourceLabel(c Config) string {
-	return resilience.ResourceLabel("kafka", c.Brokers)
-}
 
 // executorFor loads the executor and resource label attached to client. Returns
 // (nil, "") when resilience is disabled for that client, so the wrapper falls
@@ -143,12 +132,12 @@ func (g *guardedSyncProducer) SendMessages(msgs []*sarama.ProducerMessage) error
 	})
 }
 
-func (g *guardedSyncProducer) Close() error                                          { return g.p.Close() }
-func (g *guardedSyncProducer) TxnStatus() sarama.ProducerTxnStatusFlag              { return g.p.TxnStatus() }
-func (g *guardedSyncProducer) IsTransactional() bool                                 { return g.p.IsTransactional() }
-func (g *guardedSyncProducer) BeginTxn() error                                       { return g.p.BeginTxn() }
-func (g *guardedSyncProducer) CommitTxn() error                                      { return g.p.CommitTxn() }
-func (g *guardedSyncProducer) AbortTxn() error                                       { return g.p.AbortTxn() }
+func (g *guardedSyncProducer) Close() error                            { return g.p.Close() }
+func (g *guardedSyncProducer) TxnStatus() sarama.ProducerTxnStatusFlag { return g.p.TxnStatus() }
+func (g *guardedSyncProducer) IsTransactional() bool                   { return g.p.IsTransactional() }
+func (g *guardedSyncProducer) BeginTxn() error                         { return g.p.BeginTxn() }
+func (g *guardedSyncProducer) CommitTxn() error                        { return g.p.CommitTxn() }
+func (g *guardedSyncProducer) AbortTxn() error                         { return g.p.AbortTxn() }
 func (g *guardedSyncProducer) AddOffsetsToTxn(o map[string][]*sarama.PartitionOffsetMetadata, gid string) error {
 	return g.p.AddOffsetsToTxn(o, gid)
 }

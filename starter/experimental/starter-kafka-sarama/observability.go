@@ -47,8 +47,8 @@ import (
 // Package-level kit observers back the helpers. kafka-sarama's helpers are the
 // instrumentation API (there is no binder), so a default "brief" level is used.
 var (
-	defaultPubObs = observe.NewProducer("kafka", observe.LogConfig{Level: observe.DefaultBrief})
-	defaultSubObs = observe.NewConsumer("kafka", observe.LogConfig{Level: observe.DefaultBrief})
+	defaultPubObs = observe.NewProducer("kafka", observe.ObserveConfig{Level: observe.DefaultBrief})
+	defaultSubObs = observe.NewConsumer("kafka", observe.ObserveConfig{Level: observe.DefaultBrief})
 )
 
 // StartProducerSpan opens a producer observation for msg (span + duration/in-

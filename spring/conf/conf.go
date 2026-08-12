@@ -33,6 +33,7 @@ var converters = map[reflect.Type]any{}
 func init() {
 	RegisterConverter(func(s string) (time.Time, error) { return cast.ToTimeE(s) })
 	RegisterConverter(func(s string) (time.Duration, error) { return time.ParseDuration(s) })
+	RegisterConverter(ParseByteSize)
 }
 
 // Converter converts a string to a target type T.
@@ -139,6 +140,28 @@ func Bind(p flatten.Storage, i any, tag ...string) error {
 	param.Path = typeName
 	if err := BindValue(p, v, t, param, nil); err != nil {
 		return errutil.Explain(err, "conf: bind %q error", s)
+	}
+	return nil
+}
+
+// BindEach binds tag (e.g. "${spring.redigo}") into a map[string]C and calls fn
+// for each entry — the common skeleton of multi-instance starters, where each
+// "${tag.<name>}" block becomes one (name, config) pair handed to fn to provide
+// that instance's beans. fn may return an error to abort the loop; the first
+// non-nil error is returned.
+//
+// It is a thin iterator over Bind; map iteration order is non-deterministic, so
+// fn must not depend on entry order (register beans by name, as multi-instance
+// starters do).
+func BindEach[C any](p flatten.Storage, tag string, fn func(name string, c C) error) error {
+	var m map[string]C
+	if err := Bind(p, &m, tag); err != nil {
+		return err
+	}
+	for name, c := range m {
+		if err := fn(name, c); err != nil {
+			return err
+		}
 	}
 	return nil
 }

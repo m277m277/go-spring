@@ -27,11 +27,9 @@
 package StarterLockEtcd
 
 import (
-	"runtime"
-
+	"go-spring.org/cloud/experimental/lock"
 	"go-spring.org/log"
 	"go-spring.org/spring/conf"
-	"go-spring.org/cloud/experimental/lock"
 	"go-spring.org/spring/gs"
 	"go-spring.org/stdlib/errutil"
 	"go-spring.org/stdlib/flatten"
@@ -45,30 +43,25 @@ func init() {
 	// can Export the lock.Locker interface — consumers inject that interface
 	// and never see the concrete *etcdLocker type, which is what makes the
 	// blank-import swap possible.
-	_, file, line, _ := runtime.Caller(0)
 	gs.Module(gs.OnProperty("spring.lock"), func(r gs.BeanProvider, p flatten.Storage) error {
-		var m map[string]Config
-		if err := conf.Bind(p, &m, "${spring.lock}"); err != nil {
-			return err
-		}
-		for name, c := range m {
+		return conf.BindEach(p, "${spring.lock}", func(name string, c Config) error {
 			if len(c.Endpoints) == 0 {
 				return errutil.Explain(nil, "lock-etcd: endpoints is required for instance %q", name)
 			}
-			b := r.Provide(newEtcdLocker, gs.ValueArg(c)).
+			r.Provide(newEtcdLocker, gs.ValueArg(c)).
 				Name(name).
 				Export(gs.As[lock.Locker]()).
-				Destroy(destroyEtcdLocker)
-			b.SetFileLine(file, line)
+				Destroy(destroyEtcdLocker).
+				Caller(1)
 
 			if c.Observer.Tracing.Enabled {
-				w := r.Provide(wrapLockerBean, gs.ValueArg(c), gs.TagArg(name)).
+				r.Provide(wrapLockerBean, gs.ValueArg(c), gs.TagArg(name)).
 					Name(name + "-observed").
-					Export(gs.As[lock.Locker]())
-				w.SetFileLine(file, line)
+					Export(gs.As[lock.Locker]()).
+					Caller(1)
 			}
-		}
-		return nil
+			return nil
+		})
 	})
 }
 

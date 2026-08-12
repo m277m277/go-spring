@@ -21,8 +21,8 @@ import (
 	"strconv"
 	"sync"
 
-	"go.mongodb.org/mongo-driver/v2/event"
 	observe "go-spring.org/observe"
+	"go.mongodb.org/mongo-driver/v2/event"
 )
 
 // newCommandMonitor returns an event.CommandMonitor that drives the shared
@@ -33,9 +33,9 @@ import (
 // in-flight command.
 //
 // getObs lazily supplies the observer: newClient installs the monitor before
-// the wrapper's Observability config is field-injected, so ApplyResilience
+// the wrapper's Observability config is field-injected, so Init
 // builds the observer and makes it available through the getter. Because no
-// command runs before ApplyResilience (the wrapper is not handed out until
+// command runs before Init (the wrapper is not handed out until
 // startup completes), the monitor never sees a nil observer in practice; the
 // nil guard keeps the probe path (startup Ping) safe.
 //

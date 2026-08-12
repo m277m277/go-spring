@@ -30,7 +30,7 @@
 //     from single-node to shared storage changes no business code. Byte-oriented
 //     backends implement the narrower [ByteStore] and are lifted with
 //     [FromByteStore]. Named stores are shared through a package-level registry
-//     ([Register]/[Get]/[MustGet]), with [Memory] registered as "memory".
+//     ([Register]/[Get]/[Get]), with [Memory] registered as "memory".
 //   - [Manager] is the HTTP seam. Its [Manager.Middleware] parses the session id
 //     from the request cookie, loads the session into the request context, and
 //     writes it back on the way out — the single place session transport lives,

@@ -20,12 +20,11 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"runtime"
 	"time"
 
+	"go-spring.org/cloud/actuator/health"
 	"go-spring.org/log"
 	observe "go-spring.org/observe"
-	"go-spring.org/cloud/actuator/health"
 	"go-spring.org/spring/conf"
 	"go-spring.org/spring/gs"
 	health2 "go-spring.org/starter-mongodb/health"
@@ -55,36 +54,31 @@ func init() {
 	// instance's *mongo.Client bean can be paired with a health.Indicator
 	// registered under the same name — and to attach the file:line of this
 	// registration to the bean for diagnostics.
-	_, file, line, _ := runtime.Caller(0)
 	gs.Module(gs.OnProperty("spring.mongodb"), func(r gs.BeanProvider, p flatten.Storage) error {
-		var m map[string]Config
-		if err := conf.Bind(p, &m, "${spring.mongodb}"); err != nil {
-			return err
-		}
-		for name, c := range m {
+		return conf.BindEach(p, "${spring.mongodb}", func(name string, c Config) error {
+
 			// The wrapper bean owns the resilience executor + discovery watch, so
-			// ApplyResilience arms it (InitMethod) and Close tears it down (Destroy).
-			b := r.Provide(newClient,
+			// Init arms it (InitMethod) and Close tears it down (Destroy).
+			r.Provide(newClient,
 				gs.IndexArg(1, gs.ValueArg(c)),
-			).Name(name).InitMethod("ApplyResilience").Destroy((*ObservedMongoClient).Close)
-			b.SetFileLine(file, line)
+			).Name(name).Init((*Client).Init).Destroy((*Client).Destroy).Caller(1)
+
 			// Contribute a health indicator for this instance, injecting the
 			// client just registered above by name. The wrapper is what is
 			// autowired; the embedded *mongo.Client is handed to the indicator.
-			h := r.Provide(func(w *ObservedMongoClient) health.Indicator {
+			r.Provide(func(w *Client) health.Indicator {
 				return health2.NewClientHealth(name, w.Client)
-			}, gs.TagArg(name)).Name(name).Export(gs.As[health.Indicator]())
-			h.SetFileLine(file, line)
-		}
-		return nil
+			}, gs.TagArg(name)).Name("mongo:" + name).Export(gs.As[health.Indicator]()).Caller(1)
+			return nil
+		})
 	})
 }
 
 // newClient creates a new MongoDB client based on the provided configuration,
 // wrapped so gs can field-inject resilience + observability and
-// ApplyResilience (InitMethod) can arm them. The command monitor (observability)
+// Init (InitMethod) can arm them. The command monitor (observability)
 // and the dial seam (resilience) are installed dynamically: newClient wires a
-// mutable monitor + dialer into the driver, and ApplyResilience later swaps in
+// mutable monitor + dialer into the driver, and Init later swaps in
 // the observe observer and the resilience-wrapped dial function once the
 // injected policy is available. After the client is built it is pinged so that
 // misconfiguration or an unreachable server fails fast at startup rather than
@@ -97,7 +91,7 @@ func init() {
 // take effect without rebuilding the client. In mesh mode a sidecar owns
 // discovery+LB, so the URI hosts are dialed directly. When c.ServiceName is
 // empty this dials the URI hosts directly, unchanged from before.
-func newClient(ctx *gs.ContextProvider, c Config) (*ObservedMongoClient, error) {
+func newClient(ctx *gs.ContextProvider, c Config) (*Client, error) {
 	log.Debugf(ctx.Context, starterTag, "creating mongodb client, uri=%s service-name=%s", c.URI, c.ServiceName)
 
 	opts := options.Client().ApplyURI(c.URI)
@@ -131,10 +125,10 @@ func newClient(ctx *gs.ContextProvider, c Config) (*ObservedMongoClient, error) 
 		opts.SetTLSConfig(tlsCfg)
 	}
 
-	w := &ObservedMongoClient{cfg: c}
+	w := &Client{cfg: c}
 	// The command monitor observes operations; it reads the observer lazily so
-	// ApplyResilience can build it from the injected Observability config once
-	// the wrapper is field-injected. No commands run before ApplyResilience.
+	// Init can build it from the injected Observability config once
+	// the wrapper is field-injected. No commands run before Init.
 	opts.SetMonitor(newCommandMonitor(func() *observe.Observer { return w.obs.Load() }))
 
 	var baseDial func(ctx context.Context, network, address string) (net.Conn, error)
@@ -160,7 +154,7 @@ func newClient(ctx *gs.ContextProvider, c Config) (*ObservedMongoClient, error) 
 		nd := &net.Dialer{Timeout: c.ConnectTimeout}
 		baseDial = nd.DialContext
 	}
-	// A shared dialer instance is handed to the driver; ApplyResilience mutates
+	// A shared dialer instance is handed to the driver; Init mutates
 	// its dial field (wrapping it with resilience.NewDialer) so the swap takes
 	// effect without rebuilding the client.
 	w.dialer = &dialerWrapper{dial: baseDial}
@@ -193,7 +187,7 @@ func newClient(ctx *gs.ContextProvider, c Config) (*ObservedMongoClient, error) 
 
 // HealthCheck reports whether the MongoDB client can reach the server. It is a
 // thin readiness probe suitable for wiring into a health endpoint.
-func HealthCheck(ctx context.Context, client *ObservedMongoClient) error {
+func HealthCheck(ctx context.Context, client *Client) error {
 	return client.Ping(ctx, nil)
 }
 

@@ -18,24 +18,36 @@ package StarterGoRedis
 
 import (
 	"context"
-	"sync"
+	"io"
 
 	"go-spring.org/cloud/discovery"
 	"go-spring.org/cloud/mesh"
 )
 
-// liveDialers tracks the discovery-backed resolver behind each client built by
-// DefaultDriver, so Close can stop the background watch on shutdown. The key is
-// the client value (*redis.Client for single/sentinel), the value is the
-// *discovery.Resolver. Cluster/sentinel topologies self-discover their nodes and
-// never use a resolver, so only single-mode clients appear here.
-var liveDialers sync.Map // redis client -> *discovery.Resolver
+// closerFunc is an io.Closer backed by a function, so a Driver can hand back
+// the teardown for whatever it built (e.g. stopping a discovery resolver watch)
+// without the starter keeping a client->resolver side-channel registry. A nil
+// closerFunc is a valid no-op Close.
+type closerFunc func() error
+
+func (f closerFunc) Close() error {
+	if f == nil {
+		return nil
+	}
+	return f()
+}
+
+// NopCloser returns an io.Closer whose Close is a no-op, for custom Drivers
+// whose client needs no extra teardown. The bundled DefaultDriver returns one of
+// these when no discovery resolver is involved (cluster/sentinel/plain Addr).
+func NopCloser() io.Closer { return closerFunc(nil) }
 
 // newLiveResolver resolves the registered discovery backend for c and returns a
-// Resolver that keeps the service's endpoint set fresh via a background watch. It
-// returns (nil, nil) when service-name is unset or mesh mode is enabled (a sidecar
-// owns discovery+LB), in which case the caller dials the configured Addr directly.
-// The caller owns the lifecycle and must release the resolver via stopLiveResolver.
+// Resolver that keeps the service's endpoint set fresh via a background watch.
+// It returns (nil, nil) when service-name is unset or mesh mode is enabled (a
+// sidecar owns discovery+LB), in which case the caller dials the configured Addr
+// directly. The caller owns the lifecycle and stops the resolver via the
+// io.Closer returned from CreateClient.
 func newLiveResolver(ctx context.Context, c Config) (*discovery.Resolver, error) {
 	if c.ServiceName == "" || mesh.Enabled() {
 		return nil, nil
@@ -45,13 +57,4 @@ func newLiveResolver(ctx context.Context, c Config) (*discovery.Resolver, error)
 		return nil, err
 	}
 	return discovery.NewResolver(ctx, d, c.ServiceName, discovery.WithScheme(c.Scheme))
-}
-
-// stopLiveResolver stops the discovery watch behind the given client value. It is
-// the Close-half of the discovery lifecycle, symmetric with newLiveResolver; it
-// is a no-op for clients that never had a resolver.
-func stopLiveResolver(client any) {
-	if v, ok := liveDialers.LoadAndDelete(client); ok {
-		_ = v.(*discovery.Resolver).Stop()
-	}
 }

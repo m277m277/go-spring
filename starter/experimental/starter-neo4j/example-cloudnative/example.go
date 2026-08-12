@@ -47,7 +47,7 @@ import (
 
 	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
 	"go-spring.org/cloud/discovery"
-	"go-spring.org/cloud/experimental/resilience"
+	"go-spring.org/cloud/resilience"
 	"go-spring.org/spring/gs"
 
 	_ "go-spring.org/starter-actuator"    // aggregates the neo4j health.Indicator
@@ -75,7 +75,7 @@ func init() {
 // discovery (service-name), its queries are protected by resilience, and its
 // connectivity is exported as a health.Indicator the actuator collects.
 type Service struct {
-	Neo4j *StarterNeo4j.ObservedNeo4jDriver `autowire:"graph"`
+	Neo4j *StarterNeo4j.Client `autowire:"graph"`
 }
 
 var manual = flag.Bool("manual", false, "run in manual verification mode (server stays up)")

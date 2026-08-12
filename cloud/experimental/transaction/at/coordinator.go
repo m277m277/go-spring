@@ -25,7 +25,7 @@ import (
 	"slices"
 	"sync"
 
-	"go-spring.org/cloud/experimental/resilience"
+	"go-spring.org/cloud/resilience"
 )
 
 // ErrUnknownTransaction is returned when a branch registers under, or a caller
@@ -184,11 +184,7 @@ func runWithPolicy(ctx context.Context, p RetryPolicy, resource string, fn func(
 	if p.IsZero() {
 		return fn(ctx)
 	}
-	drv, err := resilience.MustGetDriver("default")
-	if err != nil {
-		return err
-	}
-	exec, err := drv.NewExecutor(p)
+	exec, err := resilience.NewExecutor("default", p)
 	if err != nil {
 		return err
 	}

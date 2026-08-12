@@ -40,9 +40,9 @@ import (
 	"errors"
 	"time"
 
+	"go-spring.org/cloud/resilience"
 	"go-spring.org/log"
 	observe "go-spring.org/observe"
-	"go-spring.org/cloud/experimental/resilience"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -64,7 +64,7 @@ var durationBuckets = []float64{0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5,
 // "grpc") so metrics from several protected clients are distinguishable. cfg
 // controls the access log (off/brief/detailed). A nil inner returns nil — no
 // wrapper, so an unarmed client stays untouched.
-func WrapExecutor(inner resilience.Executor, system string, cfg observe.LogConfig) resilience.Executor {
+func WrapExecutor(inner resilience.Executor, system string, cfg observe.ObserveConfig) resilience.Executor {
 	if inner == nil {
 		return nil
 	}
@@ -112,7 +112,7 @@ type wrappedExecutor struct {
 	active         metric.Int64UpDownCounter
 	breakerChanges metric.Int64Counter
 	logTag         *log.Tag
-	cfg            observe.LogConfig
+	cfg            observe.ObserveConfig
 }
 
 // OnBreakerStateChange satisfies [resilience.BreakerEventListener]. It is

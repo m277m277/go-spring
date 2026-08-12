@@ -19,13 +19,12 @@ package StarterGormClickhouse
 import (
 	"context"
 	"net"
-	"runtime"
 
 	ch "github.com/ClickHouse/clickhouse-go/v2"
-	"go-spring.org/log"
 	"go-spring.org/cloud/actuator/health"
 	"go-spring.org/cloud/discovery"
 	"go-spring.org/cloud/mesh"
+	"go-spring.org/log"
 	"go-spring.org/spring/conf"
 	"go-spring.org/spring/gs"
 	health2 "go-spring.org/starter-gorm-clickhouse/health"
@@ -43,24 +42,17 @@ func init() {
 	// each instance's *gorm.DB bean can be paired with a health.Indicator
 	// registered under the same name — and to attach the file:line of this
 	// registration to the bean for diagnostics.
-	_, file, line, _ := runtime.Caller(0)
 	gs.Module(gs.OnProperty("spring.gorm.clickhouse"), func(r gs.BeanProvider, p flatten.Storage) error {
-		var m map[string]Config
-		if err := conf.Bind(p, &m, "${spring.gorm.clickhouse}"); err != nil {
-			return err
-		}
-		for name, c := range m {
-			b := r.Provide(newClient, gs.IndexArg(1, gs.ValueArg(c))).Name(name).InitMethod("ApplyResilience").Destroy((*ObservedGormDB).Close)
-			b.SetFileLine(file, line)
+		return conf.BindEach(p, "${spring.gorm.clickhouse}", func(name string, c Config) error {
+			r.Provide(newClient, gs.IndexArg(1, gs.ValueArg(c))).Name(name).Init((*DB).Init).Destroy((*DB).Destroy).Caller(1)
 			// Contribute a health indicator for this instance, injecting the
 			// wrapper just registered above by name (the embedded *gorm.DB is
 			// passed through to the indicator).
-			h := r.Provide(func(w *ObservedGormDB) health.Indicator {
+			r.Provide(func(w *DB) health.Indicator {
 				return health2.NewGormHealth(name, w.DB)
-			}, gs.TagArg(name)).Name(name).Export(gs.As[health.Indicator]())
-			h.SetFileLine(file, line)
-		}
-		return nil
+			}, gs.TagArg(name)).Name("gorm:clickhouse:" + name).Export(gs.As[health.Indicator]()).Caller(1)
+			return nil
+		})
 	})
 }
 
@@ -77,7 +69,7 @@ func init() {
 // client. In mesh mode a sidecar owns discovery+LB, so the configured Addr is
 // used as-is. When c.ServiceName is empty this is a plain DSN dial, unchanged
 // from before.
-func newClient(ctx *gs.ContextProvider, c Config) (*ObservedGormDB, error) {
+func newClient(ctx *gs.ContextProvider, c Config) (*DB, error) {
 	if c.Addr == "" && c.ServiceName == "" {
 		return nil, errutil.Explain(nil, "gorm clickhouse: one of addr or service-name must be set")
 	}
@@ -152,7 +144,7 @@ func newClient(ctx *gs.ContextProvider, c Config) (*ObservedGormDB, error) {
 	}
 	// Fail fast: verify connectivity and apply pool settings at creation time.
 	// The observe plugin + resilience callbacks are installed later by the
-	// wrapper's ApplyResilience (InitMethod), after gs field-injects its
+	// wrapper's Init (InitMethod), after gs field-injects its
 	// Observability + Resilience config.
 	if err := applyPool(db, c); err != nil {
 		log.Errorf(ctx.Context, starterTag, "gorm clickhouse: ping failed: %v", err)
@@ -168,5 +160,5 @@ func newClient(ctx *gs.ContextProvider, c Config) (*ObservedGormDB, error) {
 		liveDialers.Store(db, ld)
 	}
 	log.Infof(ctx.Context, starterTag, "gorm clickhouse client initialized, addr=%s db=%s", c.Addr, c.DB)
-	return &ObservedGormDB{DB: db, cfg: c}, nil
+	return &DB{DB: db, cfg: c}, nil
 }

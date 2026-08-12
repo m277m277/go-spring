@@ -45,7 +45,7 @@ import (
 	"time"
 
 	"go-spring.org/cloud/discovery"
-	"go-spring.org/cloud/experimental/resilience"
+	"go-spring.org/cloud/resilience"
 	"go-spring.org/spring/gs"
 
 	_ "go-spring.org/starter-actuator"    // aggregates the elasticsearch health.Indicator
@@ -77,7 +77,7 @@ const indexName = "cn-docs"
 // resilience, and its cluster health is exported as a health.Indicator the
 // actuator collects.
 type Service struct {
-	ES *StarterElasticsearch.ObservedElasticClient `autowire:"docs"`
+	ES *StarterElasticsearch.Client `autowire:"docs"`
 }
 
 var manual = flag.Bool("manual", false, "run in manual verification mode (server stays up)")

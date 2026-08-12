@@ -43,7 +43,7 @@ import (
 )
 
 type Service struct {
-	Redis *StarterGoRedis.ObservedRedisClient `autowire:"cache"`
+	Redis *StarterGoRedis.Client `autowire:"cache"`
 }
 
 var manual = flag.Bool("manual", false, "run in manual verification mode (server stays up)")

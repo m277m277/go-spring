@@ -40,8 +40,8 @@ import (
 // installs. Call them around Publish and inside the Subscribe callback.
 
 var (
-	pubObs = observe.NewProducer("mqtt", observe.LogConfig{Level: observe.DefaultBrief})
-	subObs = observe.NewConsumer("mqtt", observe.LogConfig{Level: observe.DefaultBrief})
+	pubObs = observe.NewProducer("mqtt", observe.ObserveConfig{Level: observe.DefaultBrief})
+	subObs = observe.NewConsumer("mqtt", observe.ObserveConfig{Level: observe.DefaultBrief})
 )
 
 // StartPublishSpan opens a producer observation for a publish to topic. Call

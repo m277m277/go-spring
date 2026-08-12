@@ -29,11 +29,9 @@
 package StarterLockK8s
 
 import (
-	"runtime"
-
+	"go-spring.org/cloud/experimental/lock"
 	"go-spring.org/log"
 	"go-spring.org/spring/conf"
-	"go-spring.org/cloud/experimental/lock"
 	"go-spring.org/spring/gs"
 	"go-spring.org/stdlib/flatten"
 )
@@ -46,26 +44,21 @@ func init() {
 	// Export the lock.Locker interface — consumers inject that interface and
 	// never see the concrete *k8sLocker type, which is what makes the
 	// blank-import backend swap possible.
-	_, file, line, _ := runtime.Caller(0)
 	gs.Module(gs.OnProperty("spring.lock"), func(r gs.BeanProvider, p flatten.Storage) error {
-		var m map[string]Config
-		if err := conf.Bind(p, &m, "${spring.lock}"); err != nil {
-			return err
-		}
-		for name, c := range m {
-			b := r.Provide(newK8sLocker, gs.ValueArg(c)).
+		return conf.BindEach(p, "${spring.lock}", func(name string, c Config) error {
+			r.Provide(newK8sLocker, gs.ValueArg(c)).
 				Name(name).
 				Export(gs.As[lock.Locker]()).
-				Destroy(destroyK8sLocker)
-			b.SetFileLine(file, line)
+				Destroy(destroyK8sLocker).
+				Caller(1)
 			if c.Observer.Tracing.Enabled {
-				w := r.Provide(wrapLockerBean, gs.ValueArg(c), gs.TagArg(name)).
+				r.Provide(wrapLockerBean, gs.ValueArg(c), gs.TagArg(name)).
 					Name(name + "-observed").
-					Export(gs.As[lock.Locker]())
-				w.SetFileLine(file, line)
+					Export(gs.As[lock.Locker]()).
+					Caller(1)
 			}
-		}
-		return nil
+			return nil
+		})
 	})
 }
 

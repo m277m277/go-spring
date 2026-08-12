@@ -40,19 +40,15 @@ func init() {
 	// We use gs.Module instead of gs.Group so that the pool's bean name is
 	// available to pass to observers.
 	gs.Module(gs.OnProperty("spring.ants"), func(r gs.BeanProvider, p flatten.Storage) error {
-		var m map[string]Config
-		if err := conf.Bind(p, &m, "${spring.ants}"); err != nil {
-			return err
-		}
-		for name, c := range m {
+		return conf.BindEach(p, "${spring.ants}", func(name string, c Config) error {
 			// createPool returns Pool (interface), but gs.Provide registers
 			// the concrete type. Export(gs.As[Pool]()) makes it available
 			// for autowire by the Pool interface.
 			r.Provide(func(ctx *gs.ContextProvider) (Pool, error) {
 				return createPool(ctx.Context, name, c)
 			}).Name(name).Destroy(destroyPool)
-		}
-		return nil
+			return nil
+		})
 	})
 
 	// Register the built-in metrics observer. It implements PoolObserver and

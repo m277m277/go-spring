@@ -22,7 +22,7 @@
 //
 //	import _ "go-spring.org/starter-validation"
 //
-// After that, validation.MustGetDriver("default") returns a [validation.Driver]
+// After that, validation.GetDriver("default") returns a [validation.Driver]
 // backed by go-playground/validator, so both binding paths (conf.Bind and Web
 // request handling) can validate structs tagged with `validate:"..."`. The
 // third-party validator is pulled in here — never in stdlib — so the foundation
@@ -41,7 +41,7 @@ import (
 	"github.com/go-playground/validator/v10"
 
 	"go-spring.org/log"
-	"go-spring.org/spring/experimental/web/validation"
+	"go-spring.org/spring/web/experimental/web/validation"
 )
 
 var (

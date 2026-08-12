@@ -19,23 +19,23 @@ package StarterGin
 import (
 	"time"
 
+	"go-spring.org/cloud/resilience"
+	"go-spring.org/cloud/tlsconf"
 	observe "go-spring.org/observe"
-	"go-spring.org/cloud/experimental/resilience"
-	"go-spring.org/cloud/experimental/tlsconf"
 )
 
 // Config defines Gin server configuration, bound from ${spring.gin.server}.
 // Address must be explicitly configured; the server won't start without it.
 type Config struct {
-	Address      string            `value:"${addr}"`
-	ReadTimeout  time.Duration     `value:"${readTimeout:=5s}"`
-	WriteTimeout time.Duration     `value:"${writeTimeout:=5s}"`
-	IdleTimeout  time.Duration     `value:"${idleTimeout:=60s}"`
-	TLS          tlsconf.TLSConfig `value:"${tls}"`
-	Health       HealthConfig      `value:"${health}"`
-	Middleware   MiddlewareConfig  `value:"${middleware}"`
-	Resilience   resilience.Config `value:"${resilience}"`
-	Observability observe.LogConfig `value:"${observability:=}"`
+	Address       string                `value:"${addr}"`
+	ReadTimeout   time.Duration         `value:"${readTimeout:=5s}"`
+	WriteTimeout  time.Duration         `value:"${writeTimeout:=5s}"`
+	IdleTimeout   time.Duration         `value:"${idleTimeout:=60s}"`
+	TLS           tlsconf.TLSConfig     `value:"${tls}"`
+	Health        HealthConfig          `value:"${health}"`
+	Middleware    MiddlewareConfig      `value:"${middleware}"`
+	Resilience    resilience.Config     `value:"${resilience}"`
+	Observability observe.ObserveConfig `value:"${observability:=}"`
 }
 
 // HealthConfig exposes an optional liveness/readiness endpoint served by the

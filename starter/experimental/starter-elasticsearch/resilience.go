@@ -22,18 +22,18 @@ import (
 	"sync"
 
 	"github.com/elastic/go-elasticsearch/v8"
+	"go-spring.org/cloud/discovery"
+	"go-spring.org/cloud/resilience"
 	observe "go-spring.org/observe"
 	"go-spring.org/observe/resilience"
-	"go-spring.org/cloud/discovery"
-	"go-spring.org/cloud/experimental/resilience"
 	"go-spring.org/spring/gs"
 )
 
-// ObservedElasticClient is the wrapper bean Elasticsearch clients are injected
+// Client is the wrapper bean Elasticsearch clients are injected
 // as. It embeds the concrete *elasticsearch.Client (so every generated method
 // promotes unchanged) and field-injects the resilience policy via gs.Dync so it
 // hot-reloads on config change. newClient returns one; gs field-injects
-// Resilience + Observability, then calls ApplyResilience (InitMethod) to build
+// Resilience + Observability, then calls Init (InitMethod) to build
 // the observe transport + executor and swap them into the client's dynamic
 // transport.
 //
@@ -41,41 +41,41 @@ import (
 // construction and cannot be swapped on the client afterwards. To preserve a
 // hot-reloadable resilience policy, DefaultDriver installs a thin
 // [dynamicTransport] (an atomic RoundTripper indirection) as the client's
-// transport. ApplyResilience then builds the observe+resilience transport from
+// transport. Init then builds the observe+resilience transport from
 // the injected policy and swaps it into the dynamic transport — so the
 // protection the client actually uses is dynamic even though the transport
 // instance is not.
-type ObservedElasticClient struct {
+type Client struct {
 	*elasticsearch.Client
 	// Resilience is field-injected (gs.Dync, hot-reloadable); Observability is
 	// the startup access-log config (not hot). These replace the old
 	// Config.Resilience/Observability fields so the wrapper bean owns its own
 	// protection + observability policy.
 	Resilience    gs.Dync[resilience.Config] `value:"${resilience:=}"`
-	Observability observe.LogConfig          `value:"${observability:=}"`
+	Observability observe.ObserveConfig      `value:"${observability:=}"`
 
 	// cfg is the connection config, retained for the resilience resource label.
 	cfg Config
-	// dyn is the dynamic transport DefaultDriver installed; ApplyResilience
+	// dyn is the dynamic transport DefaultDriver installed; Init
 	// swaps the observe+resilience transport into it. nil for custom drivers.
 	dyn *dynamicTransport
 	// resolver is the discovery watch behind a service-name client (nil when
 	// direct/mesh); Close stops it on shutdown.
 	resolver *discovery.Resolver
 	// exec is the resilience executor protecting requests, set by
-	// ApplyResilience when resilience is enabled. nil on an unarmed client.
+	// Init when resilience is enabled. nil on an unarmed client.
 	exec resilience.Executor
 	// resource is the resilience resource key ("elasticsearch:<...>") exec
 	// scopes limiter/breaker state by. Only meaningful when exec != nil.
 	resource string
 }
 
-// ApplyResilience is the gs InitMethod: gs field-injects Resilience + Observability
+// Init is the gs InitMethod: gs field-injects Resilience + Observability
 // after newClient returns, then calls this. It builds the observe transport
 // (needs Observability) and, when resilience is enabled, the executor (needs
 // the Resilience policy), wraps them, swaps the result into the client's
 // dynamic transport, and subscribes to policy changes for hot Refresh.
-func (o *ObservedElasticClient) ApplyResilience() error {
+func (o *Client) Init() error {
 	obs := observe.NewClient("elasticsearch", o.Observability, observe.WithoutTrace())
 	observeTransport := &obsTransport{base: http.DefaultTransport, obs: obs}
 	rc := o.Resilience.Value()
@@ -85,11 +85,7 @@ func (o *ObservedElasticClient) ApplyResilience() error {
 		}
 		return nil
 	}
-	drv, err := resilience.MustGetDriver(rc.Driver)
-	if err != nil {
-		return err
-	}
-	exec, err := drv.NewExecutor(rc.Policy())
+	exec, err := resilience.NewExecutor(rc.Driver, rc.Policy())
 	if err != nil {
 		return err
 	}
@@ -116,9 +112,9 @@ func (o *ObservedElasticClient) ApplyResilience() error {
 	return nil
 }
 
-// Close is the gs destroy method: it closes the resilience executor (if armed),
+// Destroy is the gs destroy method: it closes the resilience executor (if armed),
 // stops any discovery watch, and closes the underlying client.
-func (o *ObservedElasticClient) Close() error {
+func (o *Client) Destroy() error {
 	if o.exec != nil {
 		_ = o.exec.Close()
 	}
@@ -127,7 +123,7 @@ func (o *ObservedElasticClient) Close() error {
 }
 
 // dynamicTransports tracks the dynamic transport DefaultDriver installed for
-// each client, so newClient can hand it to the wrapper for ApplyResilience to
+// each client, so newClient can hand it to the wrapper for Init to
 // arm. The key is the *elasticsearch.Client value; only clients built by
 // DefaultDriver appear here.
 var dynamicTransports sync.Map // *elasticsearch.Client -> *dynamicTransport
@@ -135,9 +131,9 @@ var dynamicTransports sync.Map // *elasticsearch.Client -> *dynamicTransport
 // dynamicTransport is a thin http.RoundTripper indirection whose behavior can
 // be swapped after construction. elasticsearch fixes the transport at
 // construction time, so to keep resilience hot-reloadable the fixed transport
-// is this indirection and ApplyResilience swaps in the observe+resilience
+// is this indirection and Init swaps in the observe+resilience
 // transport (or the observe-only transport when resilience is disabled). Until
-// ApplyResilience runs it passes straight through to http.DefaultTransport.
+// Init runs it passes straight through to http.DefaultTransport.
 //
 // The slot is guarded by a RWMutex rather than an atomic.Value because the
 // active round-tripper can be any of several distinct concrete types

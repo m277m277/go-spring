@@ -32,7 +32,7 @@ import (
 	"syscall"
 	"time"
 
-	"go-spring.org/cloud/experimental/resilience"
+	"go-spring.org/cloud/resilience"
 	"go-spring.org/spring/gs"
 
 	StarterGoRedis "go-spring.org/starter-go-redis"
@@ -41,7 +41,7 @@ import (
 // Service autowires the named "cache" redis instance. Its ops are protected by
 // the resilience executor built from the ${resilience.*} config.
 type Service struct {
-	Redis *StarterGoRedis.ObservedRedisClient `autowire:"cache"`
+	Redis *StarterGoRedis.Client `autowire:"cache"`
 }
 
 var manual = flag.Bool("manual", false, "run in manual verification mode (server stays up)")

@@ -129,7 +129,7 @@ type DefaultDriver struct{}
 // client afterwards, and the resilience/observability policy is only injected
 // into the wrapper after CreateClient returns. So CreateClient installs a thin
 // [dynamicTransport] (an atomic RoundTripper indirection) whose behavior
-// ApplyResilience later swaps in — the observe+resilience transport built from
+// Init later swaps in — the observe+resilience transport built from
 // the injected policy. The dynamic transport is tracked in [dynamicTransports]
 // (keyed by the returned client) so newClient can hand it to the wrapper.
 func (DefaultDriver) CreateClient(ctx context.Context, c Config) (*elasticsearch.Client, error) {

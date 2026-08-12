@@ -29,8 +29,8 @@ import (
 	"net/http"
 	"time"
 
-	"go.opentelemetry.io/otel/sdk/resource"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/resource"
 )
 
 // MetricsConfig configures the shared MeterProvider under
@@ -38,13 +38,13 @@ import (
 // serves Path on Port; the otlp/stdout exporters are push-based on Interval.
 // Empty/zero values keep OTel SDK defaults.
 type MetricsConfig struct {
-	Enable   bool               `value:"${enable:=true}"`
-	Exporter string             `value:"${exporter:=otlp-grpc}"` // otlp-grpc|otlp-http|prometheus|stdout|none
-	Endpoint string             `value:"${endpoint:=}"`
-	Insecure bool               `value:"${insecure:=true}"`
-	Port     int                `value:"${port:=9090}"`
-	Path     string             `value:"${path:=/metrics}"`
-	Interval time.Duration      `value:"${interval:=10s}"` // push interval for otlp/stdout readers
+	Enable   bool                 `value:"${enable:=true}"`
+	Exporter string               `value:"${exporter:=otlp-grpc}"` // otlp-grpc|otlp-http|prometheus|stdout|none
+	Endpoint string               `value:"${endpoint:=}"`
+	Insecure bool                 `value:"${insecure:=true}"`
+	Port     int                  `value:"${port:=9090}"`
+	Path     string               `value:"${path:=/metrics}"`
+	Interval time.Duration        `value:"${interval:=10s}"` // push interval for otlp/stdout readers
 	Runtime  RuntimeMetricsConfig `value:"${runtime}"`
 }
 

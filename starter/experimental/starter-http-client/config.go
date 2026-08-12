@@ -21,10 +21,10 @@ import (
 	"net/http"
 	"time"
 
+	"go-spring.org/cloud/experimental/httpx"
+	"go-spring.org/cloud/resilience"
 	observe "go-spring.org/observe"
 	"go-spring.org/observe/resilience"
-	"go-spring.org/cloud/experimental/resilience"
-	"go-spring.org/cloud/experimental/httpx"
 )
 
 // Config binds one declarative-HTTP-client instance under
@@ -70,7 +70,7 @@ type Config struct {
 	// Observability configures the resilience access log (off/brief/detailed)
 	// emitted alongside the trace span + metrics that observe-resilience wraps
 	// the executor with.
-	Observability observe.LogConfig `value:"${observability:=}"`
+	Observability observe.ObserveConfig `value:"${observability:=}"`
 }
 
 // ResilienceConfig binds the backend-neutral resilience knobs exposed by

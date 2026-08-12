@@ -25,22 +25,33 @@ import (
 	"go-spring.org/spring/data/cache"
 )
 
-// NewByteCache wraps a *redis.Pool as a [cache.ByteCache] - the raw
-// bytes-native primitives the "redigo" driver layers a typed [cache.Cache]
-// façade over. The driver registered in the starter's root package selects the
-// pool bean by beanID; call this directly to build a ByteCache for ad-hoc use.
+type redigoCache struct{ pool *redis.Pool }
+
+// NewByteCache wraps a *redis.Pool as a [cache.ByteCache] — the byte-level
+// primitives over which the "redigo" cache driver (registered in the starter's
+// root package) layers a typed [cache.Cache] façade. The driver picks the pool
+// bean by beanID; call this directly only for ad-hoc use.
+//
+// It takes the native *redis.Pool on purpose, not the starter's wrapper type:
+// (a) bytecache is a child of the starter package, so referencing the wrapper
+// would form an import cycle; and (b) when the pool comes from a registered
+// starter instance, Init has wrapped its Dial so every command below flows
+// through obsConn — each GET/SET/DEL is traced, metered, access-logged and
+// resilience-guarded with no extra wiring here. Each method honors its ctx via
+// redis.DoContext, so a caller deadline can interrupt the op and (in the
+// starter path) the span links to the caller's trace. A pool passed in directly
+// (ad-hoc, not starter-registered) is not Dial-wrapped, so those ops run
+// uninstrumented (but ctx deadlines still apply).
 func NewByteCache(pool *redis.Pool) cache.ByteCache {
 	return &redigoCache{pool}
 }
 
-type redigoCache struct{ pool *redis.Pool }
-
 // GetBytes returns the raw bytes under key. A redis.ErrNil reply (key absent)
 // is reported as (nil, [cache.ErrMiss]) - a plain miss, not a backend error.
-func (c *redigoCache) GetBytes(_ context.Context, key string) ([]byte, error) {
+func (c *redigoCache) GetBytes(ctx context.Context, key string) ([]byte, error) {
 	conn := c.pool.Get()
 	defer conn.Close()
-	b, err := redis.Bytes(conn.Do("GET", key))
+	b, err := redis.Bytes(redis.DoContext(conn, ctx, "GET", key))
 	if errors.Is(err, redis.ErrNil) {
 		return nil, cache.ErrMiss
 	}
@@ -53,25 +64,22 @@ func (c *redigoCache) GetBytes(_ context.Context, key string) ([]byte, error) {
 // SetBytes stores the raw bytes under key for ttl. A non-positive ttl means no
 // expiry. ttl is applied in whole seconds; a positive sub-second ttl is
 // rounded up to 1s.
-func (c *redigoCache) SetBytes(_ context.Context, key string, val []byte, ttl time.Duration) error {
+func (c *redigoCache) SetBytes(ctx context.Context, key string, val []byte, ttl time.Duration) error {
 	conn := c.pool.Get()
 	defer conn.Close()
 	if ttl > 0 {
-		sec := int(ttl.Seconds())
-		if sec < 1 {
-			sec = 1
-		}
-		_, err := conn.Do("SET", key, val, "EX", sec)
+		sec := max(int(ttl.Seconds()), 1)
+		_, err := redis.DoContext(conn, ctx, "SET", key, val, "EX", sec)
 		return err
 	}
-	_, err := conn.Do("SET", key, val)
+	_, err := redis.DoContext(conn, ctx, "SET", key, val)
 	return err
 }
 
 // Delete removes key. Deleting an absent key is not an error.
-func (c *redigoCache) Delete(_ context.Context, key string) error {
+func (c *redigoCache) Delete(ctx context.Context, key string) error {
 	conn := c.pool.Get()
 	defer conn.Close()
-	_, err := conn.Do("DEL", key)
+	_, err := redis.DoContext(conn, ctx, "DEL", key)
 	return err
 }

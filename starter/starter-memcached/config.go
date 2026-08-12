@@ -72,8 +72,8 @@ type Config struct {
 }
 
 // Resilience and Observability are no longer fields of Config: they moved onto
-// the ObservedClient wrapper bean, field-injected by gs (Resilience via
-// gs.Dync, hot-reloadable) and consumed by the ApplyResilience InitMethod.
+// the Client wrapper bean, field-injected by gs (Resilience via
+// gs.Dync, hot-reloadable) and consumed by Init (the gs InitMethod).
 
 // Driver interface defines how to create a Memcached client.
 type Driver interface {

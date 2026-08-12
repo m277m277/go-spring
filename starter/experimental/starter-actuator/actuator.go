@@ -66,9 +66,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"go-spring.org/log"
-	"go-spring.org/cloud/actuator/health"
 	"go-spring.org/cloud/actuator/endpoint"
+	"go-spring.org/cloud/actuator/health"
+	"go-spring.org/log"
 	"go-spring.org/spring/gs"
 	"go-spring.org/stdlib/errutil"
 )

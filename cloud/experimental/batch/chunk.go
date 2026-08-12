@@ -19,7 +19,7 @@ package batch
 import (
 	"context"
 
-	"go-spring.org/cloud/experimental/resilience"
+	"go-spring.org/cloud/resilience"
 )
 
 // DefaultChunkSize is used when [ChunkStep.ChunkSize] is not set.
@@ -77,11 +77,7 @@ func (s *ChunkStep[I, O]) executor() (resilience.Executor, error) {
 	if s.Retry.IsZero() {
 		return nil, nil
 	}
-	d, err := resilience.MustGetDriver("default")
-	if err != nil {
-		return nil, err
-	}
-	return d.NewExecutor(s.Retry)
+	return resilience.NewExecutor("default", s.Retry)
 }
 
 // Run implements [Step]. It resumes from rc.StepExecution, drives the chunk

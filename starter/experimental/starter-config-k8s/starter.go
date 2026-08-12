@@ -35,7 +35,7 @@ func init() {
 	gs.Provide(k8sController).
 		Name("k8sController").
 		Export(gs.As[gs.Rooter]()).
-		Destroy((*k8sCtrl).stop)
+		Destroy((*k8sCtrl).Destroy)
 }
 
 // k8sController is the global singleton. It is ONLY referenced in init
@@ -68,9 +68,9 @@ func (c *k8sCtrl) TriggerRefresh() {
 	}
 }
 
-// stop tears down every informer. It is the bean destructor, invoked once by
+// Destroy tears down every informer. It is the bean destructor, invoked once by
 // the container on shutdown.
-func (c *k8sCtrl) stop() {
+func (c *k8sCtrl) Destroy() {
 	if c.manager != nil {
 		c.manager.stopAll()
 	}

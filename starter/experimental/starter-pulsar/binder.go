@@ -21,8 +21,8 @@ import (
 	"sync"
 
 	"github.com/apache/pulsar-client-go/pulsar"
-	"go-spring.org/log"
 	"go-spring.org/cloud/experimental/messaging"
+	"go-spring.org/log"
 )
 
 // NewBinder adapts a Pulsar client to the broker-neutral messaging.Binder, so

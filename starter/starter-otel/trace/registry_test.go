@@ -20,8 +20,8 @@ import (
 	"context"
 	"testing"
 
-	"go.opentelemetry.io/otel/sdk/resource"
 	"go-spring.org/stdlib/testing/assert"
+	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
@@ -29,7 +29,7 @@ import (
 type noopExporter struct{}
 
 func (noopExporter) ExportSpans(_ context.Context, _ []sdktrace.ReadOnlySpan) error { return nil }
-func (noopExporter) Shutdown(_ context.Context) error                                { return nil }
+func (noopExporter) Shutdown(_ context.Context) error                               { return nil }
 
 // TestRegisterSpanExporter proves a custom span exporter registered under a new
 // name is resolved by NewTracerProvider, and that an unknown name yields an

@@ -17,20 +17,10 @@
 package StarterRedigo
 
 import (
-	"context"
-	"net"
 	"time"
 
-	"github.com/gomodule/redigo/redis"
-	"go-spring.org/cloud/experimental/tlsconf"
-	"go-spring.org/stdlib/errutil"
+	"go-spring.org/cloud/tlsconf"
 )
-
-var driverRegistry = map[string]Driver{}
-
-func init() {
-	RegisterDriver("DefaultDriver", DefaultDriver{})
-}
 
 // Config defines Redis connection configuration.
 type Config struct {
@@ -91,107 +81,16 @@ type Config struct {
 
 	// Driver specifies which Redis driver to use, defaults to DefaultDriver.
 	Driver string `value:"${driver:=DefaultDriver}"`
+
+	// StartupPing, when true, dials one connection at boot and PINGs it so a
+	// misconfigured address or unreachable server surfaces during startup
+	// rather than on the first request. Defaults to false: the redigo pool
+	// dials lazily, so without this flag a bad address is only discovered once
+	// a command actually runs. (starter-go-redis performs this probe
+	// unconditionally; here it is opt-in.)
+	StartupPing bool `value:"${startup-ping:=false}"`
 }
 
 // Resilience and Observability are no longer fields of Config: they moved onto
-// the ObservedRedisPool wrapper bean, field-injected by gs (Resilience via
-// gs.Dync, hot-reloadable) and consumed by the ApplyResilience InitMethod.
-
-// Driver interface defines how to create a Redis client.
-type Driver interface {
-	CreateClient(ctx context.Context, c Config) (*redis.Pool, error)
-}
-
-// RegisterDriver registers a Redis driver with the given name.
-// It panics if the driver name has already been registered.
-func RegisterDriver(name string, driver Driver) {
-	if _, ok := driverRegistry[name]; ok {
-		panic("redis driver already registered: " + name)
-	}
-	driverRegistry[name] = driver
-}
-
-// DefaultDriver is the default implementation of the Driver interface.
-type DefaultDriver struct{}
-
-// CreateClient creates a new Redis client based on the provided configuration.
-//
-// When c.ServiceName is set (and mesh mode is not enabled), the address is
-// resolved through the registered discovery backend (c.Discovery) instead of
-// c.Addr: a discovery.Resolver keeps the endpoint set fresh via a background
-// watch and the pool dials a live instance (Pick) for each new connection.
-// Combined with c.ConnMaxLifetime, pooled connections recycle onto updated
-// addresses without rebuilding the pool. When c.ServiceName is empty this is a
-// plain Addr dial, unchanged from before.
-//
-// In mesh mode (mesh.Enabled) discovery is skipped entirely: a sidecar owns
-// discovery+LB, so the pool connects straight to the configured static Addr
-// (the service's stable DNS address).
-func (DefaultDriver) CreateClient(ctx context.Context, c Config) (*redis.Pool, error) {
-	tlsConfig, err := c.TLS.Build()
-	if err != nil {
-		return nil, errutil.Explain(err, "redis: build TLS")
-	}
-
-	resolver, err := newLiveResolver(ctx, c)
-	if err != nil {
-		return nil, err
-	}
-
-	pool := &redis.Pool{
-		MaxActive:       c.PoolSize,
-		MaxIdle:         c.MaxIdle,
-		MaxConnLifetime: c.ConnMaxLifetime,
-		Wait:            true,
-		Dial: func() (redis.Conn, error) {
-			opts := []redis.DialOption{
-				redis.DialPassword(c.Password),
-				redis.DialConnectTimeout(c.DialTimeout),
-				redis.DialReadTimeout(c.ReadTimeout),
-				redis.DialWriteTimeout(c.WriteTimeout),
-			}
-			if c.Username != "" {
-				opts = append(opts, redis.DialUsername(c.Username))
-			}
-			if tlsConfig != nil {
-				opts = append(opts,
-					redis.DialUseTLS(true),
-					redis.DialTLSConfig(tlsConfig),
-					redis.DialTLSSkipVerify(c.TLS.InsecureSkipVerify),
-				)
-			}
-			// addr is the static target; with service discovery the resolver
-			// overrides it by picking a live endpoint.
-			addr := c.Addr
-			if resolver != nil {
-				nd := &net.Dialer{Timeout: c.DialTimeout}
-				opts = append(opts, redis.DialContextFunc(func(ctx context.Context, network, _ string) (net.Conn, error) {
-					ep, err := resolver.Pick()
-					if err != nil {
-						return nil, err
-					}
-					return nd.DialContext(ctx, network, ep.Addr)
-				}))
-				// Addr becomes a label for the pool; the dialer picks a live
-				// endpoint.
-				addr = c.ServiceName
-			}
-			conn, err := redis.Dial("tcp", addr, opts...)
-			if err != nil {
-				return nil, err
-			}
-			if c.DB != 0 {
-				_, err = conn.Do("SELECT", c.DB)
-				if err != nil {
-					conn.Close()
-					return nil, err
-				}
-			}
-			return conn, nil
-		},
-	}
-	if resolver != nil {
-		liveDialers.Store(pool, resolver)
-	}
-	return pool, nil
-}
+// the Pool wrapper bean, field-injected by gs (Resilience via
+// gs.Dync, hot-reloadable) and consumed by Init (the gs InitMethod).

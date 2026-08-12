@@ -17,15 +17,13 @@
 package StarterBigCache
 
 import (
-	"runtime"
-
-	"go-spring.org/log"
 	"go-spring.org/cloud/actuator/health"
+	"go-spring.org/log"
 	"go-spring.org/spring/conf"
 	"go-spring.org/spring/data/cache"
 	"go-spring.org/spring/gs"
-	health2 "go-spring.org/starter-bigcache/health"
 	"go-spring.org/starter-bigcache/bytecache"
+	health2 "go-spring.org/starter-bigcache/health"
 	"go-spring.org/stdlib/errutil"
 	"go-spring.org/stdlib/flatten"
 )
@@ -40,27 +38,20 @@ func init() {
 	//
 	// BigCache spawns a background eviction goroutine, so Close must be called
 	// on shutdown to release it - the destroy callback handles that.
-	_, file, line, _ := runtime.Caller(0)
 	gs.Module(gs.OnProperty("spring.bigcache"), func(r gs.BeanProvider, p flatten.Storage) error {
-		var m map[string]Config
-		if err := conf.Bind(p, &m, "${spring.bigcache}"); err != nil {
-			return err
-		}
-		for name, c := range m {
+		return conf.BindEach(p, "${spring.bigcache}", func(name string, c Config) error {
 			// IndexArg places name (index 1) and c (index 2) explicitly, leaving
 			// index 0 (*gs.ContextProvider) to be autowired - the documented
 			// pattern for a ctor whose first param is ContextProvider.
-			b := r.Provide(newClient,
+			r.Provide(newClient,
 				gs.IndexArg(1, gs.ValueArg(name)),
 				gs.IndexArg(2, gs.ValueArg(c)),
-			).Name(name).InitMethod("ApplyResilience").Destroy((*ObservedBigCache).Close)
-			b.SetFileLine(file, line)
+			).Name(name).Init((*Cache).Init).Destroy((*Cache).Destroy).Caller(1)
 			// Contribute a health indicator for this instance, injecting the
 			// client just registered above by name.
-			h := r.Provide(func(c *ObservedBigCache) health.Indicator { return health2.NewBigCacheHealth(name, c.BigCache) }, gs.TagArg(name)).Name(name).Export(gs.As[health.Indicator]())
-			h.SetFileLine(file, line)
-		}
-		return nil
+			r.Provide(func(c *Cache) health.Indicator { return health2.NewBigCacheHealth(name, c.BigCache) }, gs.TagArg(name)).Name("bigcache:" + name).Export(gs.As[health.Indicator]()).Caller(1)
+			return nil
+		})
 	})
 
 	// init registers the "bigcache" cache driver so a *bigcache.BigCache registered
@@ -72,7 +63,7 @@ func init() {
 	// starter-bigcache/bytecache.
 	cache.RegisterDriver("bigcache", func(beanID string) gs.ModuleFunc {
 		return func(r gs.BeanProvider, p flatten.Storage) error {
-			r.Provide(func(c *ObservedBigCache) *cache.Cache {
+			r.Provide(func(c *Cache) *cache.Cache {
 				return &cache.Cache{ByteCache: bytecache.NewByteCache(c.BigCache)}
 			}, gs.TagArg(beanID)).Name(beanID)
 			return nil
@@ -83,7 +74,7 @@ func init() {
 // newClient creates a new BigCache instance based on the provided configuration,
 // wrapped so Get/Set/Delete flow through the observe kit, and registers OTel
 // gauges for its statistics, labeled by the instance name.
-func newClient(ctx *gs.ContextProvider, name string, c Config) (*ObservedBigCache, error) {
+func newClient(ctx *gs.ContextProvider, name string, c Config) (*Cache, error) {
 	log.Debugf(ctx.Context, starterTag, "creating bigcache instance, name=%s shards=%d max-size=%d", name, c.Shards, c.MaxEntrySize)
 
 	d, ok := driverRegistry[c.Driver]
@@ -101,7 +92,7 @@ func newClient(ctx *gs.ContextProvider, name string, c Config) (*ObservedBigCach
 	registerMetrics(name, client)
 	log.Infof(ctx.Context, starterTag, "bigcache instance initialized, name=%s shards=%d", name, c.Shards)
 	// Return the wrapper; gs field-injects Resilience (gs.Dync, hot-reloadable)
-	// + Observability after this returns, then calls ApplyResilience (InitMethod)
+	// + Observability after this returns, then calls Init (InitMethod)
 	// to build the observer + executor.
-	return &ObservedBigCache{BigCache: client, name: name}, nil
+	return &Cache{BigCache: client, name: name}, nil
 }

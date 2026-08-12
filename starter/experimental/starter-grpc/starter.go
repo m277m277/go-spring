@@ -21,10 +21,10 @@ import (
 	"net"
 	"time"
 
+	"go-spring.org/cloud/resilience"
+	"go-spring.org/cloud/tlsconf"
 	"go-spring.org/log"
 	observe "go-spring.org/observe"
-	"go-spring.org/cloud/experimental/resilience"
-	"go-spring.org/cloud/experimental/tlsconf"
 	"go-spring.org/spring/gs"
 	"go-spring.org/stdlib/errutil"
 	"google.golang.org/grpc"
@@ -65,17 +65,17 @@ type HealthConfig struct {
 
 // Config defines gRPC server configuration.
 type Config struct {
-	Addr                 string            `value:"${addr}"`
-	ConnectionTimeout    time.Duration     `value:"${connectionTimeout:=0}"`
-	MaxRecvMsgSize       int               `value:"${maxRecvMsgSize:=0}"`
-	MaxSendMsgSize       int               `value:"${maxSendMsgSize:=0}"`
-	MaxConcurrentStreams uint32            `value:"${maxConcurrentStreams:=0}"`
-	Keepalive            KeepaliveConfig   `value:"${keepalive}"`
-	TLS                  tlsconf.TLSConfig `value:"${tls}"`
-	Health               HealthConfig      `value:"${health}"`
-	Observer             ObserverConfig    `value:"${observer}"`
-	Resilience           resilience.Config `value:"${resilience}"`
-	Observability        observe.LogConfig `value:"${observability:=}"`
+	Addr                 string                `value:"${addr}"`
+	ConnectionTimeout    time.Duration         `value:"${connectionTimeout:=0}"`
+	MaxRecvMsgSize       int                   `value:"${maxRecvMsgSize:=0}"`
+	MaxSendMsgSize       int                   `value:"${maxSendMsgSize:=0}"`
+	MaxConcurrentStreams uint32                `value:"${maxConcurrentStreams:=0}"`
+	Keepalive            KeepaliveConfig       `value:"${keepalive}"`
+	TLS                  tlsconf.TLSConfig     `value:"${tls}"`
+	Health               HealthConfig          `value:"${health}"`
+	Observer             ObserverConfig        `value:"${observer}"`
+	Resilience           resilience.Config     `value:"${resilience}"`
+	Observability        observe.ObserveConfig `value:"${observability:=}"`
 }
 
 // ObserverConfig groups the built-in observability interceptors the starter can

@@ -53,11 +53,11 @@ import (
 	"github.com/gin-gonic/gin"
 	"go-spring.org/cloud/actuator/health"
 	"go-spring.org/cloud/discovery"
-	"go-spring.org/cloud/experimental/resilience"
+	"go-spring.org/cloud/resilience"
 	"go-spring.org/spring/gs"
 
-	_ "go-spring.org/starter-actuator"      // registers the actuator Server bean (gated on spring.actuator.addr)
-	_ "go-spring.org/starter-config-file"   // registers the file-watch config provider
+	_ "go-spring.org/starter-actuator"    // registers the actuator Server bean (gated on spring.actuator.addr)
+	_ "go-spring.org/starter-config-file" // registers the file-watch config provider
 	StarterGin "go-spring.org/starter-gin"
 )
 
@@ -151,8 +151,8 @@ func main() {
 	}
 
 	// Build the resilience executor from the builtin "default" driver (registered
-	// by cloud/experimental/resilience on import — no external dependency).
-	driver, err := resilience.MustGetDriver("default")
+	// by cloud/resilience on import — no external dependency).
+	driver, err := resilience.GetDriver("default")
 	if err != nil {
 		fail("resilience driver: %v", err)
 	}
@@ -177,13 +177,13 @@ func main() {
 			// A rate-limited route: admission is enforced by the resilience
 			// server-side seam, so excess requests are shed with HTTP 429 before
 			// the business handler runs.
-			limited := resilience.NewHandler(
-				http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			limited := &admissionHandler{
+				next: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 					_, _ = w.Write([]byte("ok"))
 				}),
-				exec,
-				func(*http.Request) string { return "app:limited" },
-			)
+				exec:     exec,
+				resource: func(*http.Request) string { return "app:limited" },
+			}
 			e.GET("/limited", gin.WrapH(limited))
 		}
 	})
@@ -206,7 +206,7 @@ func main() {
 // ----------------------------------------------------------------------------
 
 const (
-	appBase     = "http://127.0.0.1:8081" // starter-gin business port
+	appBase      = "http://127.0.0.1:8081" // starter-gin business port
 	actuatorBase = "http://127.0.0.1:9370" // starter-actuator management port
 )
 
@@ -429,4 +429,38 @@ func init() {
 		panic(err)
 	}
 	fmt.Println(workDir)
+}
+
+// admissionHandler is the application's own server-side admission wrapper: each
+// request flows through a resilience.Executor so rate limiting / bulkhead /
+// breaker shed overload with HTTP 429/503 before the business handler runs.
+// Inbound serving is not retried (the Executor's policy carries MaxRetries=0),
+// since handlers are not idempotent. Server-side resilience is the application's
+// job — the resilience library is client-side — so this seam lives here, not in
+// the library. It is a minimal, static-policy shedder; for adaptive load shedding
+// (AIMD, feedback-based) wire a dedicated limiter here instead.
+type admissionHandler struct {
+	next     http.Handler
+	exec     resilience.Executor
+	resource func(*http.Request) string
+}
+
+func (h *admissionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	served := false
+	err := h.exec.Execute(r.Context(), h.resource(r), func(ctx context.Context) error {
+		if served {
+			return nil
+		}
+		served = true
+		h.next.ServeHTTP(w, r.WithContext(ctx))
+		return nil
+	})
+	if err != nil && !served {
+		switch {
+		case errors.Is(err, resilience.ErrCircuitOpen):
+			http.Error(w, "service unavailable", http.StatusServiceUnavailable)
+		default: // ErrRateLimited, ErrBulkheadFull
+			http.Error(w, "too many requests", http.StatusTooManyRequests)
+		}
+	}
 }

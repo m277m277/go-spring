@@ -36,8 +36,8 @@ import (
 	"syscall"
 	"time"
 
-	"go-spring.org/log"
 	"go-spring.org/cloud/experimental/lock"
+	"go-spring.org/log"
 	"go-spring.org/spring/gs"
 
 	_ "go-spring.org/starter-lock-etcd"

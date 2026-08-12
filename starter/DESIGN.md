@@ -250,14 +250,16 @@ application can load configuration from it at startup and hot-reload at runtime.
   starter.** When a sidecar (Istio/Envoy, Linkerd) is injected it already does
   discovery and load balancing, so running the app's own on top double-balances
   and confuses locality/outlier logic. A single process-global switch
-  (`spring.mesh.enabled`, wired by `starter-mesh`) is read once at the discovery
-  and load-balancing factory points — each client starter's `newLiveResolver`
-  (§2.2) and `loadbalance.Pool` — and degrades both to a pass-through: names
-  resolve to one stable Service address (ClusterIP) the sidecar intercepts, and
-  the balancer stops selecting and ejecting. Because `newLiveResolver` reads
-  `mesh.Enabled()` internally and returns `nil` when mesh is on, a client starter
-  honors the switch without per-starter branching at the call site — the driver
-  just skips installing its discovery-backed dialer and dials the configured
+  (`mesh.Enabled`, auto-detected from sidecar env vars by default; the `GS_MESH`
+  env var — on/off/auto — overrides) is read at the discovery and load-balancing
+  factory points — each client starter's `newLiveResolver` (§2.2) and
+  `loadbalance.Pool` — and degrades both to a
+  pass-through: names resolve to one stable Service address (ClusterIP) the
+  sidecar intercepts, and the balancer stops selecting and ejecting. Because
+  `newLiveResolver` reads `mesh.Enabled()` internally and returns `nil` when
+  mesh is on, a client starter honors the switch without per-starter branching
+  at the call site — the driver just skips installing its discovery-backed
+  dialer and dials the configured
   address directly. The code is not removed — flipping the switch off restores
   full client-side behavior.
 - **Instance-level registration is per-starter; RPC-framework provider

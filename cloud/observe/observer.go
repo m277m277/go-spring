@@ -49,7 +49,7 @@ var durationBuckets = []float64{0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5,
 // TracerProvider and MeterProvider are no-ops, so trace+metric add negligible
 // overhead and the span's SpanContext stays invalid (no trace_id on the access
 // log). The access log itself always emits through the project log package,
-// gated by LogConfig.Level.
+// gated by ObserveConfig.Level.
 type Observer struct {
 	system string // db.system / messaging.system attribute value, e.g. "redis"
 	domain string // metric-name prefix: "db.client" or "messaging.client"
@@ -62,7 +62,7 @@ type Observer struct {
 	duration metric.Float64Histogram
 	active   metric.Int64UpDownCounter
 	logTag   *log.Tag
-	cfg      LogConfig
+	cfg      ObserveConfig
 	skipOps  map[string]struct{}
 }
 
@@ -88,24 +88,24 @@ func WithoutTrace() Option {
 // NewClient builds an Observer for a database/cache client (span kind = client,
 // metrics under db.client.operation.duration). system labels the spans/metrics
 // (e.g. "redis", "mysql", "mongo"). cfg controls the access log.
-func NewClient(system string, cfg LogConfig, opts ...Option) *Observer {
+func NewClient(system string, cfg ObserveConfig, opts ...Option) *Observer {
 	return newObserver(system, "db.client", trace.SpanKindClient, cfg, opts...)
 }
 
 // NewProducer builds an Observer for a messaging publisher (span kind = producer,
 // metrics under messaging.client.operation.duration). system is e.g. "nats",
 // "kafka". See NewClient for cfg.
-func NewProducer(system string, cfg LogConfig, opts ...Option) *Observer {
+func NewProducer(system string, cfg ObserveConfig, opts ...Option) *Observer {
 	return newObserver(system, "messaging.client", trace.SpanKindProducer, cfg, opts...)
 }
 
 // NewConsumer builds an Observer for a messaging consumer (span kind = consumer).
 // See NewProducer.
-func NewConsumer(system string, cfg LogConfig, opts ...Option) *Observer {
+func NewConsumer(system string, cfg ObserveConfig, opts ...Option) *Observer {
 	return newObserver(system, "messaging.client", trace.SpanKindConsumer, cfg, opts...)
 }
 
-func newObserver(system, domain string, kind trace.SpanKind, cfg LogConfig, opts ...Option) *Observer {
+func newObserver(system, domain string, kind trace.SpanKind, cfg ObserveConfig, opts ...Option) *Observer {
 	o := &Observer{
 		system: system,
 		domain: domain,
@@ -151,9 +151,9 @@ func newObserver(system, domain string, kind trace.SpanKind, cfg LogConfig, opts
 // op is the operation name (e.g. "GET", "query", "publish"); it becomes the span
 // name and the db.operation / messaging.operation attribute. arg is the optional
 // operation argument (command key, sql statement, cache key, topic) captured in
-// detailed log mode and as a span attribute, bounded by LogConfig.MaxArgBytes.
+// detailed log mode and as a span attribute, bounded by ObserveConfig.MaxArgBytes.
 //
-// If op is listed in LogConfig.SkipOps, Start returns a skipped Span whose End is
+// If op is listed in ObserveConfig.SkipOps, Start returns a skipped Span whose End is
 // a no-op — so a noisy operation (a chatty PING, a health probe) emits no span,
 // metric, or log.
 //
@@ -187,14 +187,14 @@ func (o *Observer) Start(ctx context.Context, op, arg string, attrs ...attribute
 // Span is the handle returned by Observer.Start. End records the operation's
 // outcome; it must be called exactly once.
 type Span struct {
-	o       *Observer
-	ctx     context.Context
-	span    trace.Span
-	op      string
-	arg     string
-	start   time.Time
+	o        *Observer
+	ctx      context.Context
+	span     trace.Span
+	op       string
+	arg      string
+	start    time.Time
 	inflight metric.MeasurementOption
-	skipped bool
+	skipped  bool
 }
 
 // SetArg sets or replaces the operation argument captured for the access log
@@ -214,7 +214,7 @@ func (s *Span) SetArg(arg string) {
 
 // End records the operation: the duration histogram, balances the in-flight
 // gauge, ends the span (recording err if non-nil), and emits the access log per
-// LogConfig.Level. Pass the operation's error, or nil on success.
+// ObserveConfig.Level. Pass the operation's error, or nil on success.
 func (s *Span) End(err error, attrs ...attribute.KeyValue) {
 	if s.skipped {
 		return

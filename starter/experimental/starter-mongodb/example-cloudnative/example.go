@@ -46,7 +46,7 @@ import (
 	"time"
 
 	"go-spring.org/cloud/discovery"
-	"go-spring.org/cloud/experimental/resilience"
+	"go-spring.org/cloud/resilience"
 	"go-spring.org/spring/gs"
 	"go.mongodb.org/mongo-driver/v2/bson"
 
@@ -76,8 +76,8 @@ func init() {
 // discovery (service-name), proving resolve -> dial -> serve. The pool health of
 // both is exported as health.Indicators the actuator collects.
 type Service struct {
-	Mongo *StarterMongoDB.ObservedMongoClient `autowire:"a"`
-	Disc  *StarterMongoDB.ObservedMongoClient `autowire:"disc"`
+	Mongo *StarterMongoDB.Client `autowire:"a"`
+	Disc  *StarterMongoDB.Client `autowire:"disc"`
 }
 
 var manual = flag.Bool("manual", false, "run in manual verification mode (server stays up)")

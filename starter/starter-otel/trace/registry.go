@@ -25,8 +25,8 @@
 package trace
 
 import (
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go-spring.org/starter-otel/internal/registry"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
 // SpanExporterFactory builds a span exporter for one backend from the trace

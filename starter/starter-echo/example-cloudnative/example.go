@@ -51,7 +51,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"go-spring.org/cloud/actuator/health"
 	"go-spring.org/cloud/discovery"
-	"go-spring.org/cloud/experimental/resilience"
+	"go-spring.org/cloud/resilience"
 	"go-spring.org/spring/gs"
 
 	_ "go-spring.org/starter-actuator"    // registers the actuator Server bean
@@ -111,7 +111,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	driver, err := resilience.MustGetDriver("default")
+	driver, err := resilience.GetDriver("default")
 	if err != nil {
 		fail("resilience driver: %v", err)
 	}

@@ -38,11 +38,9 @@
 package StarterLockRedis
 
 import (
-	"runtime"
-
+	"go-spring.org/cloud/experimental/lock"
 	"go-spring.org/log"
 	"go-spring.org/spring/conf"
-	"go-spring.org/cloud/experimental/lock"
 	"go-spring.org/spring/gs"
 	"go-spring.org/stdlib/errutil"
 	"go-spring.org/stdlib/flatten"
@@ -51,13 +49,8 @@ import (
 var starterTag = log.RegisterInfraTag("lock_redis", "")
 
 func init() {
-	_, file, line, _ := runtime.Caller(0)
 	gs.Module(gs.OnProperty("spring.lock"), func(r gs.BeanProvider, p flatten.Storage) error {
-		var m map[string]Config
-		if err := conf.Bind(p, &m, "${spring.lock}"); err != nil {
-			return err
-		}
-		for name, c := range m {
+		return conf.BindEach(p, "${spring.lock}", func(name string, c Config) error {
 			// Fail fast: silently defaulting to some arbitrary *redis.Client
 			// would hide a misconfiguration that only surfaces on first
 			// Acquire, potentially in production. Refusing to boot is safer.
@@ -67,24 +60,24 @@ func init() {
 			}
 			// TagArg injects the *redis.Client bean by name — this is the
 			// seam that ties the Locker to a specific redis instance.
-			b := r.Provide(newRedisLocker, gs.ValueArg(c), gs.TagArg(c.Client)).
+			r.Provide(newRedisLocker, gs.ValueArg(c), gs.TagArg(c.Client)).
 				Name(name).
 				Export(gs.As[lock.Locker]()).
-				Destroy(destroyLocker)
-			b.SetFileLine(file, line)
+				Destroy(destroyLocker).
+				Caller(1)
 
 			if c.Observer.Tracing.Enabled {
 				// Wrap the LOCKER bean (named `name`), not the redis client —
 				// wrapLockerBean's inner param is lock.Locker. Binding by c.Client
 				// (the *redis.Client bean name) was a copy-paste from newRedisLocker
 				// above and would fail wiring when tracing is enabled.
-				w := r.Provide(wrapLockerBean, gs.ValueArg(c), gs.TagArg(name)).
+				r.Provide(wrapLockerBean, gs.ValueArg(c), gs.TagArg(name)).
 					Name(name + "-observed").
-					Export(gs.As[lock.Locker]())
-				w.SetFileLine(file, line)
+					Export(gs.As[lock.Locker]()).
+					Caller(1)
 			}
-		}
-		return nil
+			return nil
+		})
 	})
 }
 

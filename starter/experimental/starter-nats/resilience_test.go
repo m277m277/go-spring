@@ -21,7 +21,7 @@ import (
 	"errors"
 	"testing"
 
-	"go-spring.org/cloud/experimental/resilience"
+	"go-spring.org/cloud/resilience"
 	"go-spring.org/stdlib/testing/assert"
 )
 
@@ -30,7 +30,7 @@ import (
 // tests never invoke methods that touch the embedded conn — they drive guard
 // directly with a stubbed call — so no live nats server is needed.
 func newConnWithPolicy(t *testing.T, p resilience.Policy) *Conn {
-	d, err := resilience.MustGetDriver("default")
+	d, err := resilience.GetDriver("default")
 	assert.Error(t, err).Nil()
 	exec, err := d.NewExecutor(p)
 	assert.Error(t, err).Nil()

@@ -46,8 +46,8 @@ func (AnotherNeo4jDriver) CreateClient(ctx context.Context, c StarterNeo4j.Confi
 }
 
 type Service struct {
-	Neo4j     *StarterNeo4j.ObservedNeo4jDriver `autowire:"graph"`
-	DiscNeo4j *StarterNeo4j.ObservedNeo4jDriver `autowire:"disc"`
+	Neo4j     *StarterNeo4j.Client `autowire:"graph"`
+	DiscNeo4j *StarterNeo4j.Client `autowire:"disc"`
 }
 
 // query runs a Cypher statement and returns the eager result.

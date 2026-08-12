@@ -19,8 +19,8 @@ package health2
 import (
 	"context"
 
-	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go-spring.org/cloud/actuator/health"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
 // NewClientHealth builds an indicator for a MongoDB client. It is registered

@@ -29,7 +29,7 @@ func init() {
 	// The compiled, hot-reloadable route table. Its ${spring.gateway} config
 	// and optional FilterWrapper beans (jwt-auth, lua) are populated by field
 	// injection; route compilation is deferred to server startup (warmup).
-	gs.Provide(newRouteTable).Destroy((*RouteTable).Close)
+	gs.Provide(newRouteTable).Destroy((*RouteTable).Destroy)
 
 	// The listen-port server, wired into graceful drain as a gs.Server. Named
 	// so it coexists with the application's main HTTP server (which also

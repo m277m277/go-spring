@@ -18,7 +18,6 @@ package StarterDubbo
 
 import (
 	"context"
-	"runtime"
 	"time"
 
 	"dubbo.apache.org/dubbo-go/v3/config"
@@ -349,12 +348,9 @@ func (s *SimpleDubboServer) regAll(svr *server.Server) error {
 // RegisterService registers a Dubbo service as a ServiceRegister bean.
 // name is the key under ${spring.dubbo.provider.services} to bind.
 func RegisterService[T any](name string, register func(*server.Server, T, ...server.ServiceOption) error, hdlr T) {
-	b := gs.Provide(func(svc DubboService) ServiceRegister {
+	gs.Provide(func(svc DubboService) ServiceRegister {
 		return func(svr *server.Server) error {
 			return register(svr, hdlr, svc.options()...)
 		}
-	}, gs.IndexArg(0, gs.TagArg("${spring.dubbo.provider.services."+name+"}")))
-	if _, file, line, ok := runtime.Caller(1); ok {
-		b.SetFileLine(file, line)
-	}
+	}, gs.IndexArg(0, gs.TagArg("${spring.dubbo.provider.services."+name+"}"))).Caller(2)
 }

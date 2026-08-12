@@ -20,9 +20,9 @@ import (
 	"context"
 	"testing"
 
-	"go.opentelemetry.io/otel/sdk/resource"
 	"go-spring.org/stdlib/testing/assert"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/resource"
 )
 
 // TestRegisterMeterExporter proves a custom metric exporter registered under a

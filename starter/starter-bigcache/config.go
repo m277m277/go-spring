@@ -59,7 +59,6 @@ type Config struct {
 
 	// Driver specifies which BigCache driver to use, defaults to DefaultDriver.
 	Driver string `value:"${driver:=DefaultDriver}"`
-
 }
 
 // Driver interface defines how to create a BigCache instance.

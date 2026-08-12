@@ -170,12 +170,12 @@ var _ propagation.TextMapCarrier = deliveryCarrier{}
 // The messaging.Binder drives publish/consume through the observe kit (3 signals)
 // via these package-level observers. They use a default "brief" level; the bean
 // is a raw *amqp.Connection (no wrapper to carry per-instance config), so the
-// binder path cannot bind a per-instance LogConfig — the manual helpers above
+// binder path cannot bind a per-instance ObserveConfig — the manual helpers above
 // remain for apps that want explicit control.
 
 var (
-	defaultPubObs = observe.NewProducer("rabbitmq", observe.LogConfig{Level: observe.DefaultBrief})
-	defaultSubObs = observe.NewConsumer("rabbitmq", observe.LogConfig{Level: observe.DefaultBrief})
+	defaultPubObs = observe.NewProducer("rabbitmq", observe.ObserveConfig{Level: observe.DefaultBrief})
+	defaultSubObs = observe.NewConsumer("rabbitmq", observe.ObserveConfig{Level: observe.DefaultBrief})
 )
 
 // startPublish opens a producer observation and injects the W3C trace context

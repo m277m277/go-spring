@@ -6,7 +6,7 @@
 (`starter/DESIGN.md` §2.4). It builds the process-wide OpenTelemetry
 `TracerProvider` / `MeterProvider` from `${spring.observability}` and
 installs them as OTel globals so any instrumented component (starter-
-gorm-*, starter-mesh, http/gRPC middlewares, ...) is wired without
+gorm-*, http/gRPC middlewares, ...) is wired without
 per-component adaptation.
 
 ## 1. Responsibilities & Boundaries

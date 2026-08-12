@@ -144,8 +144,8 @@ func EndSpan(span trace.Span, err error) {
 // for apps that want explicit control.
 
 var (
-	defaultPubObs = observe.NewProducer("pulsar", observe.LogConfig{Level: observe.DefaultBrief})
-	defaultSubObs = observe.NewConsumer("pulsar", observe.LogConfig{Level: observe.DefaultBrief})
+	defaultPubObs = observe.NewProducer("pulsar", observe.ObserveConfig{Level: observe.DefaultBrief})
+	defaultSubObs = observe.NewConsumer("pulsar", observe.ObserveConfig{Level: observe.DefaultBrief})
 )
 
 // startProduce opens a producer observation and injects W3C trace context into

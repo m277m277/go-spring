@@ -23,8 +23,8 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"go-spring.org/cloud/resilience"
 	"go-spring.org/observe/resilience"
-	"go-spring.org/cloud/experimental/resilience"
 )
 
 // buildAdmission builds the inbound admission middleware from cfg, or returns
@@ -35,11 +35,7 @@ func buildAdmission(cfg Config) (gin.HandlerFunc, error) {
 	if !cfg.Resilience.Enabled {
 		return nil, nil
 	}
-	drv, err := resilience.MustGetDriver(cfg.Resilience.Driver)
-	if err != nil {
-		return nil, err
-	}
-	exec, err := drv.NewExecutor(cfg.Resilience.Policy())
+	exec, err := resilience.NewExecutor(cfg.Resilience.Driver, cfg.Resilience.Policy())
 	if err != nil {
 		return nil, err
 	}
@@ -53,7 +49,7 @@ func buildAdmission(cfg Config) (gin.HandlerFunc, error) {
 // (circuit open); a handler-emitted 5xx counts as a failure for the breaker.
 //
 // Inbound admission must NOT retry — a handler that has already produced side
-// effects cannot be replayed (matching resilience.NewHandler). Leave
+// effects cannot be replayed (inbound serving is not idempotent). Leave
 // Policy.MaxRetries at 0; a Written() guard also prevents reentry regardless.
 func resilienceAdmission(exec resilience.Executor, resource string) gin.HandlerFunc {
 	return func(c *gin.Context) {

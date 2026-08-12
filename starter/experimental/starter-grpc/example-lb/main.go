@@ -42,7 +42,7 @@ import (
 	"time"
 
 	"go-spring.org/cloud/discovery"
-	"go-spring.org/cloud/experimental/loadbalance"
+	"go-spring.org/cloud/loadbalance"
 	StarterGrpc "go-spring.org/starter-grpc"
 	"go-spring.org/starter-grpc/example/idl/proto"
 	"google.golang.org/grpc"

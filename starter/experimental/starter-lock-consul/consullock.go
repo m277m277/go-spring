@@ -24,8 +24,8 @@ import (
 	"time"
 
 	"github.com/hashicorp/consul/api"
-	"go-spring.org/log"
 	"go-spring.org/cloud/experimental/lock"
+	"go-spring.org/log"
 	"go-spring.org/spring/gs"
 	"go-spring.org/stdlib/errutil"
 )

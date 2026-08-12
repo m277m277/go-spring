@@ -17,7 +17,6 @@
 package StarterDubbo
 
 import (
-	"runtime"
 	"time"
 
 	"dubbo.apache.org/dubbo-go/v3/client"
@@ -171,10 +170,7 @@ func (c DubboReference) options() []client.ReferenceOption {
 // RegisterReference registers a Triple-generated RPC stub as a bean.
 // name is the key under ${spring.dubbo.consumer.references} to bind.
 func RegisterReference[T any](name string, ctor func(*client.Client, ...client.ReferenceOption) (T, error)) {
-	b := gs.Provide(func(cli *client.Client, cfg DubboReference) (T, error) {
+	gs.Provide(func(cli *client.Client, cfg DubboReference) (T, error) {
 		return ctor(cli, cfg.options()...)
-	}, gs.IndexArg(1, gs.TagArg("${spring.dubbo.consumer.references."+name+"}")))
-	if _, file, line, ok := runtime.Caller(1); ok {
-		b.SetFileLine(file, line)
-	}
+	}, gs.IndexArg(1, gs.TagArg("${spring.dubbo.consumer.references."+name+"}"))).Caller(2)
 }

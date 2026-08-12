@@ -49,6 +49,6 @@ func init() {
 	gs.Provide(&ConfigBus{}).
 		Name("configBus").
 		Init((*ConfigBus).subscribe).
-		Destroy((*ConfigBus).close).
+		Destroy((*ConfigBus).Destroy).
 		Export(gs.As[gs.Rooter]())
 }

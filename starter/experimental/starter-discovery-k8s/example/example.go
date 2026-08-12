@@ -21,7 +21,7 @@
 // setting its `discovery:` field to the same name.
 //
 // This program has no external client — it resolves a target Service directly
-// through discovery.MustGet to make the mechanism visible, prints the live
+// through discovery.GetDiscovery to make the mechanism visible, prints the live
 // endpoints, then exits. Run inside a cluster (see deploy/) it prints the
 // target Deployment's ready Pods; run locally without cluster DNS it prints the
 // resolve error and still exits cleanly, since the point is to show the API.
@@ -37,8 +37,8 @@ import (
 	"syscall"
 	"time"
 
-	"go-spring.org/log"
 	"go-spring.org/cloud/discovery"
+	"go-spring.org/log"
 	"go-spring.org/spring/gs"
 
 	// Blank-import registers the Kubernetes discovery backend(s) declared under

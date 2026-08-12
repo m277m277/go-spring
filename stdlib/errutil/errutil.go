@@ -14,22 +14,26 @@
  * limitations under the License.
  */
 
-// Package errutil provides lightweight utilities for structuring and wrapping errors
-// in two distinct semantic ways:
+// Package errutil provides lightweight utilities for three error-related
+// concerns:
 //
-//  1. Explanatory wrapping — adds human-readable meaning or interpretation to an error.
-//     It clarifies *what* went wrong in business or logical terms.
+//  1. Wrapping errors in two distinct semantic ways:
+//     Explain (":") adds human-readable meaning — *what* went wrong in business
+//     terms; Stack (">>") adds call-path context — *where* it passed through.
+//     The two are separated because interpretation and trace path answer
+//     different questions and read best with different delimiters:
+//     "cannot load config: file not found" vs "InitService >> LoadConfig >> ...".
 //
-//  2. Stack (or Path) wrapping — adds contextual call-path information, showing *where*
-//     in the call chain the error was passed through.
+//  2. Sentinel errors (ErrForbiddenMethod, ErrUnimplementedMethod) for the
+//     common "not allowed" / "not yet implemented" conditions.
 //
-// These two patterns serve different purposes:
-//
-//   - Explanatory errors are user-facing or semantic: "cannot load configuration: file not found".
-//   - Stack errors are developer-facing or structural: "InitService >> LoadConfig >> file not found".
-//
-// The goal is to make error wrapping more expressive by separating *interpretation* (":")
-// from *trace path* (">>").
+//  3. Precondition helpers (RequireField, RequireAny) that build a structured
+//     "<component>: <field> is required" error when a constructor's inputs are
+//     missing. They are the imperative counterpart to spring/conf's declarative
+//     `expr:` tag: use them for cross-field rules like "addr OR service-name"
+//     that a per-field tag cannot express, or anywhere a runtime input check is
+//     needed outside the config-binding engine. They produce errors via Explain,
+//     which is why they live in this package rather than a config-specific one.
 package errutil
 
 import (

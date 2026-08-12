@@ -19,9 +19,9 @@ package StarterKafka
 import (
 	"time"
 
+	"go-spring.org/cloud/resilience"
+	"go-spring.org/cloud/tlsconf"
 	observe "go-spring.org/observe"
-	"go-spring.org/cloud/experimental/resilience"
-	"go-spring.org/cloud/experimental/tlsconf"
 )
 
 // Config defines Kafka client configuration.
@@ -53,7 +53,7 @@ type Config struct {
 	// Observability configures the per-message access log emitted by the observe
 	// hook (kotel already provides trace spans + metrics, so the hook is log-only,
 	// off/brief/detailed). Defaults to "brief".
-	Observability observe.LogConfig `value:"${observability:=}"`
+	Observability observe.ObserveConfig `value:"${observability:=}"`
 
 	// Resilience optionally protects synchronous produce calls with rate
 	// limiting, circuit breaking, bulkhead and retry. It is disabled by default;

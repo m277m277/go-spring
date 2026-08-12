@@ -131,9 +131,9 @@ func (b *ConfigBus) Publish(prefix string) error {
 	return nil
 }
 
-// close unsubscribes from the bus. It runs as the bean's destroy hook. The
+// Destroy unsubscribes from the bus. It runs as the bean's destroy hook. The
 // underlying NATS connection is owned by starter-nats and closed there.
-func (b *ConfigBus) close() error {
+func (b *ConfigBus) Destroy() error {
 	if b.sub != nil {
 		return b.sub.Unsubscribe()
 	}

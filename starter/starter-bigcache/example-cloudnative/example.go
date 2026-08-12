@@ -46,7 +46,7 @@ import (
 	"time"
 
 	"github.com/allegro/bigcache/v3"
-	"go-spring.org/cloud/experimental/resilience"
+	"go-spring.org/cloud/resilience"
 	"go-spring.org/spring/gs"
 	StarterBigCache "go-spring.org/starter-bigcache"
 
@@ -63,11 +63,11 @@ type Config struct {
 
 // Service autowires the "cache" bigcache instance. bigcache exposes no hook/
 // plugin extension point, so per-operation observability + resilience are
-// delivered through the *ObservedBigCache wrapper itself (Get/Set/Delete emit
+// delivered through the *Cache wrapper itself (Get/Set/Delete emit
 // span+metric+log and run through the resilience executor). The starter also
 // auto-exports a health.Indicator for this instance under the same name.
 type Service struct {
-	Cache *StarterBigCache.ObservedBigCache `autowire:"cache"`
+	Cache *StarterBigCache.Cache `autowire:"cache"`
 }
 
 var manual = flag.Bool("manual", false, "run in manual verification mode (server stays up)")

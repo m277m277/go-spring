@@ -22,10 +22,10 @@ import (
 	"net/http/httputil"
 	"net/url"
 
-	"go-spring.org/log"
 	"go-spring.org/cloud/discovery"
-	"go-spring.org/cloud/experimental/loadbalance"
-	"go-spring.org/cloud/experimental/resilience"
+	"go-spring.org/cloud/loadbalance"
+	"go-spring.org/cloud/resilience"
+	"go-spring.org/log"
 )
 
 // picker chooses the concrete target address for one request and returns a done
@@ -133,7 +133,7 @@ func (t *RouteTable) stopOrphanedDialers(keep map[string]bool) {
 // Close stops the background discovery watch behind every cached resolver. It is
 // the gs destroy method, invoked on graceful shutdown, so the discovery watches
 // do not leak past the gateway's lifetime.
-func (t *RouteTable) Close() error {
+func (t *RouteTable) Destroy() error {
 	t.dialerMu.Lock()
 	defer t.dialerMu.Unlock()
 	for key, d := range t.dialers {
