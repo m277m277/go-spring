@@ -22,6 +22,7 @@ import (
 
 	"github.com/twmb/franz-go/pkg/kgo"
 	"go-spring.org/cloud/experimental/messaging"
+	"go-spring.org/cloud/traffic"
 	"go-spring.org/log"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
@@ -78,6 +79,11 @@ func (p *publisher) Publish(ctx context.Context, msg *messaging.Message) error {
 		rec.Key = []byte(msg.Key)
 	}
 	otel.GetTextMapPropagator().Inject(ctx, recordCarrier{rec})
+	// Carry the load-test marker in a record header so the consumer recognises
+	// synthetic load.
+	if traffic.IsLoadTest(ctx) {
+		recordCarrier{rec}.Set(traffic.MetaKeyLoadTest, "1")
+	}
 	return p.cl.ProduceSync(ctx, rec).FirstErr()
 }
 
@@ -115,6 +121,10 @@ func (s *subscriber) Subscribe(ctx context.Context, handler messaging.Handler) e
 					return
 				}
 				msgCtx := otel.GetTextMapPropagator().Extract(loopCtx, recordCarrier{rec})
+				// Extract the load-test marker the producer put in a record header.
+				if traffic.IsAffirmative(recordCarrier{rec}.Get(traffic.MetaKeyLoadTest)) {
+					msgCtx = traffic.WithLoadTest(msgCtx, "kafka-header")
+				}
 				if err := handler(msgCtx, fromRecord(rec)); err != nil {
 					log.Errorf(msgCtx, log.TagAppDef, "kafka binder handler error on %q: %v", rec.Topic, err)
 				}

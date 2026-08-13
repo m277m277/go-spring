@@ -12,9 +12,7 @@ require (
 )
 
 // Local, not-yet-published observe kit and gorm bridge. Removed once tagged.
-replace (
-	go-spring.org/observe => ../../cloud/observe
-)
+replace go-spring.org/observe => ../../cloud/observe
 
 require (
 	filippo.io/edwards25519 v1.1.0 // indirect
@@ -45,7 +43,6 @@ require (
 	golang.org/x/text v0.40.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
-
 
 require go-spring.org/cloud v0.0.0
 

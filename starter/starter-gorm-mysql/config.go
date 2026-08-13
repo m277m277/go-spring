@@ -76,6 +76,14 @@ type Config struct {
 	// a registered custom config name). It is set internally, not bound from
 	// configuration.
 	tlsParam string
+
+	// ObserveEnabled is the hard per-instance kill switch for the gorm observe
+	// plugin (trace span + metric + access log on every Create/Query/Update/
+	// Delete). Defaults to true. Distinct from observability.level (which only
+	// controls access-log detail, leaving span/metric on): when false the plugin
+	// is not installed at all, so no per-query callbacks run — for high-throughput
+	// instances where the instrumentation overhead is unwanted.
+	ObserveEnabled bool `value:"${observe.enabled:=true}"`
 }
 
 // DSN constructs the MySQL Data Source Name based on the configuration.

@@ -19,4 +19,6 @@ require (
 	golang.org/x/text v0.40.0 // indirect
 )
 
-replace go-spring.org/cloud => ../../../../cloud
+replace (
+	go-spring.org/cloud => ../../../../cloud
+)

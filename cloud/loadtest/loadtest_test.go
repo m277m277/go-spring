@@ -25,6 +25,7 @@ import (
 
 	"go-spring.org/cloud/fault"
 	"go-spring.org/cloud/resilience"
+	"go-spring.org/cloud/traffic"
 	"go-spring.org/stdlib/testing/assert"
 )
 
@@ -95,4 +96,18 @@ func TestRun_RespectsMinConcurrency(t *testing.T) {
 	r := Run(context.Background(), Config{Concurrency: 0, Duration: 20 * time.Millisecond},
 		func(context.Context) error { return nil })
 	assert.That(t, r.Ops > 0).True() // ran with at least 1 worker
+}
+
+// TestRun_TagsOpContextLoadTest verifies the harness tags the ctx handed to op
+// as load-test traffic, so downstream clients can recognise synthetic load.
+func TestRun_TagsOpContextLoadTest(t *testing.T) {
+	var seen atomic.Bool
+	Run(context.Background(), Config{Concurrency: 2, Duration: 20 * time.Millisecond},
+		func(ctx context.Context) error {
+			if traffic.IsLoadTest(ctx) {
+				seen.Store(true)
+			}
+			return nil
+		})
+	assert.That(t, seen.Load()).True()
 }

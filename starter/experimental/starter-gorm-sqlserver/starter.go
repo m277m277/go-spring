@@ -107,6 +107,12 @@ func newClient(ctx *gs.ContextProvider, c Config) (*DB, error) {
 			return nil, err
 		}
 		liveDialers.Store(db, ld)
+		if err := applyDBCustomizers(c, db); err != nil {
+			log.Errorf(ctx.Context, starterTag, "gorm sqlserver: customizer failed: %v", err)
+			_ = ld.Stop()
+			_ = sqlDB.Close()
+			return nil, err
+		}
 		log.Infof(ctx.Context, starterTag, "gorm sqlserver client initialized, service-name=%s db=%s", c.ServiceName, c.DB)
 		return &DB{DB: db, cfg: c}, nil
 	}
@@ -121,6 +127,13 @@ func newClient(ctx *gs.ContextProvider, c Config) (*DB, error) {
 	// wrapper's Init (InitMethod).
 	if err := applyPool(db, c); err != nil {
 		log.Errorf(ctx.Context, starterTag, "gorm sqlserver: ping failed: %v", err)
+		if sqlDB, derr := db.DB(); derr == nil {
+			_ = sqlDB.Close()
+		}
+		return nil, err
+	}
+	if err := applyDBCustomizers(c, db); err != nil {
+		log.Errorf(ctx.Context, starterTag, "gorm sqlserver: customizer failed: %v", err)
 		if sqlDB, derr := db.DB(); derr == nil {
 			_ = sqlDB.Close()
 		}

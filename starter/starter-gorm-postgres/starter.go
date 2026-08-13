@@ -138,6 +138,16 @@ func newClient(ctx *gs.ContextProvider, c Config) (*DB, error) {
 	if ld != nil {
 		liveDialers.Store(db, ld)
 	}
+	if err := applyDBCustomizers(c, db); err != nil {
+		log.Errorf(ctx.Context, starterTag, "gorm postgres: customizer failed: %v", err)
+		if ld != nil {
+			_ = ld.Stop()
+		}
+		if sqlDB, derr := db.DB(); derr == nil {
+			_ = sqlDB.Close()
+		}
+		return nil, err
+	}
 	log.Infof(ctx.Context, starterTag, "gorm postgres client initialized, host=%s db=%s", c.Host, c.DB)
 	return &DB{DB: db, cfg: c}, nil
 }

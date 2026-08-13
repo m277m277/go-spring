@@ -55,6 +55,12 @@ type faultExecutor struct {
 // blindly.
 func (e *faultExecutor) Execute(ctx context.Context, resource string, fn func(context.Context) error) error {
 	wrapped := func(attemptCtx context.Context) error {
+		// Gate injection on the configured Scope vs the call's load-test marker
+		// before consulting the rate/latency rules: when the scope excludes
+		// this traffic class the call passes through untouched.
+		if !ScopeApplies(e.in.Config(), attemptCtx) {
+			return fn(attemptCtx)
+		}
 		inject, sleep, injErr := e.in.maybe(resource)
 		if sleep > 0 && !resilience.SleepFor(attemptCtx, sleep) {
 			// The latency sleep was cancelled (caller cancel or budget expiry);

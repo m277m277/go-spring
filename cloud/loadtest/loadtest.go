@@ -14,16 +14,30 @@
  * limitations under the License.
  */
 
-// Package loadtest is a small load-test harness shared by the go-spring client
-// starters' example-load binaries. It fans an [Op] out across N workers for a
-// fixed duration, collects per-op latency into per-worker slices (no shared lock
-// on the hot path), then merges them for percentiles and classifies errors into
-// the resilience + fault taxonomy (circuit-open / rate-limited / bulkhead /
-// injected / other).
+// Package loadtest is a load-test harness shared by the go-spring client
+// starters' example-load binaries. It drives an [Op] under a pluggable
+// scheduling [Driver] for a bounded duration, records per-op latency and a
+// classified error breakdown, then optionally runs health [Assert]ions so a run
+// can reach a verdict — "the protection stack held and signals were not lost" —
+// rather than merely producing numbers.
 //
-// It is example-grade tooling, not production code: each example-load main wires
-// one starter-specific [Op] (a SET/GET, a SQL query, a Mongo find, ...) and hands
-// it to [Run]; the harness does the fan-out, timing and reporting.
+// Three extension seams make the harness customizable without forking it:
+//
+//   - [Driver] decides WHEN ops fire: closed-loop (N workers, fire-as-fast-as-
+//     op-returns), open-loop (fixed arrival rate independent of latency), or a
+//     varying schedule (ramp / staircase / arbitrary). Supply your own to model
+//     any traffic shape.
+//   - [Assert] decides what "held up" means: check QPS floor, error rate, p99,
+//     GC pause, or anything you can read off [Result] / the runtime. The
+//     [Runner] collects a run's verdict in [Result.Assertions].
+//   - [Classify] (a func(error) string) decides how errors map to buckets when
+//     the default resilience+fault taxonomy is not enough; custom labels land in
+//     [Result.Buckets].
+//
+// The legacy [Run] entry point stays a one-liner for closed-loop loads; the
+// [Runner] builder is the full-featured path. It is example-grade tooling, not
+// production code: each example-load main wires one starter-specific [Op] and
+// hands it to [Run] or [New]().Driver(...).Run(...).
 package loadtest
 
 import (
@@ -31,26 +45,35 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"slices"
-	"sync"
-	"sync/atomic"
 	"time"
 
 	"go-spring.org/cloud/fault"
 	"go-spring.org/cloud/resilience"
 )
 
-// Op is one operation a worker runs per iteration. It returns nil on success.
-// The context is the run's context (cancelled when the duration elapses).
+// Op is one operation a worker fires per dispatch. It returns nil on success.
+// The context passed to it is the run's context: tagged as load-test traffic,
+// bounded by the run duration, and cancelled when the run stops.
 type Op func(ctx context.Context) error
 
-// Config controls a load run.
+// Config controls a legacy closed-loop [Run].
 type Config struct {
 	Concurrency int           // number of worker goroutines
 	Duration    time.Duration // how long to drive load before stopping
 }
 
-// Result is the aggregate of a [Run]. Latencies is sorted ascending so
+// Error-bucket labels produced by [DefaultClassify]. A custom [Classify] may
+// return these (counted in the typed fields below) or any other label (counted
+// in [Result.Buckets]).
+const (
+	BucketCircuit     = "circuit"
+	BucketRateLimited = "rate-limited"
+	BucketBulkhead    = "bulkhead"
+	BucketInjected    = "fault-injected"
+	BucketOther       = "other"
+)
+
+// Result is the aggregate of a run. Latencies is sorted ascending so
 // [Result.Percentile] can index directly.
 type Result struct {
 	Ops       int64
@@ -58,17 +81,40 @@ type Result struct {
 	QPS       float64
 	Latencies []time.Duration
 
-	// Error buckets, classified via the resilience sentinels + fault.IsInjected.
+	// Error buckets, classified via [DefaultClassify] (or a custom classifier's
+	// returns of the same labels). Custom labels accumulate in Buckets.
 	Circuit     int64
 	RateLimited int64
 	Bulkhead    int64
 	Injected    int64
 	Other       int64
+
+	// Buckets holds counts for custom error labels a pluggable [Classify]
+	// returned (anything outside the five labels above). Empty under the
+	// default classifier. [Result.Errors] folds these into its total.
+	Buckets map[string]int64
+
+	// Driver names the scheduling [Driver] that produced this result
+	// ("closed-loop", "scheduled", or "%T" of a custom driver).
+	Driver string
+
+	// GC summary, populated when [Runner.CaptureGC] was enabled; zero otherwise.
+	// AssertGCPauseAvgBelow reads GCPauseAvg.
+	NumGC       int64
+	GCPauseAvg  time.Duration
+
+	// Assertions holds the outcome of each [Assert] registered on the runner.
+	// [Result.Passed] reports whether every assertion passed.
+	Assertions []AssertionResult
 }
 
-// Errors reports the total across all error buckets.
+// Errors reports the total across all error buckets, custom included.
 func (r *Result) Errors() int64 {
-	return r.Circuit + r.RateLimited + r.Bulkhead + r.Injected + r.Other
+	var custom int64
+	for _, v := range r.Buckets {
+		custom += v
+	}
+	return r.Circuit + r.RateLimited + r.Bulkhead + r.Injected + r.Other + custom
 }
 
 // Percentile returns the p-quantile (0..1) of the latency sample, or 0 when the
@@ -80,90 +126,50 @@ func (r *Result) Percentile(p float64) time.Duration {
 	return r.Latencies[int(float64(len(r.Latencies)-1)*p)]
 }
 
-// Run drives op across cfg.Concurrency workers for cfg.Duration, then merges and
-// classifies the samples into a [Result]. It returns when the duration elapses
-// (or ctx is cancelled). op is invoked sequentially per worker; workers do not
-// share latency state, so the hot path is lock-free.
-func Run(ctx context.Context, cfg Config, op Op) *Result {
-	if cfg.Concurrency < 1 {
-		cfg.Concurrency = 1
-	}
-	n := cfg.Concurrency
-	locals := make([][]time.Duration, n)
-
-	var (
-		ops                              int64
-		circuit, rate, bulk, injected, other int64
-	)
-	classify := func(err error) {
-		switch {
-		case errors.Is(err, resilience.ErrCircuitOpen):
-			atomic.AddInt64(&circuit, 1)
-		case errors.Is(err, resilience.ErrRateLimited):
-			atomic.AddInt64(&rate, 1)
-		case errors.Is(err, resilience.ErrBulkheadFull):
-			atomic.AddInt64(&bulk, 1)
-		case fault.IsInjected(err):
-			atomic.AddInt64(&injected, 1)
-		default:
-			atomic.AddInt64(&other, 1)
+// Passed reports whether every registered assertion passed (and is true when no
+// assertions were registered — a run with no verdict criteria has nothing to
+// fail).
+func (r *Result) Passed() bool {
+	for _, a := range r.Assertions {
+		if !a.Pass {
+			return false
 		}
 	}
+	return true
+}
 
-	deadline := time.Now().Add(cfg.Duration)
-	start := time.Now()
-	var wg sync.WaitGroup
-	for i := range n {
-		wg.Add(1)
-		go func(id int) {
-			defer wg.Done()
-			local := make([]time.Duration, 0, 1024)
-			for {
-				if ctx.Err() != nil {
-					break
-				}
-				if !time.Now().Before(deadline) {
-					break
-				}
-				opStart := time.Now()
-				err := op(ctx)
-				local = append(local, time.Since(opStart))
-				atomic.AddInt64(&ops, 1)
-				if err != nil {
-					classify(err)
-				}
-			}
-			locals[id] = local
-		}(i)
-	}
-	wg.Wait()
-	elapsed := time.Since(start)
-
-	all := make([]time.Duration, 0, ops)
-	for _, l := range locals {
-		all = append(all, l...)
-	}
-	slices.Sort(all)
-
-	qps := 0.0
-	if elapsed > 0 {
-		qps = float64(ops) / elapsed.Seconds()
-	}
-	return &Result{
-		Ops:         ops,
-		Elapsed:     elapsed,
-		QPS:         qps,
-		Latencies:   all,
-		Circuit:     atomic.LoadInt64(&circuit),
-		RateLimited: atomic.LoadInt64(&rate),
-		Bulkhead:    atomic.LoadInt64(&bulk),
-		Injected:    atomic.LoadInt64(&injected),
-		Other:       atomic.LoadInt64(&other),
+// DefaultClassify maps an error to a bucket label using the resilience sentinels
+// and [fault.IsInjected]. It is the default [Classify]; a custom one may return
+// these labels or any other.
+func DefaultClassify(err error) string {
+	switch {
+	case errors.Is(err, resilience.ErrCircuitOpen):
+		return BucketCircuit
+	case errors.Is(err, resilience.ErrRateLimited):
+		return BucketRateLimited
+	case errors.Is(err, resilience.ErrBulkheadFull):
+		return BucketBulkhead
+	case fault.IsInjected(err):
+		return BucketInjected
+	default:
+		return BucketOther
 	}
 }
 
-// Print writes a human-readable report (config, throughput, latency
-// percentiles, error breakdown) to w.
+// Run drives op as a closed-loop load across cfg.Concurrency workers for
+// cfg.Duration, then returns the aggregate [Result]. It is the legacy
+// one-liner; for open-loop, ramp, assertions or a custom driver use [New]().
+// Each op's context is tagged as load-test traffic (see [traffic.WithLoadTest])
+// so downstream clients can recognise the synthetic load.
+func Run(ctx context.Context, cfg Config, op Op) *Result {
+	return New().
+		Driver(ClosedLoop{Concurrency: cfg.Concurrency}).
+		Duration(cfg.Duration).
+		Run(ctx, op)
+}
+
+// Print writes a human-readable report (driver, throughput, latency
+// percentiles, error breakdown, GC summary, assertion verdict) to w.
 func (r *Result) Print(w io.Writer) {
 	errs := r.Errors()
 	errPct := 0.0
@@ -171,14 +177,49 @@ func (r *Result) Print(w io.Writer) {
 		errPct = float64(errs) / float64(r.Ops) * 100
 	}
 	fmt.Fprintf(w, "================ load report ================\n")
-	fmt.Fprintf(w, "ops=%d  qps=%.0f  elapsed=%s  errors=%d (%.2f%%)\n",
-		r.Ops, r.QPS, r.Elapsed.Truncate(time.Millisecond), errs, errPct)
+	fmt.Fprintf(w, "driver=%s  ops=%d  qps=%.0f  elapsed=%s  errors=%d (%.2f%%)\n",
+		driverLabel(r.Driver), r.Ops, r.QPS, r.Elapsed.Truncate(time.Millisecond), errs, errPct)
 	if len(r.Latencies) > 0 {
 		fmt.Fprintf(w, "latency  p50=%s  p90=%s  p99=%s  p999=%s  max=%s\n",
 			r.Percentile(0.50), r.Percentile(0.90), r.Percentile(0.99),
 			r.Percentile(0.999), r.Latencies[len(r.Latencies)-1])
 	}
-	fmt.Fprintf(w, "errors by class:  circuit=%d  rate-limited=%d  bulkhead=%d  injected=%d  other=%d\n",
+	fmt.Fprintf(w, "errors by class:  circuit=%d  rate-limited=%d  bulkhead=%d  injected=%d  other=%d",
 		r.Circuit, r.RateLimited, r.Bulkhead, r.Injected, r.Other)
+	if len(r.Buckets) > 0 {
+		fmt.Fprintf(w, "  custom=%v", r.Buckets)
+	}
+	fmt.Fprintf(w, "\n")
+	if r.NumGC > 0 {
+		fmt.Fprintf(w, "gc  cycles=%d  avg-pause=%s\n", r.NumGC, r.GCPauseAvg.Truncate(time.Microsecond))
+	}
+	if len(r.Assertions) > 0 {
+		fmt.Fprintf(w, "verdict: %s\n", verdictLabel(r.Passed()))
+		for _, a := range r.Assertions {
+			mark := "PASS"
+			if !a.Pass {
+				mark = "FAIL"
+			}
+			if a.Msg != "" {
+				fmt.Fprintf(w, "  [%s] %s: %s\n", mark, a.Name, a.Msg)
+			} else {
+				fmt.Fprintf(w, "  [%s] %s\n", mark, a.Name)
+			}
+		}
+	}
 	fmt.Fprintf(w, "=============================================\n")
+}
+
+func driverLabel(s string) string {
+	if s == "" {
+		return "?"
+	}
+	return s
+}
+
+func verdictLabel(pass bool) string {
+	if pass {
+		return "PASSED"
+	}
+	return "FAILED"
 }

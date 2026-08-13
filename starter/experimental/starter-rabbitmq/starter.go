@@ -20,9 +20,12 @@ import (
 	"strings"
 
 	amqp "github.com/rabbitmq/amqp091-go"
+	"go-spring.org/cloud/resilience"
 	"go-spring.org/log"
+	"go-spring.org/spring/conf"
 	"go-spring.org/spring/gs"
 	"go-spring.org/stdlib/errutil"
+	"go-spring.org/stdlib/flatten"
 )
 
 var starterTag = log.RegisterInfraTag("rabbitmq", "")
@@ -32,7 +35,15 @@ func init() {
 	// Register multiple RabbitMQ connections as a group.
 	// Each instance is created according to the configuration in "${spring.rabbitmq}".
 	// This allows defining multiple RabbitMQ connections dynamically.
-	gs.Group("${spring.rabbitmq}", newClient, destroyClient)
+	gs.Module(gs.OnProperty("spring.rabbitmq"), func(r gs.BeanProvider, p flatten.Storage) error {
+		return conf.BindEach(p, "${spring.rabbitmq}", func(name string, c Config) error {
+			r.Provide(newClient,
+				gs.IndexArg(1, gs.ValueArg(name)),
+				gs.IndexArg(2, gs.ValueArg(c)),
+			).Name(name).Destroy(destroyClient).Caller(1)
+			return nil
+		})
+	})
 }
 
 // newClient dials RabbitMQ. amqp.Dial/DialConfig perform the TCP + AMQP
@@ -106,7 +117,7 @@ func newClient(ctx *gs.ContextProvider, name string, c Config) (*amqp.Connection
 	}()
 
 	log.Infof(ctx.Context, starterTag, "rabbitmq connection initialized, url=%s", c.URL)
-	if err := applyResilience(c, conn); err != nil {
+	if err := applyResilience(c, conn, resilience.ResourceLabel("rabbitmq", c.Vhost, c.URL)); err != nil {
 		log.Errorf(ctx.Context, starterTag, "rabbitmq: resilience setup failed: %v", err)
 		_ = conn.Close()
 		return nil, err

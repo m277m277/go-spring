@@ -32,6 +32,8 @@ import (
 
 	"go-spring.org/cloud/loadtest"
 	"go-spring.org/spring/gs"
+
+	_ "go-spring.org/cloud/govern" // registers the centralized governance center
 	StarterGormPostgres "go-spring.org/starter-gorm-postgres"
 )
 

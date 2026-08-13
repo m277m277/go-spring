@@ -33,6 +33,8 @@ import (
 	"github.com/bradfitz/gomemcache/memcache"
 	"go-spring.org/cloud/loadtest"
 	"go-spring.org/spring/gs"
+
+	_ "go-spring.org/cloud/govern" // registers the centralized governance center
 	StarterMemcached "go-spring.org/starter-memcached"
 )
 

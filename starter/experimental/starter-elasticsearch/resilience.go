@@ -48,13 +48,13 @@ import (
 // instance is not.
 type Client struct {
 	*elasticsearch.Client
-	// Resilience is field-injected (gs.Dync, hot-reloadable); Observability is
-	// the startup access-log config (not hot). These replace the old
-	// Config.Resilience/Observability fields so the wrapper bean owns its own
-	// protection + observability policy.
-	Resilience    gs.Dync[resilience.Config] `value:"${resilience:=}"`
-	Fault         gs.Dync[fault.Config]      `value:"${fault:=}"`
-	Observability observe.ObserveConfig      `value:"${observability:=}"`
+	// Fault is the per-client fault-injection config (a separate concern from
+	// centralized resilience governance). Resilience itself is no longer injected
+	// here: this client resolves its executor through the neutral
+	// [resilience.ExecutorFor] seam, which starter-govern backs with the
+	// governance center — so this struct has zero coupling to cloud/govern.
+	Fault         gs.Dync[fault.Config] `value:"${fault:=}"`
+	Observability observe.ObserveConfig `value:"${observability:=}"`
 
 	// cfg is the connection config, retained for the resilience resource label.
 	cfg Config
@@ -64,65 +64,44 @@ type Client struct {
 	// resolver is the discovery watch behind a service-name client (nil when
 	// direct/mesh); Close stops it on shutdown.
 	resolver *discovery.Resolver
-	// exec is the resilience executor protecting requests, set by
-	// Init when resilience is enabled. nil on an unarmed client.
+	// exec is the resilience executor protecting requests, resolved via
+	// resilience.ExecutorFor; no-op when governance is off.
 	exec resilience.Executor
 	// faultInj is the fault injector short-circuiting requests when
 	// fault injection is enabled. nil when fault is off.
 	faultInj *fault.Injector
 	// resource is the resilience resource key ("elasticsearch:<...>") exec
-	// scopes limiter/breaker state by. Only meaningful when exec != nil.
+	// scopes limiter/breaker state by.
 	resource string
 }
 
-// Init is the gs InitMethod: gs field-injects Resilience + Observability
+// Init is the gs InitMethod: gs field-injects Fault + Observability
 // after newClient returns, then calls this. It builds the observe transport
-// (needs Observability) and, when resilience is enabled, the executor (needs
-// the Resilience policy), wraps them, swaps the result into the client's
-// dynamic transport, and subscribes to policy changes for hot Refresh.
+// (needs Observability) and resolves the executor through the neutral
+// [resilience.ExecutorFor] seam (backed by starter-govern's governance center
+// when imported), wraps them, and swaps the result into the client's dynamic
+// transport. When governance is off the resolved executor is a transparent
+// no-op (the round-tripper is effectively observe-only); fault wrapping still
+// applies when enabled.
 func (o *Client) Init() error {
 	obs := observe.NewClient("elasticsearch", o.Observability, observe.WithoutTrace())
 	observeTransport := &obsTransport{base: http.DefaultTransport, obs: obs}
-	rc := o.Resilience.Value()
 	fc := o.Fault.Value()
-	if !rc.Enabled && !fc.Enabled {
-		// Neither resilience nor fault is on: install the observe-only transport
-		// (access logs, no policy) and bail. When fault is on but resilience off
-		// we fall through to build a zero-policy executor and the fault wrap.
-		if o.dyn != nil {
-			o.dyn.Swap(observeTransport)
-		}
-		return nil
-	}
-	rawExec, err := resilience.NewExecutor(rc.Driver, rc.Policy())
-	if err != nil {
-		return err
-	}
-	exec := rawExec
+	o.resource = resourceLabel(o.cfg)
+	exec := resilience.ExecutorFor(o.resource)
 	if fc.Enabled {
 		o.faultInj = fault.NewInjector(fc)
-		exec = fault.WrapExecutor(rawExec, o.faultInj)
+		exec = fault.WrapExecutor(exec, o.faultInj)
+		o.Fault.OnChanged(func(new, _ fault.Config) { o.faultInj.SetConfig(new) })
 	}
 	// Wrap the executor with observe-resilience so circuit-breaker trips,
 	// rate-limit rejects, bulkhead rejections and retries emit a span + call
-	// counter (by outcome) + duration histogram + access log — the resilience
-	// core deliberately emits none. nil-safe and near-zero-cost when
-	// starter-otel is absent (the OTel globals are no-ops).
+	// counter (by outcome) + duration histogram + access log.
 	exec = resilobserve.WrapExecutor(exec, "elasticsearch", o.Observability)
 	o.exec = exec
-	o.resource = resourceLabel(o.cfg)
 	if o.dyn != nil {
 		o.dyn.Swap(resilience.NewRoundTripper(observeTransport, exec,
 			func(*http.Request) string { return o.resource }))
-	}
-	// Hot-reload: when the bound resilience config changes, adopt the new policy
-	// without a restart. Refresh resets per-resource state (the intended semantic
-	// of a threshold change - old failure counts were under the old policy).
-	o.Resilience.OnChanged(func(new, _ resilience.Config) {
-		_ = exec.Refresh(new.Policy())
-	})
-	if o.faultInj != nil {
-		o.Fault.OnChanged(func(new, _ fault.Config) { o.faultInj.SetConfig(new) })
 	}
 	return nil
 }

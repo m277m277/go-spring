@@ -104,66 +104,51 @@ type Cache struct {
 	*bigcache.BigCache
 	obs *observe.Observer
 
-	// Resilience is field-injected (gs.Dync, hot-reloadable) so the protection
-	// policy can change at runtime without a restart; Init subscribes
-	// OnChanged to Refresh the executor. Observability is the startup access-log
-	// config (not hot). These replace the old Config.Resilience/Observability
-	// fields so the wrapper bean owns its own protection policy.
-	Resilience    gs.Dync[resilience.Config] `value:"${resilience:=}"`
-	Fault         gs.Dync[fault.Config]      `value:"${fault:=}"`
-	Observability observe.ObserveConfig      `value:"${observability:=}"`
+	// Fault is the per-cache fault-injection config (a separate concern from
+	// centralized resilience governance). Resilience itself is no longer injected
+	// here: this cache resolves its executor through the neutral
+	// [resilience.ExecutorFor] seam, which starter-govern backs with the
+	// governance center — so this struct has zero coupling to cloud/govern.
+	Fault         gs.Dync[fault.Config] `value:"${fault:=}"`
+	Observability observe.ObserveConfig `value:"${observability:=}"`
 
 	// name is the instance name (the spring.bigcache.<name> map key), used for
 	// the resilience resource label. Set by newClient; Init reads it.
 	name string
 
-	// exec is the resilience executor protecting Get/Set/Delete, set by
-	// Init when resilience is enabled. nil on an unarmed client, in
-	// which case guard runs the operation directly with no policy overhead.
+	// exec is the resilience executor protecting Get/Set/Delete, resolved via
+	// resilience.ExecutorFor; no-op when governance is off.
 	exec resilience.Executor
 	// faultInj is the fault injector when fault is enabled; nil otherwise.
 	// It sits between the raw executor and the observe wrap so injected faults
 	// are observable. Set by Init when fault is enabled.
 	faultInj *fault.Injector
 	// resource is the resilience resource key ("bigcache:<instance-name>")
-	// exec scopes limiter/breaker state by. Only meaningful when exec != nil.
+	// exec scopes limiter/breaker state by.
 	resource string
 }
 
-// Init is the gs InitMethod: gs field-injects Resilience + Observability
-// after newClient returns, then calls this. It builds the observe.Observer (needs
-// Observability) and, when resilience is enabled, the executor (needs the
-// Resilience policy) + arms guard + subscribes to policy changes for hot Refresh.
+// Init is the gs InitMethod: gs field-injects Fault + Observability
+// after newClient returns, then calls this. It builds the observe.Observer and
+// resolves the executor through the neutral [resilience.ExecutorFor] seam
+// (backed by starter-govern's governance center when imported), so this cache
+// neither injects nor names cloud/govern. When governance is off the resolved
+// executor is a transparent no-op; fault wrapping still applies when enabled.
 func (c *Cache) Init() error {
 	c.obs = observe.NewClient("bigcache", c.Observability)
-	rc := c.Resilience.Value()
 	fc := c.Fault.Value()
-	if !rc.Enabled && !fc.Enabled {
-		return nil
-	}
-	rawExec, err := resilience.NewExecutor(rc.Driver, rc.Policy())
-	if err != nil {
-		return err
-	}
-	exec := rawExec
+	c.resource = resilience.ResourceLabel("bigcache", c.name)
+	exec := resilience.ExecutorFor(c.resource)
 	if fc.Enabled {
 		c.faultInj = fault.NewInjector(fc)
-		exec = fault.WrapExecutor(rawExec, c.faultInj)
-	}
-	exec = resilobserve.WrapExecutor(exec, "bigcache", c.Observability)
-	c.exec = exec
-	c.resource = resilience.ResourceLabel("bigcache", c.name)
-	// Hot-reload: when the bound resilience config changes, adopt the new policy
-	// without a restart. Refresh resets per-resource state (the intended semantic
-	// of a threshold change - old failure counts were under the old policy).
-	c.Resilience.OnChanged(func(new, _ resilience.Config) {
-		_ = exec.Refresh(new.Policy())
-	})
-	if c.faultInj != nil {
+		exec = fault.WrapExecutor(exec, c.faultInj)
+		// Fault config is a separate concern (chaos injection, not governance) so
+		// it keeps its own Dync + OnChanged rather than flowing through the center.
 		c.Fault.OnChanged(func(new, _ fault.Config) {
 			c.faultInj.SetConfig(new)
 		})
 	}
+	c.exec = resilobserve.WrapExecutor(exec, "bigcache", c.Observability)
 	return nil
 }
 
@@ -176,16 +161,14 @@ func (c *Cache) Destroy() error {
 	return c.BigCache.Close()
 }
 
-// guard runs fn under the resilience executor when armed, and directly otherwise.
-// bigcache.ErrEntryNotFound is a cache miss — a normal, expected outcome — so it is
-// treated as success for the breaker/retry (mirroring how go-redis treats
-// redis.Nil and gorm treats ErrRecordNotFound). A rejection (rate-limited /
-// circuit-open / bulkhead-full) is returned as the executor's sentinel error; any
-// other error from fn feeds the breaker and may be retried.
+// guard runs fn under the resilience executor. bigcache.ErrEntryNotFound is a
+// cache miss — a normal, expected outcome — so it is treated as success for the
+// breaker/retry (mirroring how go-redis treats redis.Nil and gorm treats
+// ErrRecordNotFound). A rejection (rate-limited / circuit-open / bulkhead-full)
+// is returned as the executor's sentinel error; any other error from fn feeds the
+// breaker and may be retried. When governance is off the resolved executor is a
+// no-op, so the overhead is a single function call.
 func (c *Cache) guard(ctx context.Context, fn func(context.Context) error) error {
-	if c.exec == nil {
-		return fn(ctx)
-	}
 	var callErr error
 	execErr := c.exec.Execute(ctx, c.resource, func(ctx context.Context) error {
 		callErr = fn(ctx)

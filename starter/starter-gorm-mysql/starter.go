@@ -137,6 +137,14 @@ func newClient(ctx *gs.ContextProvider, c Config) (*DB, error) {
 		}
 		return nil, err
 	}
+	if err := applyDBCustomizers(c, db); err != nil {
+		log.Errorf(ctx.Context, starterTag, "gorm mysql: customizer failed: %v", err)
+		cleanup(conn, tlsName)
+		if sqlDB, derr := db.DB(); derr == nil {
+			_ = sqlDB.Close()
+		}
+		return nil, err
+	}
 	if conn != nil {
 		liveDialers.Store(db, conn)
 	}

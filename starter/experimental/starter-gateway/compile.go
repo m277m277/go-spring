@@ -146,10 +146,10 @@ func (t *RouteTable) Match(req *http.Request) *Route {
 // Routes are ordered by id for deterministic matching.
 func (t *RouteTable) recompile(raw map[string]RouteRaw) error {
 	t.mu.Lock()
-	defer t.mu.Unlock()
 
 	execs, err := t.buildExecutors()
 	if err != nil {
+		t.mu.Unlock()
 		return err
 	}
 
@@ -163,6 +163,7 @@ func (t *RouteTable) recompile(raw map[string]RouteRaw) error {
 	for _, id := range ids {
 		rt, err := t.compileRoute(id, raw[id], execs)
 		if err != nil {
+			t.mu.Unlock()
 			return fmt.Errorf("route %q: %w", id, err)
 		}
 		routes = append(routes, rt)
@@ -185,27 +186,29 @@ func (t *RouteTable) recompile(raw map[string]RouteRaw) error {
 		}
 	}
 	t.stopOrphanedDialers(keep)
+	t.mu.Unlock()
 	return nil
 }
 
-// buildExecutors turns each named resilience policy into an Executor via the
-// builtin driver. Routes reference these by name so they share breaker state.
+// buildExecutors turns each named resilience policy into an Executor. Routes
+// reference these by name so they share breaker state. Each executor is resolved
+// through the NEUTRAL provider seam [resilience.ExecutorFor] keyed by
+// "gateway:<name>": starter-govern registers a provider backed by the governance
+// center, so gateway's per-route protection is governed centrally (and
+// hot-reloaded on the backing executor by the provider) WITHOUT this package
+// injecting or even naming cloud/govern. When governance is off the seam yields a
+// transparent no-op executor. Cfg.Resilience stays as the name registry routes
+// reference (its local policy VALUES are no longer consumed — the governance
+// authority owns all policy values now, uniformly with every other starter).
 func (t *RouteTable) buildExecutors() (map[string]resilience.Executor, error) {
 	if len(t.Cfg.Resilience) == 0 {
 		return nil, nil
 	}
 	out := make(map[string]resilience.Executor, len(t.Cfg.Resilience))
-	for name, p := range t.Cfg.Resilience {
-		// Per-policy driver: empty defaults to "default" (was hardcoded, which
-		// blocked routes from using the sentinel driver).
-		driverName := p.Driver
-		if driverName == "" {
-			driverName = "default"
-		}
-		exec, err := resilience.NewExecutor(driverName, p.toPolicy())
-		if err != nil {
-			return nil, fmt.Errorf("resilience policy %q: %w", name, err)
-		}
+	for name := range t.Cfg.Resilience {
+		// Always non-nil: a transparent no-op when governance is off; the real
+		// policy-carrying executor (hot-reloaded by the provider) when on.
+		exec := resilience.ExecutorFor("gateway:" + name)
 		// Wrap so breaker trips / rejects / retries emit span + counter +
 		// histogram + access log (the resilience core emits none).
 		out[name] = resilobserve.WrapExecutor(exec, "gateway:"+name, observe.ObserveConfig{})

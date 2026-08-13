@@ -19,9 +19,12 @@ package StarterDubbo
 import (
 	"sync/atomic"
 	"testing"
+	"time"
 	"unsafe"
 
 	"dubbo.apache.org/dubbo-go/v3/config_center"
+	"go-spring.org/cloud/govern"
+	"go-spring.org/cloud/resilience"
 	mapconfig "go-spring.org/starter-dubbo/internal/mapconfig"
 )
 
@@ -34,7 +37,7 @@ func setDyncConsumer(p *dyncPoller, c DubboConsumer) {
 }
 
 func newTestPoller() *dyncPoller {
-	return newDyncPoller(DubboApplication{Name: testApp})
+	return newDyncPoller(DubboApplication{Name: testApp}, nil)
 }
 
 // getRule fetches an override rule from the config center.
@@ -70,7 +73,7 @@ func TestDyncPoller_NoChange(t *testing.T) {
 func TestDyncPoller_ChangeDetected(t *testing.T) {
 	dc := mapconfig.Singleton()
 	p := newTestPoller()
-	svcKey := "greet.GreetService"
+	svcKey := "greet.GreetService::"
 
 	setDyncConsumer(p, DubboConsumer{
 		References: map[string]DubboReference{
@@ -112,7 +115,7 @@ func TestDyncPoller_EmptyRefsSkipped(t *testing.T) {
 func TestDyncPoller_ClusterAndLoadBalance(t *testing.T) {
 	dc := mapconfig.Singleton()
 	p := newTestPoller()
-	svcKey := "greet.GreetService"
+	svcKey := "greet.GreetService::"
 
 	setDyncConsumer(p, DubboConsumer{
 		References: map[string]DubboReference{
@@ -138,7 +141,7 @@ func TestDyncPoller_ClusterAndLoadBalance(t *testing.T) {
 func TestDyncPoller_ConsumerDefaults(t *testing.T) {
 	dc := mapconfig.Singleton()
 	p := newTestPoller()
-	svcKey := "greet.GreetService"
+	svcKey := "greet.GreetService::"
 
 	setDyncConsumer(p, DubboConsumer{
 		LoadBalance:    "roundrobin",
@@ -188,7 +191,7 @@ func TestDyncPoller_MultipleRefs(t *testing.T) {
 	p.poll()
 
 	// Each reference gets its own service-level rule — no last-wins merge.
-	rawA := getRule(t, dc, "svc.A")
+	rawA := getRule(t, dc, "svc.A::")
 	urlsA, err := dc.Parser().ParseToUrls(rawA)
 	if err != nil {
 		t.Fatal(err)
@@ -197,7 +200,7 @@ func TestDyncPoller_MultipleRefs(t *testing.T) {
 		t.Fatalf("expected loadbalance=random for svc.A, got %q", v)
 	}
 
-	rawB := getRule(t, dc, "svc.B")
+	rawB := getRule(t, dc, "svc.B::")
 	urlsB, err := dc.Parser().ParseToUrls(rawB)
 	if err != nil {
 		t.Fatal(err)
@@ -210,7 +213,7 @@ func TestDyncPoller_MultipleRefs(t *testing.T) {
 func TestDyncPoller_AllDynamicFields(t *testing.T) {
 	dc := mapconfig.Singleton()
 	p := newTestPoller()
-	svcKey := "svc.Full"
+	svcKey := "svc.Full:1.0:v2" // version=1.0, group=v2 → colonSeparatedKey
 
 	setDyncConsumer(p, DubboConsumer{
 		References: map[string]DubboReference{
@@ -286,14 +289,14 @@ func TestDyncPoller_Init(t *testing.T) {
 
 	// Init must push the initial rules even though OnChanged does not fire on
 	// the init bind (RefreshField runs onCommit, not onFinish).
-	if raw := getRule(t, dc, "greet.GreetService"); raw == "" {
+	if raw := getRule(t, dc, "greet.GreetService::"); raw == "" {
 		t.Fatal("expected initial override push on Init")
 	}
 }
 
 func TestDyncPoller_SnapshotLast(t *testing.T) {
 	p := newTestPoller()
-	svcKey := "greet.GreetService"
+	svcKey := "greet.GreetService::"
 
 	setDyncConsumer(p, DubboConsumer{
 		References: map[string]DubboReference{
@@ -361,7 +364,7 @@ func TestDyncPoller_RefWithoutInterface(t *testing.T) {
 func TestDyncPoller_SidePresent(t *testing.T) {
 	dc := mapconfig.Singleton()
 	p := newTestPoller()
-	svcKey := "greet.GreetService"
+	svcKey := "greet.GreetService::"
 
 	setDyncConsumer(p, DubboConsumer{
 		References: map[string]DubboReference{
@@ -386,5 +389,95 @@ func TestDyncPoller_SidePresent(t *testing.T) {
 	}
 	if providerSide != "provider" {
 		t.Fatalf("expected second URL side=provider, got %q", providerSide)
+	}
+}
+
+// TestDyncPoller_GovernOverride is the Level A test: when a governance center is
+// armed, its PolicyFor for each dubbo resource label overrides timeout/retries in
+// the published override rules, regardless of the dubbo-native values. This is
+// how ${govern} takes over dubbo's dynamic timeout/retry.
+func TestDyncPoller_GovernOverride(t *testing.T) {
+	dc := mapconfig.Singleton()
+	center := govern.NewCenter(govern.Config{
+		Enabled: true,
+		Driver:  "default",
+		Default: resilience.Config{Enabled: true, AttemptTimeout: 2 * time.Second, MaxRetries: 4},
+		// Per-reference override: a different timeout for one service. The key is
+		// the full dubbo resource label ("dubbo:" + colonSeparatedKey).
+		Rules: []govern.Rule{{
+			Resources: []string{"dubbo:greet.GreetService::"},
+			Config:    resilience.Config{Enabled: true, AttemptTimeout: 500 * time.Millisecond, MaxRetries: 1},
+		}},
+	})
+	p := &dyncPoller{
+		dynCfg:  mapconfig.Singleton(),
+		appName: testApp,
+		center:  center,
+		last:    make(map[string]map[string]string),
+		regged:  make(map[string]bool),
+	}
+
+	setDyncConsumer(p, DubboConsumer{
+		// Dubbo-native values that the center must override:
+		RequestTimeout: "3000", // overridden to 2000 (2s) by center default
+		Retries:        9,      // overridden to 4 by center default
+		References: map[string]DubboReference{
+			"greet": {Interface: "greet.GreetService", Timeout: "9999", Retries: 9},
+		},
+	})
+	p.poll()
+
+	// App-level override: timeout/retries from center Default (2s/4), not 3000/9.
+	appRaw := getRule(t, dc, testApp)
+	appURLs, err := dc.Parser().ParseToUrls(appRaw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v := appURLs[0].GetParam("timeout", ""); v != "2000" {
+		t.Fatalf("app timeout: center should override to 2000ms, got %q", v)
+	}
+	if v := appURLs[0].GetParam("retries", ""); v != "4" {
+		t.Fatalf("app retries: center should override to 4, got %q", v)
+	}
+
+	// Reference-level: the per-reference override (500ms/1) beats the center
+	// default, and beats the dubbo-native 9999/9.
+	refRaw := getRule(t, dc, "greet.GreetService::")
+	refURLs, err := dc.Parser().ParseToUrls(refRaw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v := refURLs[0].GetParam("timeout", ""); v != "500" {
+		t.Fatalf("ref timeout: center override should win at 500ms, got %q", v)
+	}
+	if v := refURLs[0].GetParam("retries", ""); v != "1" {
+		t.Fatalf("ref retries: center override should win at 1, got %q", v)
+	}
+}
+
+// TestDyncPoller_GovernDisabledIsNoop confirms a disabled center (or nil) leaves
+// the dubbo-native timeout/retries untouched - the Level A path is inert.
+func TestDyncPoller_GovernDisabledIsNoop(t *testing.T) {
+	dc := mapconfig.Singleton()
+	// Disabled center: Enabled=false even though Default has a policy.
+	center := govern.NewCenter(govern.Config{Enabled: false, Default: resilience.Config{Enabled: true, AttemptTimeout: 2 * time.Second}})
+	p := &dyncPoller{dynCfg: mapconfig.Singleton(), appName: testApp, center: center,
+		last: make(map[string]map[string]string), regged: make(map[string]bool)}
+
+	setDyncConsumer(p, DubboConsumer{
+		RequestTimeout: "3000", Retries: 2,
+		References: map[string]DubboReference{
+			"greet": {Interface: "greet.GreetService", Timeout: "3000", Retries: 3},
+		},
+	})
+	p.poll()
+
+	appRaw := getRule(t, dc, testApp)
+	appURLs, _ := dc.Parser().ParseToUrls(appRaw)
+	if v := appURLs[0].GetParam("timeout", ""); v != "3000" {
+		t.Fatalf("disabled center must not override: timeout want 3000, got %q", v)
+	}
+	if v := appURLs[0].GetParam("retries", ""); v != "2" {
+		t.Fatalf("disabled center must not override: retries want 2, got %q", v)
 	}
 }

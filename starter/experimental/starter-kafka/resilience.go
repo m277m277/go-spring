@@ -36,30 +36,26 @@ var resilienceExecs sync.Map // *kgo.Client -> resilience.Executor
 // can pass it to exec.Execute without re-deriving from Config.
 var resilienceResources sync.Map // *kgo.Client -> string
 
-// applyResilience builds an executor from the configured driver and indexes it
-// by cl, unless resilience is disabled. This is the kafka (franz-go) seam of
-// stdlib/resilience: franz-go's async Produce returns immediately (a record is
-// handed to the internal producer and a callback fires on completion), so
-// wrapping it in exec.Execute has no meaning. The synchronous ProduceSync path,
-// which blocks until the broker acknowledges, is what GuardedProduceSync
-// protects.
-func applyResilience(c Config, cl *kgo.Client) error {
-	rc := c.Resilience
+// applyResilience builds an executor and indexes it by cl. This is the kafka
+// (franz-go) seam of resilience: franz-go's async Produce returns immediately
+// (a record is handed to the internal producer and a callback fires on
+// completion), so wrapping it in exec.Execute has no meaning. The synchronous
+// ProduceSync path, which blocks until the broker acknowledges, is what
+// GuardedProduceSync protects. resource scopes the limiter/breaker state.
+//
+// The executor is resolved through the neutral [resilience.ExecutorFor] seam,
+// which starter-govern backs with the governance center — so this function has
+// zero coupling to cloud/govern. When governance is off, ExecutorFor yields a
+// transparent no-op executor; fault wraps it when enabled.
+func applyResilience(c Config, cl *kgo.Client, resource string) error {
 	fc := c.Fault
-	if !rc.Enabled && !fc.Enabled {
-		return nil
-	}
-	rawExec, err := resilience.NewExecutor(rc.Driver, rc.Policy())
-	if err != nil {
-		return err
-	}
-	exec := rawExec
+	exec := resilience.ExecutorFor(resource)
 	if fc.Enabled {
-		exec = fault.WrapExecutor(rawExec, fault.NewInjector(fc))
+		exec = fault.WrapExecutor(exec, fault.NewInjector(fc))
 	}
 	exec = resilobserve.WrapExecutor(exec, "kafka", c.Observability)
 	resilienceExecs.Store(cl, exec)
-	resilienceResources.Store(cl, resilience.ResourceLabel("kafka", c.Brokers))
+	resilienceResources.Store(cl, resource)
 	return nil
 }
 
@@ -85,8 +81,8 @@ func guard(ctx context.Context, cl *kgo.Client, call func(context.Context) error
 }
 
 // GuardedProduceSync produces recs synchronously on cl, routed through the
-// resilience executor attached to cl when Config.Resilience.Enabled is true.
-// When resilience is disabled this behaves exactly like cl.ProduceSync. On
+// resilience executor attached to cl when governance is enabled. When
+// governance is disabled this behaves exactly like cl.ProduceSync. On
 // rejection (rate-limit or open circuit) the returned ProduceResults carries
 // the rejection error on every record, so .FirstErr() surfaces the sentinel
 // just like a real produce failure and the underlying produce is never invoked.

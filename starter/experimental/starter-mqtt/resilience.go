@@ -36,32 +36,28 @@ var resilienceExecs sync.Map // mqtt.Client -> resilience.Executor
 // can pass it to exec.Execute without re-deriving from Config.
 var resilienceResources sync.Map // mqtt.Client -> string
 
-// applyResilience builds an executor from the configured driver and indexes it
-// by cl, unless resilience is disabled. This is the mqtt seam of
-// stdlib/resilience. paho's Publish hands the message to the client's internal
+// applyResilience builds an executor and indexes it by cl. This is the mqtt seam
+// of resilience. paho's Publish hands the message to the client's internal
 // outbound queue and returns a Token; the caller then blocks on token.Wait().
 // For QoS 0 Wait() returns once the packet is written; for QoS 1/2 it blocks
 // until the PUBACK/PUBCOMP. Because paho manages its own queueing and reconnect,
 // the executor here is intentionally minimal — rate limiting the publish rate
 // and short-circuiting (circuit breaker) when the broker is unhealthy. It is
 // driven through an opt-in call-site guard (GuardedPublish).
-func applyResilience(c Config, cl mqtt.Client) error {
-	rc := c.Resilience
+//
+// The executor is resolved through the neutral [resilience.ExecutorFor] seam,
+// which starter-govern backs with the governance center — so this function has
+// zero coupling to cloud/govern. When governance is off, ExecutorFor yields a
+// transparent no-op executor; fault wraps it when enabled.
+func applyResilience(c Config, cl mqtt.Client, resource string) error {
 	fc := c.Fault
-	if !rc.Enabled && !fc.Enabled {
-		return nil
-	}
-	rawExec, err := resilience.NewExecutor(rc.Driver, rc.Policy())
-	if err != nil {
-		return err
-	}
-	exec := rawExec
+	exec := resilience.ExecutorFor(resource)
 	if fc.Enabled {
-		exec = fault.WrapExecutor(rawExec, fault.NewInjector(fc))
+		exec = fault.WrapExecutor(exec, fault.NewInjector(fc))
 	}
 	exec = resilobserve.WrapExecutor(exec, "mqtt", c.Observability)
 	resilienceExecs.Store(cl, exec)
-	resilienceResources.Store(cl, resilience.ResourceLabel("mqtt", c.Broker))
+	resilienceResources.Store(cl, resource)
 	return nil
 }
 
@@ -87,8 +83,8 @@ func guard(ctx context.Context, cl mqtt.Client, call func(context.Context) error
 }
 
 // GuardedPublish publishes payload to topic at qos, routed through the
-// resilience executor attached to cl when Config.Resilience.Enabled is true.
-// When resilience is disabled this behaves exactly like a plain Client.Publish
+// resilience executor attached to cl when governance is enabled.
+// When governance is disabled this behaves exactly like a plain Client.Publish
 // followed by token.Wait(). On rejection (rate-limit or open circuit) the
 // returned error is a resilience sentinel and the underlying publish is never
 // invoked.

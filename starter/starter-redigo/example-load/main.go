@@ -32,6 +32,8 @@ import (
 	"github.com/gomodule/redigo/redis"
 	"go-spring.org/cloud/loadtest"
 	"go-spring.org/spring/gs"
+
+	_ "go-spring.org/cloud/govern" // registers the centralized governance center
 	StarterRedigo "go-spring.org/starter-redigo"
 )
 

@@ -19,8 +19,10 @@
 //
 //   - HEALTH: the per-instance bigcache health.Indicator is auto-exported by the
 //     starter and aggregated by starter-actuator on :9370 (/readyz + /health).
-//   - RESILIENCE: with resilience.enabled, every Get/Set/Delete runs through the
-//     builtin "default" executor; a burst is rejected with ErrRateLimited.
+//   - RESILIENCE: with govern.enabled, every Get/Set/Delete runs through the
+//     builtin "default" executor; a burst is rejected with ErrRateLimited. The
+//     policy flows from the centralized governance center (${govern}), not a
+//     per-starter resilience.* binding.
 //   - DYNAMIC CONFIG: a gs.Dync[string] field is bound to a watched file; editing
 //     it hot-reloads the value with no restart.
 //   - OBSERVABILITY: the wrapper Get/Set/Delete emit span+metric+log via the
@@ -52,6 +54,7 @@ import (
 
 	_ "go-spring.org/starter-actuator"    // aggregates the bigcache health.Indicator
 	_ "go-spring.org/starter-config-file" // registers the file-watch config provider
+	_ "go-spring.org/cloud/govern"      // provides the centralized *govern.Center bean
 )
 
 const mountDir = "./mount"

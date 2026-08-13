@@ -40,6 +40,7 @@ import (
 	"go-spring.org/spring/gs"
 
 	StarterGin "go-spring.org/starter-gin"
+	_ "go-spring.org/cloud/govern"
 )
 
 func init() {

@@ -21,6 +21,7 @@ import (
 	"net"
 	"strconv"
 
+	"go-spring.org/cloud/fault"
 	"go-spring.org/log"
 	"go-spring.org/spring/gs"
 	"go-spring.org/stdlib/errutil"
@@ -68,6 +69,16 @@ type Config struct {
 	Network  string         `value:"${network:=tcp}"`
 	Protocol string         `value:"${protocol:=trpc}"`
 	Observer ObserverConfig `value:"${observer}"`
+	LoadTest LoadTestConfig `value:"${loadtest}"`
+	Fault    fault.Config   `value:"${fault}"`
+}
+
+// LoadTestConfig toggles registration of the inbound load-test identification
+// filter ("loadtest"). Enabled by default; add "loadtest" to a service's filter
+// chain (first position) to activate it — it tags the handler context from
+// inbound metadata so downstream code can branch on traffic.IsLoadTest.
+type LoadTestConfig struct {
+	Enabled bool `value:"${enabled:=true}"`
 }
 
 // ObserverConfig toggles OTel tracing/metrics filters on the tRPC server.
@@ -149,6 +160,20 @@ func (s *SimpleTrpcServer) Run(ctx context.Context, sig gs.ReadySignal) error {
 	}
 	if s.cfg.Observer.Metrics.Enabled {
 		filter.Register("metrics", MetricsServerFilter(), nil)
+	}
+	// Register the load-test identification filter. Add "loadtest" to a
+	// service's filter chain (first position) to activate it; it tags the
+	// handler context from inbound metadata when the marker is present.
+	if s.cfg.LoadTest.Enabled {
+		filter.Register("loadtest", LoadTestServerFilter(), nil)
+	}
+	// Register the inbound fault-injection filter ("fault"). Add "fault" to a
+	// service's filter chain to activate it; it injects latency/errors into
+	// inbound RPCs per cfg.Fault — the server-side counterpart to the client
+	// starters' fault.WrapExecutor.
+	if s.cfg.Fault.Enabled {
+		inj := fault.NewInjector(s.cfg.Fault)
+		filter.Register("fault", FaultServerFilter(inj), nil)
 	}
 
 	// Bind the concrete service handler; the adapter itself stays service-agnostic.

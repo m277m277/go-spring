@@ -21,6 +21,7 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"go-spring.org/cloud/experimental/messaging"
+	"go-spring.org/cloud/traffic"
 )
 
 // NewBinder adapts a NATS connection to the broker-neutral messaging.Binder, so
@@ -56,6 +57,14 @@ type publisher struct {
 
 func (p *publisher) Publish(ctx context.Context, msg *messaging.Message) error {
 	nm := &nats.Msg{Subject: p.subject, Data: msg.Payload, Header: toNatsHeader(msg.Headers)}
+	// Carry the load-test marker in the NATS message header so the consumer
+	// recognises synthetic load. NATS header Set canonicalises like net/http.
+	if traffic.IsLoadTest(ctx) {
+		if nm.Header == nil {
+			nm.Header = nats.Header{}
+		}
+		nm.Header.Set(traffic.HeaderLoadTest, "1")
+	}
 	// Conn.PublishMsg emits the producer span + metric + access log and injects
 	// the W3C trace context into nm.Header for subscribers.
 	return p.conn.PublishMsg(nm)
@@ -78,6 +87,10 @@ func (s *subscriber) Subscribe(_ context.Context, handler messaging.Handler) err
 		// startConsume extracts the upstream trace, opens a consumer span +
 		// metric + access log; nil-safe when observability is off.
 		ctx, sp := s.conn.startConsume(context.Background(), s.subject, nm)
+		// Extract the load-test marker the producer put in the NATS header.
+		if traffic.IsAffirmative(nm.Header.Get(traffic.HeaderLoadTest)) {
+			ctx = traffic.WithLoadTest(ctx, "nats-header")
+		}
 		err := handler(ctx, fromNatsMsg(nm))
 		if sp != nil {
 			sp.End(err)

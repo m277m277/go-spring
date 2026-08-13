@@ -46,6 +46,7 @@ import (
 	"go-spring.org/cloud/discovery"
 	"go-spring.org/cloud/loadbalance"
 	"go-spring.org/cloud/resilience"
+	"go-spring.org/cloud/traffic"
 )
 
 // Config describes how to assemble the transport for one declarative client.
@@ -93,6 +94,14 @@ type Config struct {
 	// ResilienceDriver is set.
 	ResiliencePolicy resilience.Policy
 
+	// Executor is a pre-built resilience executor to use in place of the
+	// ResilienceDriver+ResiliencePolicy pair. When non-nil it takes precedence:
+	// the caller builds the executor (e.g. from a centralized governance center
+	// that owns its hot-reload), and httpx only wraps the transport with it. This
+	// lets a caller attach a policy that refreshes externally without httpx
+	// knowing about the governance source. WrapExec still wraps it (fault/observe).
+	Executor resilience.Executor
+
 	// WrapExec, if non-nil, wraps the resilience executor before it drives the
 	// round-tripper — e.g. a client starter passes resilobserve.WrapExecutor to
 	// attach span+metric+log, keeping this otel-free core free of any observe
@@ -103,6 +112,16 @@ type Config struct {
 	// Starters pass an otel-instrumented transport here so trace context rides
 	// along; nil means http.DefaultTransport.
 	Base http.RoundTripper
+
+	// WrapTransport, when non-nil, receives the fully assembled transport
+	// (otel base → discovery/LB → resilience → traffic) and returns the
+	// outermost RoundTripper to use. It is the user extension seam — the place
+	// to bolt on a custom metric, an auth header, a request filter, or any
+	// cross-cutting concern — without having to replace the whole chain or
+	// disable the built-in layers. Applied outermost, so it sees each request
+	// before the built-in layers; to detect load-test traffic from a wrapper,
+	// read traffic.IsLoadTest(req.Context()) (the ctx is tagged at every layer).
+	WrapTransport func(http.RoundTripper) http.RoundTripper
 }
 
 // NewTransport assembles the http.RoundTripper for cfg and returns it together
@@ -162,7 +181,17 @@ func NewTransport(cfg Config) (rt http.RoundTripper, close func() error, err err
 	// the balancer and picks a fresh endpoint, and the breaker keys on the host
 	// carried by the generated client (the logical service name in discovery
 	// mode). Disabled when no driver is configured, leaving base unchanged.
-	if cfg.ResilienceDriver != "" {
+	if cfg.Executor != nil {
+		// A pre-built executor (supplied by a caller that owns its lifecycle and
+		// hot-reload, e.g. a governance center) replaces the built-in
+		// driver+policy path. WrapExec still applies (fault/observe wrapping).
+		exec := cfg.Executor
+		if cfg.WrapExec != nil {
+			exec = cfg.WrapExec(exec)
+		}
+		base = resilience.NewRoundTripper(base, exec, nil)
+		closeFns = append(closeFns, exec.Close)
+	} else if cfg.ResilienceDriver != "" {
 		exec, err := resilience.NewExecutor(cfg.ResilienceDriver, cfg.ResiliencePolicy)
 		if err != nil {
 			closeAll(closeFns)
@@ -175,7 +204,34 @@ func NewTransport(cfg Config) (rt http.RoundTripper, close func() error, err err
 		closeFns = append(closeFns, exec.Close)
 	}
 
+	// Traffic: inject the load-test marker onto every outbound request when the
+	// call's ctx carries it, so downstream hops can recognise synthetic load and
+	// route/isolate/tag it. Sits above resilience so each retry attempt carries
+	// the marker (the header is set on the original request, which the retry
+	// loop reuses), and below the user WrapTransport so a custom wrapper can
+	// still observe or override the header. Inert — and effectively free —
+	// unless traffic.IsLoadTest(ctx) is true.
+	base = &trafficTransport{base: base}
+
+	// User extension seam: the outermost layer, applied last so it wraps the
+	// complete built-in stack (traffic included).
+	if cfg.WrapTransport != nil {
+		base = cfg.WrapTransport(base)
+	}
+
 	return base, func() error { return closeAll(closeFns) }, nil
+}
+
+// trafficTransport injects the load-test marker header onto each request when
+// the request's context is a load-test context, then delegates to base. It is
+// the outbound seam for [go-spring.org/cloud/traffic] on the HTTP client path.
+type trafficTransport struct {
+	base http.RoundTripper
+}
+
+func (t *trafficTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	traffic.InjectHTTP(req.Context(), req)
+	return t.base.RoundTrip(req)
 }
 
 // balancedTransport rewrites each request to a live endpoint chosen by the pool

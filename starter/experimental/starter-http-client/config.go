@@ -64,13 +64,14 @@ type Config struct {
 	// Timeout bounds each request made by the client. 0 means no timeout.
 	Timeout time.Duration `value:"${timeout:=0}"`
 
-	// Resilience optionally protects outbound requests with rate limiting,
-	// circuit breaking and retry. Disabled by default.
-	Resilience resilience.Config `value:"${resilience:=}"`
-
 	// Fault optionally injects failures/latency into outbound requests (via the
-	// same executor seam as Resilience) so retry/breaker/timeout can be proven
+	// same executor seam as resilience) so retry/breaker/timeout can be proven
 	// under load. Disabled by default.
+	//
+	// Resilience protection has no per-client binding here: it flows through the
+	// neutral resilience.ExecutorFor seam, backed by the centralized governance
+	// authority (starter-govern) when armed — scoped to this client's resource
+	// label and hot-reloaded without this starter touching cloud/govern.
 	Fault fault.Config `value:"${fault:=}"`
 
 	// Observability configures the resilience access log (off/brief/detailed)
@@ -106,8 +107,11 @@ func (c Config) validate() error {
 }
 
 // toTransportConfig maps the bound Config onto the stdlib/httpx assembler input,
-// applying base as the underlying (trace-instrumented) transport.
-func (c Config) toTransportConfig(base http.RoundTripper) httpx.Config {
+// applying base as the underlying (trace-instrumented) transport. exec is the
+// resilience executor resolved via [resilience.ExecutorFor] (always non-nil — a
+// transparent no-op when governance is off); it is handed to httpx directly, and
+// WrapExec layers fault (innermost) + observe-resilience on top of it.
+func (c Config) toTransportConfig(base http.RoundTripper, exec resilience.Executor) httpx.Config {
 	cfg := httpx.Config{
 		ServiceName:    c.ServiceName,
 		Addr:           c.Addr,
@@ -117,19 +121,13 @@ func (c Config) toTransportConfig(base http.RoundTripper) httpx.Config {
 		EjectFor:       c.EjectFor,
 		Base:           base,
 	}
-	if c.Resilience.Enabled || c.Fault.Enabled {
-		// Fault can run standalone (resilience off): build the executor with a
-		// zero policy then let fault wrap it, so injecting failures does not
-		// require also enabling retry/breaker.
-		driver := c.Resilience.Driver
-		if driver == "" {
-			driver = "default"
-		}
-		cfg.ResilienceDriver = driver
-		cfg.ResiliencePolicy = c.Resilience.Policy()
+	if exec != nil || c.Fault.Enabled {
+		cfg.Executor = exec
 		// Attach fault (innermost) then span + metric + log via observe-
 		// resilience, injected as a wrap hook so the otel-free httpx core stays
-		// decoupled. Stack order: observe( fault( rawExec ) ).
+		// decoupled. Stack order: observe( fault( rawExec ) ). exec is always
+		// non-nil (ExecutorFor yields a no-op when governance is off), so fault
+		// always has an executor to attach to.
 		cfg.WrapExec = func(e resilience.Executor) resilience.Executor {
 			if c.Fault.Enabled {
 				e = fault.WrapExecutor(e, fault.NewInjector(c.Fault))

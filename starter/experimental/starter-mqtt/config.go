@@ -20,7 +20,6 @@ import (
 	"time"
 
 	"go-spring.org/cloud/fault"
-	"go-spring.org/cloud/resilience"
 	"go-spring.org/cloud/tlsconf"
 	observe "go-spring.org/observe"
 )
@@ -60,16 +59,6 @@ type Config struct {
 	// publishes on the client's behalf if it disconnects ungracefully.
 	Will WillConfig `value:"${will}"`
 
-	// Resilience optionally protects publish calls with rate limiting and
-	// circuit breaking. It is disabled by default; when enabled, GuardedPublish
-	// routes Client.Publish (plus the token.Wait() that blocks until the paho
-	// outbound queue accepts the message, or until a QoS 1/2 ack lands) through
-	// the selected resilience driver. This is a minimal guard: paho manages its
-	// own internal queueing and reconnect, so the executor here is most useful
-	// for rate-limiting the publish rate and short-circuiting when the broker is
-	// unhealthy — not for retrying individual publishes.
-	Resilience resilience.Config `value:"${resilience:=}"`
-
 	// Fault optionally injects failures/latency into outbound calls so retry/
 	// breaker can be proven under load. Disabled by default.
 	Fault fault.Config `value:"${fault:=}"`
@@ -80,11 +69,6 @@ type Config struct {
 	// driven by their own default level.
 	Observability observe.ObserveConfig `value:"${observability:=}"`
 }
-
-// Resilience binds the backend-neutral resilience knobs shared by every client
-// starter (see [resilience.Config]). Keep MaxRetries at 0 for publishing —
-// paho already retries internally on reconnect, and duplicating a publish on
-// retry is rarely what the caller wants.
 
 // WillConfig configures the Last Will and Testament message. The will is
 // registered only when Topic is non-empty.

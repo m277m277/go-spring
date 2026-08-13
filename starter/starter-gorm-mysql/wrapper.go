@@ -30,66 +30,54 @@ import (
 
 // DB is the wrapper bean gorm-mysql clients are injected as. It
 // embeds *gorm.DB so all gorm methods promote unchanged, and field-injects the
-// resilience policy via gs.Dync so it hot-reloads on config change. newClient
-// returns one; gs field-injects Resilience + Observability, then calls
-// Init (InitMethod) to install the observe plugin and, when armed,
-// the resilience callbacks.
+// fault config via gs.Dync so it hot-reloads on config change. newClient
+// returns one; gs field-injects Fault + Observability, then calls
+// Init (InitMethod) to install the observe plugin and the resilience callbacks.
+// Resilience itself is no longer injected here: this DB resolves its executor
+// through the neutral [resilience.ExecutorFor] seam, which starter-govern backs
+// with the governance center — so this struct has zero coupling to cloud/govern.
 type DB struct {
 	*gorm.DB
-	Resilience    gs.Dync[resilience.Config] `value:"${resilience:=}"`
-	Fault         gs.Dync[fault.Config]      `value:"${fault:=}"`
-	Observability observe.ObserveConfig      `value:"${observability:=}"`
+	Fault         gs.Dync[fault.Config] `value:"${fault:=}"`
+	Observability observe.ObserveConfig `value:"${observability:=}"`
 
 	cfg      Config // for resourceLabel (addr/service-name)
-	exec     resilience.Executor
+	exec     resilience.Executor // resolved via resilience.ExecutorFor; no-op when governance is off
 	faultInj *fault.Injector
 	resource string
 }
 
-// Init is the gs InitMethod (runs after gs field-injects Resilience +
-// Observability). It installs the shared gorm observe plugin and, when
-// resilience is enabled, builds the executor and routes every gorm processor
-// through it via [gormresilience.ApplyCallbacks], then subscribes to policy
-// changes for hot Refresh.
+// Init is the gs InitMethod (runs after gs field-injects Fault +
+// Observability). It installs the shared gorm observe plugin, resolves the
+// resilience executor through the neutral [resilience.ExecutorFor] seam
+// (backed by starter-govern's governance center when configured; a transparent
+// no-op otherwise), optionally wraps it with the fault injector, and routes
+// every gorm processor through it via [gormresilience.ApplyCallbacks].
 func (o *DB) Init() error {
-	if err := o.DB.Use(gormobserve.NewPlugin("mysql", o.Observability)); err != nil {
-		return err
+	if o.cfg.ObserveEnabled {
+		if err := o.DB.Use(gormobserve.NewPlugin("mysql", o.Observability)); err != nil {
+			return err
+		}
 	}
-	rc := o.Resilience.Value()
+	o.resource = resilience.ResourceLabel("gorm:mysql", o.cfg.ServiceName, o.cfg.Addr)
+	exec := resilience.ExecutorFor(o.resource)
 	fc := o.Fault.Value()
-	if !rc.Enabled && !fc.Enabled {
-		return nil
-	}
-	rawExec, err := resilience.NewExecutor(rc.Driver, rc.Policy())
-	if err != nil {
-		return err
-	}
-	exec := rawExec
 	if fc.Enabled {
 		o.faultInj = fault.NewInjector(fc)
-		exec = fault.WrapExecutor(rawExec, o.faultInj)
-	}
-	exec = resilobserve.WrapExecutor(exec, "mysql", o.Observability)
-	o.exec = exec
-	o.resource = resilience.ResourceLabel("gorm:mysql", o.cfg.ServiceName, o.cfg.Addr)
-	if err := gormresilience.ApplyCallbacks(o.DB, exec, o.resource); err != nil {
-		return err
-	}
-	// Hot-reload: when the bound resilience config changes, adopt the new policy
-	// without a restart. Refresh resets per-resource state (the intended semantic
-	// of a threshold change - old failure counts were under the old policy).
-	o.Resilience.OnChanged(func(new, _ resilience.Config) {
-		_ = exec.Refresh(new.Policy())
-	})
-	if o.faultInj != nil {
+		exec = fault.WrapExecutor(exec, o.faultInj)
 		o.Fault.OnChanged(func(new, _ fault.Config) {
 			o.faultInj.SetConfig(new)
 		})
 	}
+	exec = resilobserve.WrapExecutor(exec, "mysql", o.Observability)
+	o.exec = exec
+	if err := gormresilience.ApplyCallbacks(o.DB, exec, o.resource); err != nil {
+		return err
+	}
 	return nil
 }
 
-// Destroy is the gs destroy method: closes the resilience executor (if armed),
+// Destroy is the gs destroy method: closes the resilience executor,
 // stops any discovery dialer watch and deregisters the TLS config behind the
 // client, then closes the underlying connection pool.
 func (o *DB) Destroy() error {

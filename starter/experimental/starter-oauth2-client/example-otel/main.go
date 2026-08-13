@@ -43,6 +43,7 @@ import (
 	"golang.org/x/oauth2"
 
 	StarterOAuth2Client "go-spring.org/starter-oauth2-client"
+	_ "go-spring.org/cloud/govern"
 	_ "go-spring.org/starter-otel"
 )
 

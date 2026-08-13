@@ -114,11 +114,13 @@ type RouteRaw struct {
 	} `value:"${resilience}"`
 }
 
-// policyRaw is a named resilience policy under spring.gateway.resilience.<name>.
-// It mirrors resilience.Policy so routes can share pooled breaker/limiter state
-// by referencing a policy name. Keys use the same kebab-case style as the client
-// starters (starter-go-redis, starter-http-client, ...) so the whole framework
-// reads resilience config one way.
+// policyRaw is the value type of the spring.gateway.resilience.<name> map. After
+// the ExecutorFor migration only the map KEYS matter — they name the routes a
+// gateway builds executors for (each resolved via resilience.ExecutorFor, policy
+// driven by the governance center). The fields below are retained so existing
+// spring.gateway.resilience.<name>.* config keeps binding without error, but they
+// are no longer read: a route's timeout/retry/breaker now comes from ${govern},
+// keyed by the "gateway:<name>" label, not from this struct.
 type policyRaw struct {
 	// Driver names the resilience backend for this policy ("default" or
 	// "sentinel"). Empty means "default". Previously hardcoded to "default",
@@ -141,30 +143,4 @@ type policyRaw struct {
 	RandomizationFactor float64                    `value:"${randomization-factor:=0}"`
 	Timeout             time.Duration              `value:"${attempt-timeout:=0}"`
 	MaxDuration         time.Duration              `value:"${max-duration:=0}"`
-}
-
-// toPolicy maps the bound policyRaw onto the driver-neutral resilience.Policy.
-// It is the single translation point so gateway routes expose the SAME knobs as
-// the client starters' shared resilience.Config — closing the previous
-// capability gap where gateway could not use error-rate breaking or exponential
-// backoff.
-func (p policyRaw) toPolicy() resilience.Policy {
-	return resilience.Policy{
-		RateLimit:           p.RateLimit,
-		Burst:               p.Burst,
-		ErrorThreshold:      p.ErrorThreshold,
-		OpenDuration:        p.OpenDuration,
-		BreakerStrategy:     p.BreakerStrategy,
-		ErrorRateThreshold:  p.ErrorRateThreshold,
-		MinRequests:         p.MinRequests,
-		BreakerWindow:       p.BreakerWindow,
-		MaxConcurrent:       p.MaxConcurrent,
-		MaxRetries:          p.MaxRetries,
-		InitialInterval:     p.InitialInterval,
-		Multiplier:          p.Multiplier,
-		MaxInterval:         p.MaxInterval,
-		RandomizationFactor: p.RandomizationFactor,
-		Timeout:             p.Timeout,
-		MaxDuration:         p.MaxDuration,
-	}
 }

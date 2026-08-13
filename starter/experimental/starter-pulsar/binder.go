@@ -18,10 +18,12 @@ package StarterPulsar
 
 import (
 	"context"
+	"maps"
 	"sync"
 
 	"github.com/apache/pulsar-client-go/pulsar"
 	"go-spring.org/cloud/experimental/messaging"
+	"go-spring.org/cloud/traffic"
 	"go-spring.org/log"
 )
 
@@ -77,9 +79,18 @@ func (b *binder) NewSubscriber(_ context.Context, source, group string) (messagi
 type publisher struct{ p pulsar.Producer }
 
 func (p *publisher) Publish(ctx context.Context, msg *messaging.Message) error {
+	// Carry the load-test marker (if any) in the message Properties so the
+	// consumer can recognise synthetic load. Copy the header map rather than
+	// mutate the caller's when injecting, to avoid surprising the publisher.
+	props := msg.Headers
+	if traffic.IsLoadTest(ctx) {
+		props = make(map[string]string, len(msg.Headers)+1)
+		maps.Copy(props, msg.Headers)
+		props[traffic.MetaKeyLoadTest] = "1"
+	}
 	pm := &pulsar.ProducerMessage{
 		Payload:    msg.Payload,
-		Properties: msg.Headers,
+		Properties: props,
 	}
 	if msg.Key != "" {
 		pm.Key = msg.Key
@@ -122,6 +133,11 @@ func (s *subscriber) Subscribe(ctx context.Context, handler messaging.Handler) e
 				continue
 			}
 			msgCtx, sp := startConsume(loopCtx, msg)
+			// Extract the load-test marker the producer put in Properties so the
+			// handler sees synthetic load via traffic.IsLoadTest(msgCtx).
+			if traffic.IsAffirmative(msg.Properties()[traffic.MetaKeyLoadTest]) {
+				msgCtx = traffic.WithLoadTest(msgCtx, "pulsar-property")
+			}
 			herr := handler(msgCtx, fromPulsarMsg(msg))
 			sp.End(herr)
 			if herr != nil {

@@ -22,8 +22,10 @@ import (
 	"go-spring.org/cloud/resilience"
 	"go-spring.org/log"
 	observe "go-spring.org/observe"
+	"go-spring.org/spring/conf"
 	"go-spring.org/spring/gs"
 	"go-spring.org/stdlib/errutil"
+	"go-spring.org/stdlib/flatten"
 )
 
 // Conn wraps a NATS connection together with an optional JetStream context.
@@ -31,7 +33,7 @@ import (
 // the bean; JetStream is non-nil only when jetstream.enabled is set, since it is
 // derived from the same connection rather than opening a second one.
 //
-// When Config.Resilience.Enabled is true the opt-in PublishGuarded and
+// When governance is enabled the opt-in PublishGuarded and
 // RequestGuarded methods route the call through a rate-limiter / circuit-
 // breaker executor; the plain Publish/Request remain untouched. nats exposes no
 // reject-capable middleware, so the guard lives at the call site — callers pick
@@ -45,7 +47,7 @@ type Conn struct {
 	pubObs *observe.Observer
 	subObs *observe.Observer
 
-	// exec is nil unless Config.Resilience.Enabled; when set, the guarded
+	// exec is nil unless governance is enabled; when set, the guarded
 	// methods route through it. resource is the stable per-instance key so the
 	// limiter/breaker state is scoped per connection rather than per subject.
 	exec     resilience.Executor
@@ -66,7 +68,15 @@ func init() {
 	// Register multiple NATS connections as a group.
 	// Each instance is created according to the configuration in
 	// "${spring.nats}", allowing multiple connections dynamically.
-	gs.Group("${spring.nats}", newConn, destroyConn)
+	gs.Module(gs.OnProperty("spring.nats"), func(r gs.BeanProvider, p flatten.Storage) error {
+		return conf.BindEach(p, "${spring.nats}", func(name string, c Config) error {
+			r.Provide(newConn,
+				gs.IndexArg(1, gs.ValueArg(name)),
+				gs.IndexArg(2, gs.ValueArg(c)),
+			).Name(name).Destroy(destroyConn).Caller(1)
+			return nil
+		})
+	})
 }
 
 // newConn dials NATS and, when configured, derives a JetStream context from the
@@ -148,7 +158,7 @@ func newConn(ctx *gs.ContextProvider, name string, c Config) (*Conn, error) {
 		}
 		conn.JetStream = js
 	}
-	if err := applyResilience(c, conn); err != nil {
+	if err := applyResilience(c, conn, resilience.ResourceLabel("nats", c.Name, c.URL)); err != nil {
 		log.Errorf(ctx.Context, starterTag, "nats: resilience setup failed: %v", err)
 		nc.Close()
 		return nil, err

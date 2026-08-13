@@ -119,8 +119,24 @@ type Config struct {
 	// false (the default) the client dials in plaintext.
 	TLS tlsconf.TLSConfig `value:"${tls}"`
 
+	// Otel toggles the redisotel tracing/metrics instrumentation attached to
+	// the client at construction. Both default to true — redisotel rides the
+	// OTel globals that starter-otel installs and is a no-op without it, so
+	// leaving them on is the zero-config opt-in. Set either to false to fully
+	// detach that signal's hooks for an instance, e.g. a high-throughput cache
+	// where the per-command span overhead is unwanted, or when a custom
+	// instrumentation is supplied via a Driver.
+	Otel OtelConfig `value:"${otel}"`
+
 	// Driver specifies which Redis driver to use, defaults to DefaultDriver.
 	Driver string `value:"${driver:=DefaultDriver}"`
+}
+
+// OtelConfig toggles the built-in redisotel instrumentation per instance and per
+// signal. See [Config.Otel].
+type OtelConfig struct {
+	TracingEnabled  bool `value:"${tracing.enabled:=true}"`
+	MetricsEnabled  bool `value:"${metrics.enabled:=true}"`
 }
 
 // Resilience and Observability are no longer fields of Config: they moved onto

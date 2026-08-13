@@ -27,7 +27,9 @@ import (
 // execute path. A zero-valued config (or Enabled false) injects nothing, so an
 // Injector with the zero Config is a transparent no-op.
 type Injector struct {
-	cfg atomic.Pointer[Config]
+	cfg      atomic.Pointer[Config]
+	firstAt  atomic.Int64 // unix-nanos of the first affected call; 0 = none yet
+	affected atomic.Int64 // count of calls that received any fault effect
 }
 
 // NewInjector returns an Injector holding c. The config can be replaced later
@@ -63,17 +65,64 @@ func (in *Injector) Config() Config {
 // resource is accepted for the per-resource rules extension; the global MVP
 // rule applies uniformly regardless of resource.
 func (in *Injector) maybe(resource string) (inject bool, sleep time.Duration, err error) {
-	_ = resource // reserved for per-resource rules
 	c := in.Config()
 	if !c.Enabled {
 		return false, 0, nil
 	}
-	if c.Latency > 0 {
-		sleep = c.Latency
+
+	// Safety guardrails: auto-off after MaxDuration since the first affected
+	// call, or after MaxAffected affected calls. Lets an operator "set fire and
+	// walk away" — a forgotten fault self-heals rather than running until the
+	// next deploy. Zero (the default) disables each bound; both gate ALL fault
+	// effects (latency + error). firstAt is stamped on the first affected call,
+	// so the MaxDuration window is measured from then, not from process start.
+	if c.MaxDuration > 0 {
+		if first := in.firstAt.Load(); first != 0 && time.Since(time.Unix(0, first)) > c.MaxDuration {
+			return false, 0, nil
+		}
 	}
-	if c.Rate > 0 && rand.Float64() < c.Rate {
+	if c.MaxAffected > 0 && in.affected.Load() >= c.MaxAffected {
+		return false, 0, nil
+	}
+
+	// Effective knobs: a matching per-resource Rule overrides the global; the
+	// global is the fallback when no rule matches (so Rules add specificity
+	// without losing the default). resource "" never matches a specific rule,
+	// only a catch-all — matching the historic "uniform" behavior.
+	rate, latency, errKind := c.Rate, c.Latency, c.Error
+	if r, ok := matchRule(c.Rules, resource); ok {
+		rate, latency, errKind = r.Rate, r.Latency, r.Error
+	}
+
+	if latency > 0 {
+		sleep = latency
+	}
+	if rate > 0 && rand.Float64() < rate {
 		inject = true
-		err = mapError(c.Error)
+		err = mapError(errKind)
+	}
+	if sleep > 0 || inject {
+		in.arm()
 	}
 	return inject, sleep, err
+}
+
+// matchRule returns the first rule in rules that matches resource (catch-all
+// when a rule has no Resources), or (_, false) when none match.
+func matchRule(rules []Rule, resource string) (Rule, bool) {
+	for _, r := range rules {
+		if r.matches(resource) {
+			return r, true
+		}
+	}
+	return Rule{}, false
+}
+
+// arm records that one call received a fault effect (latency and/or error):
+// stamps firstAt on the first such call and counts every one, so the
+// MaxDuration / MaxAffected guardrails have something to bound. The CAS makes
+// the first-call stamp race-safe; the counter is a plain atomic add.
+func (in *Injector) arm() {
+	in.firstAt.CompareAndSwap(0, time.Now().UnixNano())
+	in.affected.Add(1)
 }

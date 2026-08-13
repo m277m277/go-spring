@@ -50,6 +50,7 @@ import (
 
 	_ "go-spring.org/starter-actuator"    // aggregates the memcached health.Indicator
 	_ "go-spring.org/starter-config-file" // registers the file-watch config provider
+	_ "go-spring.org/cloud/govern"      // registers the centralized governance center
 	StarterMemcached "go-spring.org/starter-memcached"
 )
 

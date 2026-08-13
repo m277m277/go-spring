@@ -24,6 +24,7 @@ import (
 
 	"go-spring.org/cloud/discovery"
 	"go-spring.org/cloud/resilience"
+	"go-spring.org/cloud/traffic"
 	"go-spring.org/stdlib/testing/assert"
 )
 
@@ -148,3 +149,73 @@ func TestNewTransport_ResilienceBreakerFastFails(t *testing.T) {
 	assert.Error(t, err).Matches("circuit")
 	assert.That(t, len(rec.hosts)).Equal(before) // base was not hit again
 }
+
+// headerRT records whether a given header was present on the request it saw.
+type headerRT struct {
+	seen     bool
+	headerKey string
+}
+
+func (h *headerRT) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req.Header.Get(h.headerKey) != "" {
+		h.seen = true
+	}
+	return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody, Header: http.Header{}}, nil
+}
+
+func TestNewTransport_InjectsLoadTestMarker(t *testing.T) {
+	rec := &headerRT{headerKey: traffic.HeaderLoadTest}
+	rt, closeFn, err := NewTransport(Config{Base: rec})
+	assert.That(t, err).Nil()
+	defer func() { _ = closeFn() }()
+
+	// Plain ctx: no marker header on the wire.
+	req, _ := http.NewRequest(http.MethodGet, "http://svc/ping", nil)
+	_, _ = rt.RoundTrip(req)
+	assert.That(t, rec.seen).False()
+
+	// Load-test ctx: the traffic layer injects the marker header.
+	req2, _ := http.NewRequest(http.MethodGet, "http://svc/ping", nil)
+	req2 = req2.WithContext(traffic.WithLoadTest(context.Background(), "test"))
+	_, _ = rt.RoundTrip(req2)
+	assert.That(t, rec.seen).True()
+}
+
+func TestNewTransport_WrapTransportIsOutermost(t *testing.T) {
+	// WrapTransport sits OUTSIDE the traffic layer (the outermost seam), so it
+	// sees the request before traffic injects the load-test header — but it can
+	// still detect load-test traffic directly via ctx, and the inner base still
+	// receives the injected header. This proves the user seam wraps the whole
+	// built-in stack and can both observe (via ctx) and delegate.
+	var wrapperRan, wrapperSawHeaderBeforeTraffic, wrapperSawLoadTestCtx bool
+	base := &headerRT{headerKey: traffic.HeaderLoadTest}
+	rt, closeFn, err := NewTransport(Config{
+		Base: base,
+		WrapTransport: func(inner http.RoundTripper) http.RoundTripper {
+			return roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				wrapperRan = true
+				// Outermost: header not yet injected by the traffic layer below.
+				wrapperSawHeaderBeforeTraffic = req.Header.Get(traffic.HeaderLoadTest) != ""
+				// ...but the ctx is already tagged, so a wrapper can always tell.
+				wrapperSawLoadTestCtx = traffic.IsLoadTest(req.Context())
+				return inner.RoundTrip(req)
+			})
+		},
+	})
+	assert.That(t, err).Nil()
+	defer func() { _ = closeFn() }()
+
+	req, _ := http.NewRequest(http.MethodGet, "http://svc/ping", nil)
+	req = req.WithContext(traffic.WithLoadTest(context.Background(), "test"))
+	_, err = rt.RoundTrip(req)
+	assert.That(t, err).Nil()
+	assert.That(t, wrapperRan).True()
+	assert.That(t, wrapperSawHeaderBeforeTraffic).False() // traffic runs below the wrapper
+	assert.That(t, wrapperSawLoadTestCtx).True()          // ctx is readable at any layer
+	assert.That(t, base.seen).True()                      // inner base got the injected header
+}
+
+// roundTripFunc adapts a function into an http.RoundTripper for tests.
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }

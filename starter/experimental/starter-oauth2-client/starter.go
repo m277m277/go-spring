@@ -24,7 +24,9 @@ import (
 	"go-spring.org/log"
 	observe "go-spring.org/observe"
 	"go-spring.org/observe/resilience"
+	"go-spring.org/spring/conf"
 	"go-spring.org/spring/gs"
+	"go-spring.org/stdlib/flatten"
 	"golang.org/x/oauth2/clientcredentials"
 )
 
@@ -38,19 +40,32 @@ func init() {
 	// Each instance is created from the configuration under "${spring.oauth2.client}",
 	// allowing several downstream services (each with its own credentials) to be
 	// defined dynamically. The resulting *http.Client caches and refreshes tokens
-	// internally; when resilience is enabled its transport owns a closable
-	// executor, so a destroy hook releases it (a no-op otherwise).
-	gs.Group("${spring.oauth2.client}", newClient, destroyClient)
+	// internally; its transport always owns an executor (a transparent no-op when
+	// governance is off), so a destroy hook releases it uniformly.
+	//
+	// A gs.Module (rather than gs.Group) is used so each instance's bean can be
+	// paired with a Name + Destroy hook carrying the call-site file:line for
+	// diagnostics.
+	gs.Module(gs.OnProperty("spring.oauth2.client"), func(r gs.BeanProvider, p flatten.Storage) error {
+		return conf.BindEach(p, "${spring.oauth2.client}", func(name string, c Config) error {
+			r.Provide(newClient,
+				gs.IndexArg(1, gs.ValueArg(name)),
+				gs.IndexArg(2, gs.ValueArg(c)),
+			).Name(name).Destroy(destroyClient).Caller(1)
+			return nil
+		})
+	})
 }
 
 // newClient builds an *http.Client whose transport injects an OAuth2 bearer
 // token obtained via the client-credentials grant. Tokens are fetched lazily on
 // the first request and refreshed automatically once expired. Both the token
 // exchange and downstream requests are traced via otelContext (no-op without
-// starter-otel). When resilience is enabled the transport is additionally
-// wrapped so downstream requests flow through the configured rate limiter,
-// circuit breaker and retry — the bearer token is already attached before the
-// resilience layer runs, so each protected attempt is a complete request.
+// starter-otel). The transport is additionally wrapped so downstream requests
+// flow through the resilience executor (rate limiter, circuit breaker, retry)
+// resolved via [resilience.ExecutorFor] — a transparent no-op when governance
+// is off — so the bearer token is already attached before the resilience layer
+// runs and each protected attempt is a complete request.
 func newClient(ctx *gs.ContextProvider, name string, c Config) (*http.Client, error) {
 
 	cfg := &clientcredentials.Config{
@@ -62,24 +77,29 @@ func newClient(ctx *gs.ContextProvider, name string, c Config) (*http.Client, er
 		EndpointParams: c.endpointParams(),
 	}
 
-	log.Debugf(ctx.Context, starterTag, "creating oauth2 client clientID=%s tokenURL=%s timeout=%s resilience=%v", c.ClientID, c.TokenURL, c.Timeout, c.Resilience.Enabled)
+	log.Debugf(ctx.Context, starterTag, "creating oauth2 client clientID=%s tokenURL=%s timeout=%s", c.ClientID, c.TokenURL, c.Timeout)
 
 	client := cfg.Client(otelContext(c.Timeout))
 	if c.Timeout > 0 {
 		client.Timeout = c.Timeout
 	}
 
-	if c.Resilience.Enabled {
-		exec, err := resilience.NewExecutor(c.Resilience.Driver, c.Resilience.Policy())
-		if err != nil {
-			return nil, err
-		}
-		// Wrap so breaker trips / rejects / retries emit span + counter +
-		// histogram + access log (the resilience core emits none). nil-safe,
-		// no-op without starter-otel.
-		exec = resilobserve.WrapExecutor(exec, "oauth2", observe.ObserveConfig{})
-		client.Transport = resilience.NewRoundTripper(client.Transport, exec, nil)
-	}
+	// Resolve the resilience executor through the NEUTRAL provider seam
+	// [resilience.ExecutorFor]: starter-govern registers a provider backed by the
+	// governance center, so this client gets its rate-limit/breaker/retry policy
+	// WITHOUT injecting *govern.Center or even importing cloud/govern. When
+	// governance is not configured the seam yields a transparent no-op executor,
+	// so this call is always safe. Always non-nil; resolution is deferred to call
+	// time, so the order of this setup relative to starter-govern is irrelevant.
+	resource := resilience.ResourceLabel("oauth2", c.ClientID)
+	exec := resilience.ExecutorFor(resource)
+	// Wrap so breaker trips / rejects / retries emit span + counter +
+	// histogram + access log (the resilience core emits none). nil-safe,
+	// no-op without starter-otel.
+	exec = resilobserve.WrapExecutor(exec, "oauth2", observe.ObserveConfig{})
+	// Scope the roundtripper's per-call Execute to the same label so limiter/
+	// breaker state all agree.
+	client.Transport = resilience.NewRoundTripper(client.Transport, exec, func(*http.Request) string { return resource })
 	return client, nil
 }
 

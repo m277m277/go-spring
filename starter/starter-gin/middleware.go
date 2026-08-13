@@ -25,6 +25,7 @@ import (
 	"github.com/gin-contrib/gzip"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"go-spring.org/cloud/traffic"
 	"go-spring.org/stdlib/errutil"
 )
 
@@ -88,6 +89,17 @@ func RequestIDFromContext(ctx context.Context) string {
 func ApplyMiddlewares(e *gin.Engine, cfg Config) error {
 	mw := cfg.Middleware
 
+	// LoadTest identification is outermost of all: it tags the request context
+	// with the load-test marker (when the inbound header carries it) before
+	// RequestID, Observe or any handler runs, so every downstream layer —
+	// access logs, metrics, the handler, and any outbound client the handler
+	// calls — can branch on traffic.IsLoadTest(c.Request.Context()). The check
+	// is a single header lookup, so leaving it on (the default) is effectively
+	// free; flip middleware.loadtest.enabled off to disable.
+	if mw.LoadTest.Enabled {
+		e.Use(LoadTest(mw.LoadTest.Header))
+	}
+
 	// RequestID is outermost: it stamps the request id onto the request context
 	// (and the response header) before anything else runs, so Observe and every
 	// inner middleware can read it at any point via RequestIDFromContext.
@@ -114,6 +126,14 @@ func ApplyMiddlewares(e *gin.Engine, cfg Config) error {
 	}
 	if adm != nil {
 		e.Use(adm)
+	}
+
+	// Fault injection (opt-in): injects latency/errors into inbound requests so
+	// an operator can "set fire" to the running server. Sits inside Observe so
+	// the resulting 503s are observed, and after admission so a rate-limited
+	// request is not also faulted.
+	if fm := buildFault(cfg); fm != nil {
+		e.Use(fm)
 	}
 
 	// Policy middlewares - opt-in, and they sit inside Observe so short-circuit
@@ -149,6 +169,29 @@ func ApplyMiddlewares(e *gin.Engine, cfg Config) error {
 		mw.AccessLog.Metrics.SSEDistributions,
 	))
 	return nil
+}
+
+// LoadTest installs the inbound load-test traffic identification middleware.
+// When the incoming request carries the configured marker header (default
+// X-LoadTest) it tags the request context via traffic.WithLoadTest, so the
+// handler chain and every outbound client the handlers drive can recognise
+// synthetic load through traffic.IsLoadTest(c.Request.Context()). It is the
+// inbound companion to cloud/traffic's outbound injection: together they let a
+// load-test flag ride an HTTP hop end to end. An empty header falls back to the
+// traffic package default so the exported constructor is safe to call directly.
+//
+// Installed outermost (before RequestID and Observe), the marker reaches every
+// downstream layer; without the header the middleware is a no-op.
+func LoadTest(header string) gin.HandlerFunc {
+	if header == "" {
+		header = traffic.HeaderLoadTest
+	}
+	return func(c *gin.Context) {
+		if traffic.IsAffirmative(c.GetHeader(header)) {
+			ctx := traffic.WithLoadTest(c.Request.Context(), "http-header")
+			c.Request = c.Request.WithContext(ctx)
+		}
+	}
 }
 
 // RequestID installs the per-request id. It honors an incoming id on the

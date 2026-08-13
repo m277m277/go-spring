@@ -19,13 +19,20 @@ package StarterGin
 import (
 	"time"
 
-	"go-spring.org/cloud/resilience"
+	"go-spring.org/cloud/fault"
 	"go-spring.org/cloud/tlsconf"
 	observe "go-spring.org/observe"
 )
 
 // Config defines Gin server configuration, bound from ${spring.gin.server}.
 // Address must be explicitly configured; the server won't start without it.
+//
+// Inbound admission (rate-limit / bulkhead / breaker) no longer has a per-server
+// resilience binding here: it flows through the neutral resilience.ExecutorFor
+// seam (backed by starter-govern when armed), so an incoming request's protection
+// policy is governed alongside every outbound client and hot-reloads without
+// this starter coupling to cloud/govern. Fault injection stays server-local (it
+// is chaos tooling, not governance).
 type Config struct {
 	Address       string                `value:"${addr}"`
 	ReadTimeout   time.Duration         `value:"${readTimeout:=5s}"`
@@ -34,7 +41,7 @@ type Config struct {
 	TLS           tlsconf.TLSConfig     `value:"${tls}"`
 	Health        HealthConfig          `value:"${health}"`
 	Middleware    MiddlewareConfig      `value:"${middleware}"`
-	Resilience    resilience.Config     `value:"${resilience}"`
+	Fault         fault.Config          `value:"${fault}"`
 	Observability observe.ObserveConfig `value:"${observability:=}"`
 }
 
@@ -71,11 +78,24 @@ type HealthConfig struct {
 // (the easy path) is ignored in this mode, since the application owns the chain.
 type MiddlewareConfig struct {
 	Enabled       bool                `value:"${enabled:=true}"`
+	LoadTest      LoadTestConfig      `value:"${loadtest}"`
 	RequestID     RequestIDConfig     `value:"${requestId}"`
 	AccessLog     AccessLogConfig     `value:"${accessLog}"`
 	CORS          CORSConfig          `value:"${cors}"`
 	Gzip          GzipConfig          `value:"${gzip}"`
 	SecureHeaders SecureHeadersConfig `value:"${secureHeaders}"`
+}
+
+// LoadTestConfig toggles inbound load-test traffic identification. When enabled
+// (the default — it costs a single header lookup per request) the LoadTest
+// middleware reads the marker header off the incoming request and tags the
+// request context, so every downstream handler, middleware and outbound client
+// can tell synthetic load apart from real traffic via traffic.IsLoadTest. The
+// header name defaults to the canonical X-LoadTest used across go-spring; set it
+// to match whatever an upstream proxy or load generator sends.
+type LoadTestConfig struct {
+	Enabled bool   `value:"${enabled:=true}"`
+	Header  string `value:"${header:=X-LoadTest}"`
 }
 
 // RequestIDConfig toggles per-request id generation and propagation. It is on

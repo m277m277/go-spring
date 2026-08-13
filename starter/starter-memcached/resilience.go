@@ -24,18 +24,15 @@ import (
 	"go-spring.org/cloud/resilience"
 )
 
-// guard runs fn under the resilience executor (when armed), treating
+// guard runs fn under the resilience executor, treating
 // memcache.ErrCacheMiss as success so a cache miss never trips the breaker, and
 // surfacing protection rejections (rate-limited / circuit-open / bulkhead-full)
-// to the caller. When exec is nil (resilience disabled) fn runs directly with no
-// overhead. It is the single resilience body every Client method routes
-// through, so the logic lives in one place rather than being duplicated across
-// the 17 wrapped operations.
+// to the caller. When governance is off the resolved executor is a no-op, so fn
+// runs with a single function-call overhead. It is the single resilience body
+// every Client method routes through, so the logic lives in one place rather
+// than being duplicated across the 17 wrapped operations.
 func guard[T any](exec resilience.Executor, resource string, fn func() (T, error)) (T, error) {
 	var zero T
-	if exec == nil {
-		return fn()
-	}
 	var result T
 	var callErr error
 	execErr := exec.Execute(context.Background(), resource, func(context.Context) error {
@@ -69,9 +66,6 @@ func guard[T any](exec resilience.Executor, resource string, fn func() (T, error
 // semantics; the two-variant split keeps the call sites typed rather than
 // routing through any + runtime assertion.
 func guardErr(exec resilience.Executor, resource string, fn func() error) error {
-	if exec == nil {
-		return fn()
-	}
 	var callErr error
 	execErr := exec.Execute(context.Background(), resource, func(context.Context) error {
 		callErr = fn()

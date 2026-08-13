@@ -390,6 +390,45 @@ func TestErrorRateBreakerTripsOnRatio(t *testing.T) {
 	t.Fatal("error-rate breaker never tripped at 50% failure ratio")
 }
 
+func TestBreakerRecordsOncePerCallNotPerAttempt(t *testing.T) {
+	// Regression for the "resilience on => breaker trips instantly" bug: a
+	// retrying call must count as ONE breaker sample, not one per attempt.
+	// With ErrorThreshold 3 and MaxRetries 2 (3 attempts per call), a single
+	// failing call must NOT trip the breaker — under the old per-attempt
+	// recording it would record 3 failures and open immediately.
+	e := newBuiltin(t, Policy{
+		ErrorThreshold: 3,
+		MaxRetries:     2,
+		OpenDuration:   time.Minute,
+		RetryPredicate: func(error) bool { return true },
+	})
+	fail := func() error {
+		return e.Execute(context.Background(), "svc", func(context.Context) error {
+			return errors.New("boom")
+		})
+	}
+
+	// First failing call: 3 attempts, but only 1 breaker sample. The next call
+	// must still reach fn (return "boom"), proving the breaker did NOT open.
+	err := fail()
+	assert.Error(t, err).NotNil()
+	assert.That(t, !errors.Is(err, ErrCircuitOpen)).True()
+
+	// Second failing call: 2 samples now, still closed.
+	err = fail()
+	assert.Error(t, err).NotNil()
+	assert.That(t, !errors.Is(err, ErrCircuitOpen)).True()
+
+	// Third failing call records the 3rd sample and opens — but the opening
+	// happens at record time (after fn ran), so this call still returns "boom".
+	err = fail()
+	assert.Error(t, err).NotNil()
+	assert.That(t, !errors.Is(err, ErrCircuitOpen)).True()
+
+	// The fourth call is rejected outright without invoking fn.
+	assert.Error(t, fail()).Is(ErrCircuitOpen)
+}
+
 func TestDefaultRetryPredicateCases(t *testing.T) {
 	// Retryable cases.
 	assert.That(t, DefaultRetryPredicate(context.DeadlineExceeded)).True()

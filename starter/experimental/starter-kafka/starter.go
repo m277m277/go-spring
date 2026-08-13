@@ -27,9 +27,12 @@ import (
 	"github.com/twmb/franz-go/pkg/sasl/plain"
 	"github.com/twmb/franz-go/pkg/sasl/scram"
 	"github.com/twmb/franz-go/plugin/kotel"
+	"go-spring.org/cloud/resilience"
 	"go-spring.org/log"
+	"go-spring.org/spring/conf"
 	"go-spring.org/spring/gs"
 	"go-spring.org/stdlib/errutil"
+	"go-spring.org/stdlib/flatten"
 )
 
 var starterTag = log.RegisterInfraTag("kafka", "")
@@ -38,7 +41,15 @@ func init() {
 	// Register multiple Kafka clients as a group.
 	// Each instance is created according to the configuration in "${spring.kafka}".
 	// This allows defining multiple Kafka clients dynamically.
-	gs.Group("${spring.kafka}", newClient, destroyClient)
+	gs.Module(gs.OnProperty("spring.kafka"), func(r gs.BeanProvider, p flatten.Storage) error {
+		return conf.BindEach(p, "${spring.kafka}", func(name string, c Config) error {
+			r.Provide(newClient,
+				gs.IndexArg(1, gs.ValueArg(name)),
+				gs.IndexArg(2, gs.ValueArg(c)),
+			).Name(name).Destroy(destroyClient).Caller(1)
+			return nil
+		})
+	})
 }
 
 // pingTimeout bounds the startup connectivity probe.
@@ -108,7 +119,7 @@ func newClient(ctx *gs.ContextProvider, name string, c Config) (*kgo.Client, err
 		cl.Close()
 		return nil, errutil.Explain(err, "failed to ping kafka: %s", c.Brokers)
 	}
-	if err := applyResilience(c, cl); err != nil {
+	if err := applyResilience(c, cl, resilience.ResourceLabel("kafka", c.Brokers)); err != nil {
 		log.Errorf(ctx.Context, starterTag, "kafka: resilience setup failed: %v", err)
 		cl.Close()
 		return nil, err

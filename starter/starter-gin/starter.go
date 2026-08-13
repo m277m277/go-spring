@@ -93,7 +93,10 @@ type SimpleGinServer struct {
 //
 // outer is the application-supplied EngineMiddleware hook (nullable - nil when
 // none is provided); it runs before the built-in set so app middleware sits on
-// the outside of the chain. cfg is bound from ${spring.gin.server}.
+// the outside of the chain. cfg is bound from ${spring.gin.server}. Inbound
+// admission protection (rate-limit / breaker) is resolved inside
+// ApplyMiddlewares via the neutral resilience.ExecutorFor seam, so this server
+// has no coupling to cloud/govern.
 func NewSimpleGinServer(register RouterRegister, outer EngineMiddleware, cfg Config) (*SimpleGinServer, error) {
 	e := gin.New()
 

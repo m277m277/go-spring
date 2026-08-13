@@ -37,31 +37,27 @@ var resilienceExecs sync.Map // sarama.Client -> resilience.Executor
 // Config (which the wrapper no longer holds at call time).
 var resilienceResources sync.Map // sarama.Client -> string
 
-// applyResilience builds an executor from the configured driver and indexes it
-// by client, unless resilience is disabled. This is the kafka-sarama seam of
-// stdlib/resilience: sarama exposes no reject-capable middleware, so the
-// executor is driven through a transparent SyncProducer wrapper (see
+// applyResilience builds an executor and indexes it by client. This is the
+// kafka-sarama seam of resilience: sarama exposes no reject-capable middleware,
+// so the executor is driven through a transparent SyncProducer wrapper (see
 // WrapSyncProducer) that callers opt into once after creating their producer.
-func applyResilience(c Config, client sarama.Client) error {
-	rc := c.Resilience
+//
+// The executor is resolved through the neutral [resilience.ExecutorFor] seam,
+// which starter-govern backs with the governance center — so this function has
+// zero coupling to cloud/govern. When governance is off, ExecutorFor yields a
+// transparent no-op executor; fault wraps it when enabled.
+func applyResilience(c Config, client sarama.Client, resource string) error {
 	fc := c.Fault
-	if !rc.Enabled && !fc.Enabled {
-		return nil
-	}
-	rawExec, err := resilience.NewExecutor(rc.Driver, rc.Policy())
-	if err != nil {
-		return err
-	}
-	exec := rawExec
+	exec := resilience.ExecutorFor(resource)
 	if fc.Enabled {
-		exec = fault.WrapExecutor(rawExec, fault.NewInjector(fc))
+		exec = fault.WrapExecutor(exec, fault.NewInjector(fc))
 	}
 	// Wrap so breaker trips / rejects / retries emit span + counter + histogram
 	// + access log (the resilience core emits none). nil-safe, no-op without
 	// starter-otel.
 	exec = resilobserve.WrapExecutor(exec, "kafka", c.Observability)
 	resilienceExecs.Store(client, exec)
-	resilienceResources.Store(client, resilience.ResourceLabel("kafka", c.Brokers))
+	resilienceResources.Store(client, resource)
 	return nil
 }
 
@@ -87,8 +83,8 @@ func executorFor(client sarama.Client) (resilience.Executor, string) {
 }
 
 // WrapSyncProducer returns a sarama.SyncProducer that routes SendMessage and
-// SendMessages through the resilience executor attached to cl when
-// Config.Resilience.Enabled is true. When resilience is disabled (or cl was
+// SendMessages through the resilience executor attached to cl when governance
+// is enabled. When governance is disabled (or cl was
 // created without it) p is returned unchanged, so wrapping is a zero-risk
 // opt-in: callers always wrap unconditionally.
 //

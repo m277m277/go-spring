@@ -182,21 +182,28 @@ func (e *defaultExecutor) Execute(ctx context.Context, resource string, fn func(
 
 	attempts := e.policy.MaxRetries + 1
 	var err error
+	ran := false // whether at least one attempt actually invoked fn this call
 	for i := range attempts {
 		if s.bucket != nil && !s.bucket.allowN(1) {
 			return ErrRateLimited
 		}
 		if s.breaker != nil && !s.breaker.allow() {
+			// Breaker rejected the attempt. If an earlier attempt already ran
+			// this call — e.g. it won the half-open trial permit, failed, and a
+			// retry now finds the gate spent — fold that outcome in once so a
+			// won trial is never left unresolved (which would stick the breaker
+			// half-open with a consumed permit). When nothing ran yet there is
+			// no sample to record.
+			if ran {
+				s.breaker.record(err == nil)
+			}
 			return ErrCircuitOpen
 		}
 
 		err = e.runOnce(budgetCtx, fn)
-
-		if s.breaker != nil {
-			s.breaker.record(err == nil)
-		}
+		ran = true
 		if err == nil {
-			return nil
+			break
 		}
 		// A cancelled/Expired budget (caller cancel or MaxDuration) ends the
 		// loop before the predicate is consulted: there is no budget left for
@@ -213,6 +220,17 @@ func (e *defaultExecutor) Execute(ctx context.Context, resource string, fn func(
 		if !SleepFor(budgetCtx, e.policy.Backoff(i)) {
 			break // backoff interrupted by ctx cancellation
 		}
+	}
+	// The breaker measures the outcome of one protected call, not each retry
+	// attempt. Recording once per logical Execute — rather than once per
+	// attempt inside the loop — stops a retrying client from amplifying a
+	// single downstream failure into N breaker samples, which would trip the
+	// circuit far faster than the configured ErrorThreshold / error-rate
+	// implies (the "resilience on => breaker trips instantly" symptom). The
+	// rate limiter above intentionally still charges per attempt, because each
+	// attempt is a real downstream request the limiter exists to bound.
+	if s.breaker != nil {
+		s.breaker.record(err == nil)
 	}
 	return err
 }

@@ -36,28 +36,24 @@ var resilienceExecs sync.Map // pulsar.Client -> resilience.Executor
 // can pass it to exec.Execute without re-deriving from Config.
 var resilienceResources sync.Map // pulsar.Client -> string
 
-// applyResilience builds an executor from the configured driver and indexes it
-// by cl, unless resilience is disabled. This is the pulsar seam of
-// stdlib/resilience: pulsar-client-go exposes no reject-capable middleware and
+// applyResilience builds an executor and indexes it by cl. This is the pulsar
+// seam of resilience: pulsar-client-go exposes no reject-capable middleware and
 // producers are caller-created, so the executor is driven through an opt-in
 // call-site guard (GuardedSend) on the synchronous Producer.Send path.
-func applyResilience(c Config, cl pulsar.Client) error {
-	rc := c.Resilience
+//
+// The executor is resolved through the neutral [resilience.ExecutorFor] seam,
+// which starter-govern backs with the governance center — so this function has
+// zero coupling to cloud/govern. When governance is off, ExecutorFor yields a
+// transparent no-op executor; fault wraps it when enabled.
+func applyResilience(c Config, cl pulsar.Client, resource string) error {
 	fc := c.Fault
-	if !rc.Enabled && !fc.Enabled {
-		return nil
-	}
-	rawExec, err := resilience.NewExecutor(rc.Driver, rc.Policy())
-	if err != nil {
-		return err
-	}
-	exec := rawExec
+	exec := resilience.ExecutorFor(resource)
 	if fc.Enabled {
-		exec = fault.WrapExecutor(rawExec, fault.NewInjector(fc))
+		exec = fault.WrapExecutor(exec, fault.NewInjector(fc))
 	}
 	exec = resilobserve.WrapExecutor(exec, "pulsar", c.Observability)
 	resilienceExecs.Store(cl, exec)
-	resilienceResources.Store(cl, resilience.ResourceLabel("pulsar", c.URL))
+	resilienceResources.Store(cl, resource)
 	return nil
 }
 
@@ -83,8 +79,8 @@ func guard(ctx context.Context, cl pulsar.Client, call func(context.Context) err
 }
 
 // GuardedSend sends msg synchronously on producer, routed through the resilience
-// executor attached to cl when Config.Resilience.Enabled is true. When
-// resilience is disabled this behaves exactly like producer.Send. On rejection
+// executor attached to cl when governance is enabled. When
+// governance is disabled this behaves exactly like producer.Send. On rejection
 // (rate-limit or open circuit) the returned error is a resilience sentinel and
 // the underlying send is never invoked.
 //

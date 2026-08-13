@@ -41,13 +41,17 @@ var starterTag = log.RegisterInfraTag("redigo", "")
 // each command.
 type Pool struct {
 	*redis.Pool
-	Resilience    gs.Dync[resilience.Config] `value:"${resilience:=}"`
-	Fault         gs.Dync[fault.Config]      `value:"${fault:=}"`
-	Observability observe.ObserveConfig      `value:"${observability:=}"`
+	// Fault is the per-pool fault-injection config (a separate concern from
+	// centralized resilience governance). Resilience itself is no longer injected
+	// here: this pool resolves its executor through the neutral
+	// [resilience.ExecutorFor] seam, which starter-govern backs with the
+	// governance center — so this struct has zero coupling to cloud/govern.
+	Fault         gs.Dync[fault.Config] `value:"${fault:=}"`
+	Observability observe.ObserveConfig `value:"${observability:=}"`
 
 	cfg      Config // address fields feed the resilience resource label
 	obs      *observe.Observer
-	exec     resilience.Executor // nil when neither resilience nor fault is enabled
+	exec     resilience.Executor // resolved via resilience.ExecutorFor; no-op when governance is off
 	faultInj *fault.Injector     // non-nil only when fault was enabled at startup
 	hook     CommandInterceptor  // nil when no per-command interceptor is registered
 	resource string              // resilience resource label (stable per pool)
@@ -131,12 +135,15 @@ func (o *Pool) Destroy() error {
 	return o.Pool.Close()
 }
 
-// setupResilience builds the executor stack from the (hot-reloadable) resilience
-// and fault configs and stores it on the pool so every Conn threads each command
-// through it. It is a no-op when neither is enabled, leaving o.exec nil and the
-// inner conn to be called directly.
+// setupResilience builds the executor stack from the (hot-reloadable) fault
+// config and the governance-driven resilience seam, storing it on the pool so
+// every Conn threads each command through it. The resilience executor comes
+// from [resilience.ExecutorFor] — a neutral seam starter-govern backs with the
+// governance center — so this pool neither injects nor names cloud/govern. When
+// governance is off, ExecutorFor yields a transparent no-op executor; when on,
+// the resolved executor carries this pool's policy (hot-reloaded by the center).
 //
-// The stack is observe( fault( rawExec ) ): fault wraps the raw executor's
+// The stack is observe( fault( execFor ) ): fault wraps the resolved executor's
 // operation fn so injected failures land INSIDE the retry/breaker loop (and so
 // are observed), and observe sits outermost so trips / rejects / retries emit
 // span + counter + histogram + access log (the resilience core emits none). When
@@ -149,35 +156,28 @@ func (o *Pool) Destroy() error {
 // executor's Refresh seam. Called by Init (the gs
 // InitMethod) after the observer is built.
 func (o *Pool) setupResilience() error {
-	rc := o.Resilience.Value()
 	fc := o.Fault.Value()
-	if !rc.Enabled && !fc.Enabled {
-		return nil
-	}
-	rawExec, err := resilience.NewExecutor(rc.Driver, rc.Policy())
-	if err != nil {
-		return err
-	}
-	exec := rawExec
-	if fc.Enabled {
-		o.faultInj = fault.NewInjector(fc)
-		exec = fault.WrapExecutor(rawExec, o.faultInj)
-	}
-	exec = resilobserve.WrapExecutor(exec, "redigo", o.Observability)
-	o.exec = exec
 	// Scope limiter/breaker state per Redis instance (not per command): fall back
 	// across the address fields via the shared [resilience.ResourceLabel] helper.
 	o.resource = resilience.ResourceLabel("redigo", o.cfg.ServiceName, o.cfg.Addr)
-	// Hot-reload: when the bound resilience config changes, adopt the new policy
-	// without a restart. Refresh propagates through the observe + fault wraps.
-	o.Resilience.OnChanged(func(new, _ resilience.Config) {
-		_ = exec.Refresh(new.Policy())
-	})
-	if o.faultInj != nil {
+
+	// The resilience executor is resolved through the NEUTRAL provider seam
+	// [resilience.ExecutorFor]: starter-govern registers a provider backed by the
+	// governance center, so this pool gets its timeout/retry/breaker policy
+	// WITHOUT injecting *govern.Center or even importing cloud/govern. When
+	// governance is not configured the seam yields a transparent no-op executor,
+	// so this call is always safe. Resolution is deferred to call time, hence the
+	// order of this setup relative to starter-govern's wiring is irrelevant.
+	exec := resilience.ExecutorFor(o.resource)
+
+	if fc.Enabled {
+		o.faultInj = fault.NewInjector(fc)
+		exec = fault.WrapExecutor(exec, o.faultInj)
 		o.Fault.OnChanged(func(new, _ fault.Config) {
 			o.faultInj.SetConfig(new)
 		})
 	}
+	o.exec = resilobserve.WrapExecutor(exec, "redigo", o.Observability)
 	return nil
 }
 

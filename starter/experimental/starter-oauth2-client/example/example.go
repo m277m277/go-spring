@@ -35,6 +35,7 @@ import (
 	"golang.org/x/oauth2"
 
 	StarterOAuth2Client "go-spring.org/starter-oauth2-client"
+	_ "go-spring.org/cloud/govern"
 )
 
 // issuedToken is the access token the fake authorization server hands out and

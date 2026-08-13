@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"go-spring.org/cloud/resilience"
+	"go-spring.org/cloud/traffic"
 	"go-spring.org/stdlib/testing/assert"
 )
 
@@ -165,4 +166,144 @@ func TestInjector_HotSwap(t *testing.T) {
 	err = exec.Execute(context.Background(), "svc", countFn(&calls, nil))
 	assert.Error(t, err).Nil()
 	assert.That(t, atomic.LoadInt32(&calls)).Equal(int32(1))
+}
+
+// TestInjector_ScopeGatesLoadTestTraffic verifies the Scope config restricts
+// injection by the load-test marker on the call's context.
+func TestInjector_ScopeGatesLoadTestTraffic(t *testing.T) {
+	// Rate 1 + generic error => every in-scope call is faulted.
+	mk := func(scope string) resilience.Executor {
+		in := NewInjector(Config{Enabled: true, Rate: 1, Error: "generic", Scope: scope})
+		return WrapExecutor(newExec(t, resilience.Policy{}), in)
+	}
+	realCtx := context.Background()
+	loadCtx := traffic.WithLoadTest(context.Background(), "test")
+
+	// Scope "" (default): both real and load-test traffic get faulted.
+	all := mk("")
+	assert.That(t, IsInjected(all.Execute(realCtx, "svc", countFn(new(int32), nil)))).True()
+	assert.That(t, IsInjected(all.Execute(loadCtx, "svc", countFn(new(int32), nil)))).True()
+
+	// Scope "real": real traffic faulted, load-test traffic passes through.
+	real := mk("real")
+	assert.That(t, IsInjected(real.Execute(realCtx, "svc", countFn(new(int32), nil)))).True()
+	var ltCalls int32
+	assert.Error(t, real.Execute(loadCtx, "svc", countFn(&ltCalls, nil))).Nil()
+	assert.That(t, atomic.LoadInt32(&ltCalls)).Equal(int32(1)) // fn ran, no fault
+
+	// Scope "loadtest": load-test traffic faulted, real traffic passes through.
+	lt := mk("loadtest")
+	assert.That(t, IsInjected(lt.Execute(loadCtx, "svc", countFn(new(int32), nil)))).True()
+	var realCalls int32
+	assert.Error(t, lt.Execute(realCtx, "svc", countFn(&realCalls, nil))).Nil()
+	assert.That(t, atomic.LoadInt32(&realCalls)).Equal(int32(1))
+}
+
+// TestInjector_MaxAffectedCapsBlastRadius verifies MaxAffected stops injecting
+// after the configured count of affected calls.
+func TestInjector_MaxAffectedCapsBlastRadius(t *testing.T) {
+	in := NewInjector(Config{Enabled: true, Rate: 1, Error: "generic", MaxAffected: 3})
+	exec := WrapExecutor(newExec(t, resilience.Policy{}), in)
+
+	// First three calls are faulted.
+	for range 3 {
+		assert.That(t, IsInjected(exec.Execute(context.Background(), "svc", countFn(new(int32), nil)))).True()
+	}
+	// Fourth onward: guardrail tripped, call passes through untouched.
+	var calls int32
+	err := exec.Execute(context.Background(), "svc", countFn(&calls, nil))
+	assert.Error(t, err).Nil()
+	assert.That(t, atomic.LoadInt32(&calls)).Equal(int32(1))
+}
+
+// TestInjector_MaxDurationAutoOff verifies MaxDuration turns the fire off after
+// the window elapses (a forgotten fault self-heals).
+func TestInjector_MaxDurationAutoOff(t *testing.T) {
+	in := NewInjector(Config{Enabled: true, Rate: 1, Error: "generic", MaxDuration: 40 * time.Millisecond})
+	exec := WrapExecutor(newExec(t, resilience.Policy{}), in)
+
+	// Within the window: faulted.
+	assert.That(t, IsInjected(exec.Execute(context.Background(), "svc", countFn(new(int32), nil)))).True()
+	// After the window: passes through.
+	time.Sleep(60 * time.Millisecond)
+	var calls int32
+	err := exec.Execute(context.Background(), "svc", countFn(&calls, nil))
+	assert.Error(t, err).Nil()
+	assert.That(t, atomic.LoadInt32(&calls)).Equal(int32(1))
+}
+
+// TestInjector_NoGuardrailsUnchanged confirms the default (no guardrails) keeps
+// the original behavior: every Rate-1 call faults, indefinitely.
+func TestInjector_NoGuardrailsUnchanged(t *testing.T) {
+	in := NewInjector(Config{Enabled: true, Rate: 1, Error: "generic"})
+	exec := WrapExecutor(newExec(t, resilience.Policy{}), in)
+	for range 10 {
+		assert.That(t, IsInjected(exec.Execute(context.Background(), "svc", countFn(new(int32), nil)))).True()
+	}
+}
+
+// TestApply_ServerSideFault verifies the server-side Apply seam: it injects
+// latency+error per the injector's rules, honours Scope vs the load-test
+// marker, and is a transparent pass-through for nil injector.
+func TestApply_ServerSideFault(t *testing.T) {
+	// nil injector => fn runs untouched.
+	ran := false
+	assert.Error(t, Apply(context.Background(), nil, "svc", func() error { ran = true; return nil })).Nil()
+	assert.That(t, ran).True()
+
+	// Rate 1 => injected error returned, fn NOT called.
+	in := NewInjector(Config{Enabled: true, Rate: 1, Error: "generic"})
+	ran = false
+	err := Apply(context.Background(), in, "svc", func() error { ran = true; return nil })
+	assert.That(t, IsInjected(err)).True()
+	assert.That(t, ran).False()
+
+	// Scope "loadtest" + plain ctx => fn runs (scope excludes real traffic).
+	in2 := NewInjector(Config{Enabled: true, Rate: 1, Error: "generic", Scope: "loadtest"})
+	ran = false
+	assert.Error(t, Apply(context.Background(), in2, "svc", func() error { ran = true; return nil })).Nil()
+	assert.That(t, ran).True()
+
+	// Scope "loadtest" + load-test ctx => injected.
+	ran = false
+	err = Apply(traffic.WithLoadTest(context.Background(), "test"), in2, "svc", func() error { ran = true; return nil })
+	assert.That(t, IsInjected(err)).True()
+	assert.That(t, ran).False()
+}
+
+// TestInjector_PerResourceRules verifies a matching Rule overrides the global
+// rate/error for that resource, while non-matching resources fall back to the
+// global. First matching rule wins; empty-resources is a catch-all.
+func TestInjector_PerResourceRules(t *testing.T) {
+	// Global rate 0 (no faults) but a rule faults svc-a at rate 1.
+	in := NewInjector(Config{
+		Enabled: true,
+		Rate:    0,
+		Rules: []Rule{
+			{Resources: []string{"svc-a"}, Rate: 1, Error: "generic"},
+		},
+	})
+	exec := WrapExecutor(newExec(t, resilience.Policy{}), in)
+
+	// svc-a matches the rule => faulted.
+	assert.That(t, IsInjected(exec.Execute(context.Background(), "svc-a", countFn(new(int32), nil)))).True()
+	// svc-b matches no rule, global rate 0 => passes through.
+	var calls int32
+	assert.Error(t, exec.Execute(context.Background(), "svc-b", countFn(&calls, nil))).Nil()
+	assert.That(t, atomic.LoadInt32(&calls)).Equal(int32(1))
+
+	// Catch-all rule overrides global for any resource. Specific rule still wins
+	// over the catch-all when listed first.
+	in2 := NewInjector(Config{Enabled: true, Rate: 0, Rules: []Rule{
+		{Resources: []string{"svc-a"}, Rate: 1, Error: "timeout"},
+		{Resources: nil, Rate: 1, Error: "generic"}, // catch-all
+	}})
+	exec2 := WrapExecutor(newExec(t, resilience.Policy{}), in2)
+	err := exec2.Execute(context.Background(), "svc-a", countFn(new(int32), nil))
+	assert.That(t, IsInjected(err)).True()
+	assert.That(t, errors.Is(err, context.DeadlineExceeded)).True() // svc-a => timeout kind
+	// svc-c falls through to the catch-all => generic.
+	err = exec2.Execute(context.Background(), "svc-c", countFn(new(int32), nil))
+	assert.That(t, IsInjected(err)).True()
+	assert.That(t, errors.Is(err, context.DeadlineExceeded)).False() // generic, not timeout
 }

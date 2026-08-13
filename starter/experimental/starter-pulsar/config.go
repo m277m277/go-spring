@@ -20,7 +20,6 @@ import (
 	"time"
 
 	"go-spring.org/cloud/fault"
-	"go-spring.org/cloud/resilience"
 	observe "go-spring.org/observe"
 )
 
@@ -80,13 +79,6 @@ type Config struct {
 	// Metrics exposes the pulsar client's native Prometheus metrics.
 	Metrics MetricsConfig `value:"${metrics}"`
 
-	// Resilience optionally protects synchronous produce calls with rate
-	// limiting, circuit breaking, bulkhead and retry. It is disabled by
-	// default; when enabled, GuardedSend routes Producer.Send (the synchronous
-	// path) through the selected resilience driver. The asynchronous SendAsync
-	// path is untouched.
-	Resilience resilience.Config `value:"${resilience:=}"`
-
 	// Fault optionally injects failures/latency into outbound calls so retry/
 	// breaker can be proven under load. Disabled by default.
 	Fault fault.Config `value:"${fault:=}"`
@@ -97,11 +89,6 @@ type Config struct {
 	// driven by their own default level.
 	Observability observe.ObserveConfig `value:"${observability:=}"`
 }
-
-// Resilience binds the backend-neutral resilience knobs shared by every client
-// starter (see [resilience.Config]). Keep MaxRetries at 0 for producing —
-// retrying a publish can duplicate a message; leave retry to the caller who
-// knows whether the message is idempotent.
 
 // MetricsConfig controls exposure of pulsar-client-go's built-in Prometheus
 // metrics. pulsar has no OTel contrib, but the client always emits

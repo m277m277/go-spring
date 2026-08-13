@@ -27,10 +27,14 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"slices"
 
 	"go-spring.org/cloud/experimental/httpx"
+	"go-spring.org/cloud/resilience"
 	"go-spring.org/log"
+	"go-spring.org/spring/conf"
 	"go-spring.org/spring/gs"
+	"go-spring.org/stdlib/flatten"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
@@ -43,22 +47,63 @@ func init() {
 	// name (autowire:"user-svc") and sets it on a generated client's HTTPClient
 	// field. Each instance owns a discovery watch and/or resilience executor, so
 	// a destroy hook releases them.
-	gs.Group("${spring.http-client}", newClient, destroyClient)
+	//
+	// A gs.Module (rather than gs.Group) is used so each instance's bean can be
+	// paired with a Name + Destroy hook carrying the call-site file:line for
+	// diagnostics.
+	gs.Module(gs.OnProperty("spring.http-client"), func(r gs.BeanProvider, p flatten.Storage) error {
+		return conf.BindEach(p, "${spring.http-client}", func(name string, c Config) error {
+			r.Provide(newClient,
+				gs.IndexArg(1, gs.ValueArg(name)),
+				gs.IndexArg(2, gs.ValueArg(c)),
+			).Name(name).Destroy(destroyClient).Caller(1)
+			return nil
+		})
+	})
 }
 
 // newClient assembles one declarative-HTTP-client instance. The base transport
 // is otelhttp-instrumented so every outbound request emits a client span through
 // the OTel globals starter-otel installs (a no-op when it is absent), which is
 // how trace context rides across service boundaries. stdlib/httpx then layers
-// discovery + load balancing and, when enabled, resilience on top of that base.
+// discovery + load balancing and resilience on top of that base.
 func newClient(ctx *gs.ContextProvider, name string, c Config) (*http.Client, error) {
 	log.Debugf(ctx.Context, starterTag, "creating http client, addr=%s service-name=%s timeout=%v", c.Addr, c.ServiceName, c.Timeout)
 
 	if err := c.validate(); err != nil {
 		return nil, err
 	}
-	base := otelhttp.NewTransport(http.DefaultTransport)
-	rt, closeFn, err := httpx.NewTransport(c.toTransportConfig(base))
+	var base http.RoundTripper = otelhttp.NewTransport(http.DefaultTransport)
+	if f := currentBaseFactory(); f != nil {
+		if custom := f(name, c); custom != nil {
+			base = custom
+		}
+	}
+
+	// Resolve the resilience executor through the NEUTRAL provider seam
+	// [resilience.ExecutorFor]: starter-govern registers a provider backed by the
+	// governance center, so this client gets its timeout/retry/breaker policy
+	// WITHOUT injecting *govern.Center or even importing cloud/govern. When
+	// governance is not configured the seam yields a transparent no-op executor,
+	// so this call is always safe. Resolution is deferred to call time, hence the
+	// order of this setup relative to starter-govern's wiring is irrelevant.
+	// Always non-nil: fault.WrapExecutor / observe attach to it regardless.
+	resource := httpResourceLabel(c)
+	exec := resilience.ExecutorFor(resource)
+
+	tcfg := c.toTransportConfig(base, exec)
+	// Compose registered user middleware onto the outermost seam. Iterating in
+	// reverse so the first-registered wrapper ends up outermost (it receives the
+	// request first), matching the documented registration order.
+	if wrappers := currentTransportWrappers(); len(wrappers) > 0 {
+		tcfg.WrapTransport = func(rt http.RoundTripper) http.RoundTripper {
+			for _, w := range slices.Backward(wrappers) {
+				rt = w(name, c, rt)
+			}
+			return rt
+		}
+	}
+	rt, closeFn, err := httpx.NewTransport(tcfg)
 	if err != nil {
 		log.Errorf(ctx.Context, starterTag, "http-client: create transport failed: %v", err)
 		return nil, err
@@ -68,6 +113,12 @@ func newClient(ctx *gs.ContextProvider, name string, c Config) (*http.Client, er
 		Transport: &managedTransport{rt: rt, closeFn: closeFn},
 		Timeout:   c.Timeout,
 	}, nil
+}
+
+// httpResourceLabel derives the governance resource label for an http client,
+// scoped to the service name (discovery mode) or address (direct mode).
+func httpResourceLabel(c Config) string {
+	return resilience.ResourceLabel("http", c.ServiceName, c.Addr)
 }
 
 // destroyClient releases the discovery watch and resilience executor behind an

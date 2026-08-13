@@ -19,6 +19,7 @@ package StarterHertz
 import (
 	"time"
 
+	"go-spring.org/cloud/fault"
 	"go-spring.org/cloud/tlsconf"
 )
 
@@ -44,6 +45,7 @@ type Config struct {
 	TLS          tlsconf.TLSConfig `value:"${tls}"`
 	Health       HealthConfig      `value:"${health}"`
 	Middleware   MiddlewareConfig  `value:"${middleware}"`
+	Fault        fault.Config      `value:"${fault}"`
 }
 
 // MiddlewareConfig groups the built-in middlewares the starter can install on
@@ -60,6 +62,7 @@ type Config struct {
 // starter's safe-by-default stance).
 type MiddlewareConfig struct {
 	Recovery      RecoveryConfig      `value:"${recovery}"`
+	LoadTest      LoadTestConfig      `value:"${loadtest}"`
 	RequestID     RequestIDConfig     `value:"${requestId}"`
 	AccessLog     AccessLogConfig     `value:"${accessLog}"`
 	Tracing       TracingConfig       `value:"${tracing}"`
@@ -67,6 +70,16 @@ type MiddlewareConfig struct {
 	CORS          CORSConfig          `value:"${cors}"`
 	Gzip          GzipConfig          `value:"${gzip}"`
 	SecureHeaders SecureHeadersConfig `value:"${secureHeaders}"`
+}
+
+// LoadTestConfig toggles inbound load-test traffic identification. When enabled
+// (the default — one header lookup per request) the LoadTest middleware reads
+// the marker header off the incoming request and tags the request context, so
+// every downstream handler and outbound client can tell synthetic load apart
+// from real traffic via traffic.IsLoadTest. Defaults to X-LoadTest.
+type LoadTestConfig struct {
+	Enabled bool   `value:"${enabled:=true}"`
+	Header  string `value:"${header:=X-LoadTest}"`
 }
 
 // RecoveryConfig toggles recovery.Recovery. It is on by default: an unrecovered

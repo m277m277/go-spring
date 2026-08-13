@@ -22,6 +22,7 @@ import (
 
 	amqp "github.com/rabbitmq/amqp091-go"
 	"go-spring.org/cloud/experimental/messaging"
+	"go-spring.org/cloud/traffic"
 	"go-spring.org/log"
 )
 
@@ -85,6 +86,14 @@ func (p *publisher) Publish(ctx context.Context, msg *messaging.Message) error {
 		Headers:   toAMQPTable(msg.Headers),
 		MessageId: msg.Key,
 	}
+	// Carry the load-test marker in the AMQP headers so the consumer recognises
+	// synthetic load.
+	if traffic.IsLoadTest(ctx) {
+		if pub.Headers == nil {
+			pub.Headers = amqp.Table{}
+		}
+		pub.Headers[traffic.MetaKeyLoadTest] = "1"
+	}
 	ctx, sp := startPublish(ctx, p.queue, &pub)
 	err := p.ch.PublishWithContext(ctx, "", p.queue, false, false, pub)
 	sp.End(err)
@@ -114,6 +123,10 @@ func (s *subscriber) Subscribe(_ context.Context, handler messaging.Handler) err
 		defer close(s.done)
 		for d := range deliveries {
 			msgCtx, sp := startConsume(context.Background(), &d)
+			// Extract the load-test marker the producer put in the AMQP headers.
+			if v, ok := d.Headers[traffic.MetaKeyLoadTest].(string); ok && traffic.IsAffirmative(v) {
+				msgCtx = traffic.WithLoadTest(msgCtx, "amqp-header")
+			}
 			herr := handler(msgCtx, fromDelivery(&d))
 			sp.End(herr)
 			if herr != nil {

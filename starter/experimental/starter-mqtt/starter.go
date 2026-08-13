@@ -18,9 +18,12 @@ package StarterMQTT
 
 import (
 	mqtt "github.com/eclipse/paho.mqtt.golang"
+	"go-spring.org/cloud/resilience"
 	"go-spring.org/log"
+	"go-spring.org/spring/conf"
 	"go-spring.org/spring/gs"
 	"go-spring.org/stdlib/errutil"
+	"go-spring.org/stdlib/flatten"
 )
 
 var starterTag = log.RegisterInfraTag("mqtt", "")
@@ -30,7 +33,15 @@ func init() {
 	// Register multiple MQTT clients as a group.
 	// Each instance is created according to the configuration in "${spring.mqtt}".
 	// This allows defining multiple MQTT clients dynamically.
-	gs.Group("${spring.mqtt}", newClient, destroyClient)
+	gs.Module(gs.OnProperty("spring.mqtt"), func(r gs.BeanProvider, p flatten.Storage) error {
+		return conf.BindEach(p, "${spring.mqtt}", func(name string, c Config) error {
+			r.Provide(newClient,
+				gs.IndexArg(1, gs.ValueArg(name)),
+				gs.IndexArg(2, gs.ValueArg(c)),
+			).Name(name).Destroy(destroyClient).Caller(1)
+			return nil
+		})
+	})
 }
 
 // newClient creates and connects an MQTT client based on the provided configuration.
@@ -78,7 +89,7 @@ func newClient(ctx *gs.ContextProvider, name string, c Config) (mqtt.Client, err
 		log.Errorf(ctx.Context, starterTag, "mqtt: connect failed broker=%s: %v", c.Broker, err)
 		return nil, err
 	}
-	if err := applyResilience(c, client); err != nil {
+	if err := applyResilience(c, client, resilience.ResourceLabel("mqtt", c.Broker)); err != nil {
 		log.Errorf(ctx.Context, starterTag, "mqtt: resilience setup failed: %v", err)
 		client.Disconnect(250)
 		return nil, err

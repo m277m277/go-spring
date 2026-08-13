@@ -18,7 +18,6 @@ package StarterKafkaSarama
 
 import (
 	"go-spring.org/cloud/fault"
-	"go-spring.org/cloud/resilience"
 	"go-spring.org/cloud/tlsconf"
 	observe "go-spring.org/observe"
 )
@@ -50,14 +49,6 @@ type Config struct {
 	// Producer tunes producer-side compression and acks.
 	Producer ProducerConfig `value:"${producer}"`
 
-	// Resilience optionally protects synchronous produce calls with rate
-	// limiting, circuit breaking, bulkhead and retry. It is disabled by default;
-	// when enabled, WrapSyncProducer wraps a sarama.SyncProducer so every
-	// SendMessage/SendMessages routes through the selected resilience driver.
-	// Only the synchronous SyncProducer path is guarded — the async producer is
-	// untouched.
-	Resilience resilience.Config `value:"${resilience:=}"`
-
 	// Fault optionally injects failures/latency into outbound calls so retry/
 	// breaker can be proven under load. Disabled by default.
 	Fault fault.Config `value:"${fault:=}"`
@@ -68,11 +59,6 @@ type Config struct {
 	// driven by their own default level.
 	Observability observe.ObserveConfig `value:"${observability:=}"`
 }
-
-// Resilience binds the backend-neutral resilience knobs shared by every client
-// starter (see [resilience.Config]). Keep MaxRetries at 0 for producing —
-// retrying a publish can duplicate a message; leave retry to the caller who
-// knows whether the message is idempotent.
 
 // SASLConfig configures SASL authentication. It is shared, by property name,
 // with the franz-go based starter-kafka so switching implementations does

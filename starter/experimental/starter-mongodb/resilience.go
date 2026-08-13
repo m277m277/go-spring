@@ -46,13 +46,13 @@ import (
 // the swap takes effect without rebuilding the client.
 type Client struct {
 	*mongo.Client
-	// Resilience is field-injected (gs.Dync, hot-reloadable); Observability is
-	// the startup access-log config (not hot). These replace the old
-	// Config.Resilience/Observability fields so the wrapper bean owns its own
-	// protection + observability policy.
-	Resilience    gs.Dync[resilience.Config] `value:"${resilience:=}"`
-	Fault         gs.Dync[fault.Config]      `value:"${fault:=}"`
-	Observability observe.ObserveConfig      `value:"${observability:=}"`
+	// Fault is the per-client fault-injection config (a separate concern from
+	// centralized resilience governance). Resilience itself is no longer injected
+	// here: this client resolves its executor through the neutral
+	// [resilience.ExecutorFor] seam, which starter-govern backs with the
+	// governance center — so this struct has zero coupling to cloud/govern.
+	Fault         gs.Dync[fault.Config] `value:"${fault:=}"`
+	Observability observe.ObserveConfig `value:"${observability:=}"`
 
 	// cfg is the connection config, retained for the resilience resource label.
 	cfg Config
@@ -65,54 +65,40 @@ type Client struct {
 	// obs is the observe observer built by Init from the injected
 	// Observability; the command monitor reads it lazily.
 	obs atomic.Pointer[observe.Observer]
-	// exec is the resilience executor protecting dials, set by Init
-	// when resilience is enabled. nil on an unarmed client.
+	// exec is the resilience executor protecting dials, resolved via
+	// resilience.ExecutorFor; no-op when governance is off.
 	exec resilience.Executor
 	// faultInj is the fault injector short-circuiting dials when fault
 	// injection is enabled. nil when fault is off.
 	faultInj *fault.Injector
 	// resource is the resilience resource key ("mongodb:<...>") exec scopes
-	// limiter/breaker state by. Only meaningful when exec != nil.
+	// limiter/breaker state by.
 	resource string
 }
 
-// Init is the gs InitMethod: gs field-injects Resilience + Observability
+// Init is the gs InitMethod: gs field-injects Fault + Observability
 // after newClient returns, then calls this. It builds the observe.Observer (needs
-// Observability) and, when resilience is enabled, the executor + the
-// resilience-wrapped dial function (needs the Resilience policy), swaps it into
-// the shared dialer, and subscribes to policy changes for hot Refresh.
+// Observability) and resolves the executor through the neutral
+// [resilience.ExecutorFor] seam (backed by starter-govern's governance center
+// when imported), wraps it, swaps the resilience-wrapped dial function into the
+// shared dialer. When governance is off the resolved executor is a transparent
+// no-op; fault wrapping still applies when enabled.
 func (o *Client) Init() error {
 	o.obs.Store(observe.NewClient("mongodb", o.Observability))
-	rc := o.Resilience.Value()
 	fc := o.Fault.Value()
-	if !rc.Enabled && !fc.Enabled {
-		return nil
-	}
-	rawExec, err := resilience.NewExecutor(rc.Driver, rc.Policy())
-	if err != nil {
-		return err
-	}
-	exec := rawExec
+	o.resource = resilience.ResourceLabel("mongodb", o.cfg.ServiceName, o.cfg.URI)
+	exec := resilience.ExecutorFor(o.resource)
 	if fc.Enabled {
 		o.faultInj = fault.NewInjector(fc)
-		exec = fault.WrapExecutor(rawExec, o.faultInj)
+		exec = fault.WrapExecutor(exec, o.faultInj)
+		o.Fault.OnChanged(func(new, _ fault.Config) { o.faultInj.SetConfig(new) })
 	}
 	exec = resilobserve.WrapExecutor(exec, "mongodb", o.Observability)
 	o.exec = exec
-	o.resource = resilience.ResourceLabel("mongodb", o.cfg.ServiceName, o.cfg.URI)
 	// Wrap the current (plain/discovery) dial with the policy and swap it into
 	// the shared dialer the driver already holds.
 	baseDial := o.dialer.dial
 	o.dialer.dial = resilience.NewDialer(baseDial, exec, o.resource)
-	// Hot-reload: when the bound resilience config changes, adopt the new policy
-	// without a restart. Refresh resets per-resource state (the intended semantic
-	// of a threshold change - old failure counts were under the old policy).
-	o.Resilience.OnChanged(func(new, _ resilience.Config) {
-		_ = exec.Refresh(new.Policy())
-	})
-	if o.faultInj != nil {
-		o.Fault.OnChanged(func(new, _ fault.Config) { o.faultInj.SetConfig(new) })
-	}
 	return nil
 }
 

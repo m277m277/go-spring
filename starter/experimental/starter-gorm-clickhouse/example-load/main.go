@@ -33,6 +33,7 @@ import (
 	"go-spring.org/cloud/loadtest"
 	"go-spring.org/spring/gs"
 	StarterGormClickhouse "go-spring.org/starter-gorm-clickhouse"
+	_ "go-spring.org/cloud/govern"
 )
 
 // Service is the root bean holding the autowired client instance "load".

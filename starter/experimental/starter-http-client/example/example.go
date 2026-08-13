@@ -59,6 +59,7 @@ import (
 
 	_ "go-spring.org/starter-http-client"
 	"go-spring.org/starter-http-client/example/proto"
+	_ "go-spring.org/cloud/govern"
 )
 
 // Fixed loopback ports for the three in-process backends. Two healthy greet

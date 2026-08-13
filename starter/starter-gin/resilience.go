@@ -23,24 +23,27 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"go-spring.org/cloud/fault"
 	"go-spring.org/cloud/resilience"
 	"go-spring.org/observe/resilience"
 )
 
-// buildAdmission builds the inbound admission middleware from cfg, or returns
-// (nil, nil) when resilience is disabled. The executor is wrapped with
-// observe-resilience so breaker trips / rejects emit span + counter + histogram
-// + access log.
+// buildAdmission builds the inbound admission middleware. The resilience
+// executor is resolved through the NEUTRAL provider seam
+// [resilience.ExecutorFor]: starter-govern registers a provider backed by the
+// governance center, so this server gets its rate-limit / bulkhead / breaker
+// policy WITHOUT injecting *govern.Center or even importing cloud/govern. When
+// governance is not configured the seam yields a transparent no-op executor, so
+// the admission middleware runs but never rejects (fn runs once, untouched).
+// Hot-reload is driven on the backing executor by the provider, so an operator
+// can tighten inbound admission without a restart, the same way every outbound
+// client's policy is tuned. The executor is wrapped with observe-resilience so
+// breaker trips / rejects emit span + counter + histogram + access log.
 func buildAdmission(cfg Config) (gin.HandlerFunc, error) {
-	if !cfg.Resilience.Enabled {
-		return nil, nil
-	}
-	exec, err := resilience.NewExecutor(cfg.Resilience.Driver, cfg.Resilience.Policy())
-	if err != nil {
-		return nil, err
-	}
+	resource := resilience.ResourceLabel("gin", cfg.Address)
+	exec := resilience.ExecutorFor(resource)
 	exec = resilobserve.WrapExecutor(exec, "gin", cfg.Observability)
-	return resilienceAdmission(exec, resilience.ResourceLabel("gin", cfg.Address)), nil
+	return resilienceAdmission(exec, resource), nil
 }
 
 // resilienceAdmission is the inbound admission middleware: each request runs
@@ -86,3 +89,29 @@ func resilienceAdmission(exec resilience.Executor, resource string) gin.HandlerF
 type errHTTP5xx struct{ code int }
 
 func (e errHTTP5xx) Error() string { return fmt.Sprintf("http: server returned %d", e.code) }
+
+// buildFault builds the inbound fault-injection middleware from cfg, or returns
+// nil when fault is disabled. It is the server-side counterpart to the client
+// starters' fault.WrapExecutor: instead of wrapping an outbound Executor, it
+// gates the handler call with [fault.Apply] so a configured fraction of inbound
+// requests are made to fail or slow down — letting an operator "set fire" to a
+// running server to verify its observe, its own resilience admission, and the
+// upstream clients' retry/breaker behavior. Built once at startup from cfg.Fault
+// (gin's server config is static; toggle via restart, or rebuild for hot-reload).
+func buildFault(cfg Config) gin.HandlerFunc {
+	if !cfg.Fault.Enabled {
+		return nil
+	}
+	inj := fault.NewInjector(cfg.Fault)
+	return func(c *gin.Context) {
+		err := fault.Apply(c.Request.Context(), inj, "gin", func() error {
+			c.Next()
+			return nil
+		})
+		if err != nil && !c.Writer.Written() {
+			// An injected fault (or a latency cancelled by the request deadline)
+			// surfaces as 503 — the server is "unavailable" for this request.
+			c.AbortWithStatus(http.StatusServiceUnavailable)
+		}
+	}
+}

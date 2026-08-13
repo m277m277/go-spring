@@ -25,9 +25,12 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/middlewares/server/recovery"
 	"github.com/cloudwego/hertz/pkg/app/server"
+	"github.com/cloudwego/hertz/pkg/protocol/consts"
 	"github.com/hertz-contrib/cors"
 	"github.com/hertz-contrib/gzip"
 	"github.com/hertz-contrib/requestid"
+	"go-spring.org/cloud/fault"
+	"go-spring.org/cloud/traffic"
 	"go-spring.org/log"
 	"go-spring.org/stdlib/errutil"
 )
@@ -73,6 +76,13 @@ func RequestIDFromContext(ctx context.Context) string {
 func applyMiddlewares(h *server.Hertz, cfg Config) error {
 	mw := cfg.Middleware
 
+	// LoadTest identification is outermost of all so the marker is on the
+	// request context before Recovery, RequestID or any handler runs, letting
+	// every downstream layer branch on traffic.IsLoadTest(ctx). A single header
+	// lookup; off when disabled.
+	if mw.LoadTest.Enabled {
+		h.Use(LoadTest(mw.LoadTest.Header))
+	}
 	if mw.Recovery.Enabled {
 		h.Use(recovery.Recovery())
 	}
@@ -102,7 +112,31 @@ func applyMiddlewares(h *server.Hertz, cfg Config) error {
 	if mw.Gzip.Enabled {
 		h.Use(gzip.Gzip(mw.Gzip.Level))
 	}
+	// Fault injection (opt-in), innermost so the resulting 503 is still logged.
+	if fm := buildFault(cfg); fm != nil {
+		h.Use(fm)
+	}
 	return nil
+}
+
+// buildFault builds the inbound fault-injection middleware from cfg, or returns
+// nil when fault is disabled. It gates the handler call with [fault.Apply] so a
+// configured fraction of inbound requests fail or slow down — the server-side
+// counterpart to the client starters' fault.WrapExecutor.
+func buildFault(cfg Config) app.HandlerFunc {
+	if !cfg.Fault.Enabled {
+		return nil
+	}
+	inj := fault.NewInjector(cfg.Fault)
+	return func(ctx context.Context, c *app.RequestContext) {
+		err := fault.Apply(ctx, inj, "hertz", func() error {
+			c.Next(ctx)
+			return nil
+		})
+		if err != nil && !c.Response.IsBodyStream() && c.Response.StatusCode() == 0 {
+			c.AbortWithStatus(consts.StatusServiceUnavailable)
+		}
+	}
 }
 
 // accessLogSkipSet builds the set of paths the access log should not record. It
@@ -117,6 +151,25 @@ func accessLogSkipSet(cfg Config) map[string]struct{} {
 		skip[cfg.Health.Path] = struct{}{}
 	}
 	return skip
+}
+
+// LoadTest installs the inbound load-test traffic identification middleware.
+// When the incoming request carries the configured marker header (default
+// X-LoadTest) it tags the request context via traffic.WithLoadTest, so handlers
+// and outbound clients can recognise synthetic load through traffic.IsLoadTest.
+// It is the inbound companion to cloud/traffic's outbound injection. An empty
+// header falls back to the traffic package default. Without the marker it is a
+// no-op. Hertz stores headers as []byte; Peek returns the raw value.
+func LoadTest(header string) app.HandlerFunc {
+	if header == "" {
+		header = traffic.HeaderLoadTest
+	}
+	return func(ctx context.Context, c *app.RequestContext) {
+		if traffic.IsAffirmative(string(c.Request.Header.Peek(header))) {
+			ctx = traffic.WithLoadTest(ctx, "http-header")
+		}
+		c.Next(ctx)
+	}
 }
 
 // propagateRequestID copies the id set by hertz-contrib/requestid onto the

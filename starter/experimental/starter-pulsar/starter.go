@@ -25,9 +25,12 @@ import (
 	"github.com/apache/pulsar-client-go/pulsar"
 	plog "github.com/apache/pulsar-client-go/pulsar/log"
 	"github.com/prometheus/client_golang/prometheus"
+	"go-spring.org/cloud/resilience"
 	"go-spring.org/log"
+	"go-spring.org/spring/conf"
 	"go-spring.org/spring/gs"
 	"go-spring.org/stdlib/errutil"
+	"go-spring.org/stdlib/flatten"
 )
 
 var starterTag = log.RegisterInfraTag("pulsar", "")
@@ -37,7 +40,15 @@ func init() {
 	// Register multiple Pulsar clients as a group.
 	// Each instance is created according to the configuration in "${spring.pulsar}".
 	// This allows defining multiple Pulsar clients dynamically.
-	gs.Group("${spring.pulsar}", newClient, destroyClient)
+	gs.Module(gs.OnProperty("spring.pulsar"), func(r gs.BeanProvider, p flatten.Storage) error {
+		return conf.BindEach(p, "${spring.pulsar}", func(name string, c Config) error {
+			r.Provide(newClient,
+				gs.IndexArg(1, gs.ValueArg(name)),
+				gs.IndexArg(2, gs.ValueArg(c)),
+			).Name(name).Destroy(destroyClient).Caller(1)
+			return nil
+		})
+	})
 }
 
 // newClient builds a Pulsar client with authentication, TLS, connection-event
@@ -105,7 +116,7 @@ func newClient(ctx *gs.ContextProvider, name string, c Config) (pulsar.Client, e
 	if srv != nil {
 		metricsServers.Store(cl, srv)
 	}
-	if err := applyResilience(c, cl); err != nil {
+	if err := applyResilience(c, cl, resilience.ResourceLabel("pulsar", c.URL)); err != nil {
 		log.Errorf(ctx.Context, starterTag, "pulsar: resilience setup failed: %v", err)
 		cl.Close()
 		if srv != nil {

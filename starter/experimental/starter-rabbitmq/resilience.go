@@ -36,28 +36,25 @@ var resilienceExecs sync.Map // *amqp.Connection -> resilience.Executor
 // guard can pass it to exec.Execute without re-deriving from Config.
 var resilienceResources sync.Map // *amqp.Connection -> string
 
-// applyResilience builds an executor from the configured driver and indexes it
-// by conn, unless resilience is disabled. This is the rabbitmq seam of
-// stdlib/resilience: amqp091 exposes no reject-capable middleware and channels
-// are caller-created from the connection, so the executor is driven through an
-// opt-in call-site guard (GuardedPublish) rather than a transparent interceptor.
-func applyResilience(c Config, conn *amqp.Connection) error {
-	rc := c.Resilience
+// applyResilience builds an executor and indexes it by conn. This is the
+// rabbitmq seam of resilience: amqp091 exposes no reject-capable middleware and
+// channels are caller-created from the connection, so the executor is driven
+// through an opt-in call-site guard (GuardedPublish) rather than a transparent
+// interceptor.
+//
+// The executor is resolved through the neutral [resilience.ExecutorFor] seam,
+// which starter-govern backs with the governance center — so this function has
+// zero coupling to cloud/govern. When governance is off, ExecutorFor yields a
+// transparent no-op executor; fault wraps it when enabled.
+func applyResilience(c Config, conn *amqp.Connection, resource string) error {
 	fc := c.Fault
-	if !rc.Enabled && !fc.Enabled {
-		return nil
-	}
-	rawExec, err := resilience.NewExecutor(rc.Driver, rc.Policy())
-	if err != nil {
-		return err
-	}
-	exec := rawExec
+	exec := resilience.ExecutorFor(resource)
 	if fc.Enabled {
-		exec = fault.WrapExecutor(rawExec, fault.NewInjector(fc))
+		exec = fault.WrapExecutor(exec, fault.NewInjector(fc))
 	}
 	exec = resilobserve.WrapExecutor(exec, "rabbitmq", c.Observability)
 	resilienceExecs.Store(conn, exec)
-	resilienceResources.Store(conn, resilience.ResourceLabel("rabbitmq", c.Vhost, c.URL))
+	resilienceResources.Store(conn, resource)
 	return nil
 }
 
@@ -83,8 +80,8 @@ func guard(ctx context.Context, conn *amqp.Connection, call func(context.Context
 }
 
 // GuardedPublish publishes pub to exchange/routingKey on ch, routed through the
-// resilience executor attached to conn when Config.Resilience.Enabled is true.
-// When resilience is disabled this behaves exactly like ch.PublishWithContext.
+// resilience executor attached to conn when governance is enabled.
+// When governance is disabled this behaves exactly like ch.PublishWithContext.
 // On rejection (rate-limit or open circuit) the returned error is a resilience
 // sentinel and the underlying publish is never invoked.
 //

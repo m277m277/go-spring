@@ -20,7 +20,6 @@ import (
 	"net/url"
 	"time"
 
-	"go-spring.org/cloud/resilience"
 	"golang.org/x/oauth2"
 )
 
@@ -55,23 +54,7 @@ type Config struct {
 	// Timeout bounds each HTTP request made by the resulting client,
 	// including the token fetch. 0 means no timeout, e.g., "5s".
 	Timeout time.Duration `value:"${timeout:=0}"`
-
-	// Resilience optionally protects outbound requests with rate limiting,
-	// circuit breaking and retry. It is disabled by default; when enabled the
-	// client's transport is wrapped so every downstream request (with the bearer
-	// token already attached) flows through the selected resilience driver.
-	Resilience resilience.Config `value:"${resilience:=}"`
 }
-
-// Resilience binds the backend-neutral resilience knobs shared by every client
-// starter (see [resilience.Config]). Driver selects which registered backend
-// enforces them: "default" (bundled, zero-dependency) or "sentinel"
-// (recommended, enabled by blank-importing starter-resilience). Switching
-// backends is a one-line config change — no code touches the wrapping seam.
-//
-// Keep MaxRetries at 0 unless the wrapped requests are idempotent: the wrapped
-// client may issue POSTs and other non-idempotent verbs, and a retry re-sends
-// them.
 
 // authStyle maps the configured auth-style string to an oauth2.AuthStyle.
 func (c Config) authStyle() oauth2.AuthStyle {

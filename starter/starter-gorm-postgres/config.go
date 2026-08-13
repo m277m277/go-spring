@@ -66,6 +66,14 @@ type Config struct {
 	// Discovery selects which registered discovery backend resolves ServiceName.
 	// Only consulted when ServiceName is set; defaults to "default".
 	Discovery string `value:"${discovery:=default}"`
+
+	// ObserveEnabled is the hard per-instance kill switch for the gorm observe
+	// plugin (trace span + metric + access log on every Create/Query/Update/
+	// Delete). Defaults to true. Distinct from observability.level (which only
+	// controls access-log detail, leaving span/metric on): when false the plugin
+	// is not installed at all, so no per-query callbacks run — for high-throughput
+	// instances where the instrumentation overhead is unwanted.
+	ObserveEnabled bool `value:"${observe.enabled:=true}"`
 }
 
 // DSN constructs the PostgreSQL Data Source Name based on the configuration.

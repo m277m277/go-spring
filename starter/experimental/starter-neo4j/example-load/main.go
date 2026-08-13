@@ -30,10 +30,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
 	"go-spring.org/cloud/loadtest"
 	"go-spring.org/spring/gs"
-	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
 
+	_ "go-spring.org/cloud/govern"
 	StarterNeo4j "go-spring.org/starter-neo4j"
 )
 

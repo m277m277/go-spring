@@ -112,7 +112,7 @@ func newClient(ctx *gs.ContextProvider, c Config) (*Client, error) {
 		return nil, err
 	}
 	w := &Client{UniversalClient: client, cfg: c, stop: stop}
-	if err := instrument(client); err != nil {
+	if err := instrument(client, c.Otel); err != nil {
 		log.Errorf(ctx.Context, starterTag, "redis: instrument client failed: %v", err)
 		_ = w.Close()
 		return nil, err
@@ -152,7 +152,7 @@ func newClusterClient(ctx *gs.ContextProvider, c Config) (*Client, error) {
 		return nil, err
 	}
 	w := &Client{UniversalClient: client, cfg: c, stop: stop}
-	if err := instrument(client); err != nil {
+	if err := instrument(client, c.Otel); err != nil {
 		log.Errorf(ctx.Context, starterTag, "redis: instrument cluster client failed: %v", err)
 		_ = w.Close()
 		return nil, err
@@ -195,13 +195,22 @@ func validateConfig(c Config) error {
 	return nil
 }
 
-// instrument attaches redisotel tracing and metrics. It accepts any topology via
-// redis.UniversalClient (*redis.Client and *redis.ClusterClient both satisfy it).
-func instrument(client redis.UniversalClient) error {
-	if err := redisotel.InstrumentTracing(client); err != nil {
-		return err
+// instrument attaches redisotel tracing and metrics per otel, accepting any
+// topology via redis.UniversalClient (*redis.Client and *redis.ClusterClient
+// both satisfy it). Each signal is gated by its flag, so an instance can opt out
+// of one (e.g. per-command spans) while keeping the other.
+func instrument(client redis.UniversalClient, otel OtelConfig) error {
+	if otel.TracingEnabled {
+		if err := redisotel.InstrumentTracing(client); err != nil {
+			return err
+		}
 	}
-	return redisotel.InstrumentMetrics(client)
+	if otel.MetricsEnabled {
+		if err := redisotel.InstrumentMetrics(client); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // failFastPing verifies the connection is usable at startup so a misconfigured

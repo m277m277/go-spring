@@ -52,6 +52,7 @@ import (
 
 	_ "go-spring.org/starter-actuator"    // aggregates the mongodb health.Indicator
 	_ "go-spring.org/starter-config-file" // registers the file-watch config provider
+	_ "go-spring.org/cloud/govern"
 	StarterMongoDB "go-spring.org/starter-mongodb"
 )
 

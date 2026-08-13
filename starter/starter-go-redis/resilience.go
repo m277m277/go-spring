@@ -36,47 +36,41 @@ import (
 // field-injects Resilience + Observability, then calls Init (InitMethod).
 type Client struct {
 	redis.UniversalClient
-	Resilience    gs.Dync[resilience.Config] `value:"${resilience:=}"`
-	Fault         gs.Dync[fault.Config]      `value:"${fault:=}"`
-	Observability observe.ObserveConfig      `value:"${observability:=}"`
+	// Fault is the per-client fault-injection config (a separate concern from
+	// centralized resilience governance). Resilience itself is no longer injected
+	// here: this client resolves its executor through the neutral
+	// [resilience.ExecutorFor] seam, which starter-govern backs with the
+	// governance center — so this struct has zero coupling to cloud/govern.
+	Fault         gs.Dync[fault.Config] `value:"${fault:=}"`
+	Observability observe.ObserveConfig `value:"${observability:=}"`
 
 	cfg      Config // for resourceLabel (address fields)
-	exec     resilience.Executor
+	exec     resilience.Executor // resolved via resilience.ExecutorFor; no-op when governance is off
 	faultInj *fault.Injector
 	resource string
 	stop     io.Closer // driver-supplied teardown (e.g. discovery resolver watch)
 }
 
-// Init is the gs InitMethod (runs after gs field-injects Resilience +
-// Observability). It builds the executor when resilience is enabled, attaches the
-// per-command hook, and subscribes to policy changes for hot Refresh.
+// Init is the gs InitMethod (runs after gs field-injects Fault + Observability).
+// It resolves the executor through the neutral [resilience.ExecutorFor] seam
+// (backed by starter-govern's governance center when imported), wraps it, and
+// attaches the per-command hook so every command flows through it. When
+// governance is off the resolved executor is a transparent no-op; fault wrapping
+// still applies when enabled.
 func (o *Client) Init() error {
-	rc := o.Resilience.Value()
 	fc := o.Fault.Value()
-	if !rc.Enabled && !fc.Enabled {
-		return nil
-	}
-	rawExec, err := resilience.NewExecutor(rc.Driver, rc.Policy())
-	if err != nil {
-		return err
-	}
-	exec := rawExec
+	o.resource = resourceLabel(o.cfg)
+	exec := resilience.ExecutorFor(o.resource)
 	if fc.Enabled {
 		o.faultInj = fault.NewInjector(fc)
-		exec = fault.WrapExecutor(rawExec, o.faultInj)
-	}
-	exec = resilobserve.WrapExecutor(exec, "redis", o.Observability)
-	o.exec = exec
-	o.resource = resourceLabel(o.cfg)
-	o.AddHook(&resilienceHook{exec: exec, resource: o.resource})
-	o.Resilience.OnChanged(func(new, _ resilience.Config) {
-		_ = exec.Refresh(new.Policy())
-	})
-	if o.faultInj != nil {
+		exec = fault.WrapExecutor(exec, o.faultInj)
 		o.Fault.OnChanged(func(new, _ fault.Config) {
 			o.faultInj.SetConfig(new)
 		})
 	}
+	exec = resilobserve.WrapExecutor(exec, "redis", o.Observability)
+	o.exec = exec
+	o.AddHook(&resilienceHook{exec: exec, resource: o.resource})
 	// Attach the access-log Hook (trace+metric come from redisotel above). It
 	// rides the observe kit and defaults to a no-op pass-through when off.
 	applyObservability(o.Observability, o.UniversalClient)

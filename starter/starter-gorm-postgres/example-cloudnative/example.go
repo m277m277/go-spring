@@ -49,6 +49,7 @@ import (
 
 	_ "go-spring.org/starter-actuator"    // aggregates the gorm health.Indicator
 	_ "go-spring.org/starter-config-file" // registers the file-watch config provider
+	_ "go-spring.org/cloud/govern"      // registers the centralized governance center
 	starter "go-spring.org/starter-gorm-postgres"
 )
 

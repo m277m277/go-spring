@@ -21,7 +21,7 @@ import (
 	"net"
 	"time"
 
-	"go-spring.org/cloud/resilience"
+	"go-spring.org/cloud/fault"
 	"go-spring.org/cloud/tlsconf"
 	"go-spring.org/log"
 	observe "go-spring.org/observe"
@@ -63,6 +63,16 @@ type HealthConfig struct {
 	Enabled bool `value:"${enabled:=true}"`
 }
 
+// LoadTestConfig toggles inbound load-test traffic identification on the gRPC
+// server. When enabled (the default — it costs one metadata lookup per RPC) the
+// LoadTest interceptors read the marker key (x-loadtest) off the incoming
+// metadata and tag the handler context, so tracing, metrics, resilience and the
+// handler itself can branch on traffic.IsLoadTest(ctx). It is the gRPC inbound
+// counterpart to cloud/traffic's outbound carrier injection.
+type LoadTestConfig struct {
+	Enabled bool `value:"${enabled:=true}"`
+}
+
 // Config defines gRPC server configuration.
 type Config struct {
 	Addr                 string                `value:"${addr}"`
@@ -73,8 +83,9 @@ type Config struct {
 	Keepalive            KeepaliveConfig       `value:"${keepalive}"`
 	TLS                  tlsconf.TLSConfig     `value:"${tls}"`
 	Health               HealthConfig          `value:"${health}"`
+	LoadTest             LoadTestConfig        `value:"${loadtest}"`
 	Observer             ObserverConfig        `value:"${observer}"`
-	Resilience           resilience.Config     `value:"${resilience}"`
+	Fault                fault.Config          `value:"${fault}"`
 	Observability        observe.ObserveConfig `value:"${observability:=}"`
 }
 
@@ -105,7 +116,10 @@ type SimpleGrpcServer struct {
 	svr *grpc.Server
 }
 
-// NewSimpleGrpcServer creates a SimpleGrpcServer from ${spring.grpc.server} configuration.
+// NewSimpleGrpcServer creates a SimpleGrpcServer from ${spring.grpc.server}
+// configuration. Inbound admission protection (rate-limit / breaker) is
+// resolved inside buildResilienceInterceptors via the neutral
+// resilience.ExecutorFor seam, so this server has no coupling to cloud/govern.
 func NewSimpleGrpcServer(cfg Config, reg ServiceRegister) *SimpleGrpcServer {
 	log.Debugf(context.Background(), grpcTag, "grpc server created addr=%s", cfg.Addr)
 	return &SimpleGrpcServer{cfg: cfg, reg: reg}
@@ -154,6 +168,20 @@ func (s *SimpleGrpcServer) buildOptions() ([]grpc.ServerOption, error) {
 	// without starter-otel.
 	var unary []grpc.UnaryServerInterceptor
 	var stream []grpc.StreamServerInterceptor
+	// User-registered interceptors are outermost (first in the chain), mirroring
+	// starter-gin's EngineMiddleware: an app guard sees the request before the
+	// built-in stack and can short-circuit before any work is observed. Built-ins
+	// follow: LoadTest, Tracing, Metrics, Resilience, then the handler.
+	unary = append(unary, currentUserUnary()...)
+	stream = append(stream, currentUserStream()...)
+	// LoadTest identification is outermost of the built-ins so the marker is on
+	// the context before tracing, metrics, resilience or the handler run, letting
+	// every downstream layer branch on traffic.IsLoadTest(ctx). A no-op when the
+	// inbound metadata lacks the marker key.
+	if s.cfg.LoadTest.Enabled {
+		unary = append(unary, LoadTestUnaryInterceptor())
+		stream = append(stream, LoadTestStreamInterceptor())
+	}
 	if s.cfg.Observer.Tracing.Enabled {
 		unary = append(unary, TracingUnaryInterceptor())
 		stream = append(stream, TracingStreamInterceptor())
@@ -164,6 +192,14 @@ func (s *SimpleGrpcServer) buildOptions() ([]grpc.ServerOption, error) {
 	}
 	if ropts, ok := s.buildResilienceInterceptors(); ok {
 		unary = append(unary, ropts.unary)
+	}
+	// Fault injection (opt-in), innermost so an injected error flows back through
+	// tracing/metrics/resilience and is observed. Built once from cfg.Fault at
+	// server build (grpc server config is static; toggle via restart).
+	if s.cfg.Fault.Enabled {
+		inj := fault.NewInjector(s.cfg.Fault)
+		unary = append(unary, FaultUnaryInterceptor(inj))
+		stream = append(stream, FaultStreamInterceptor(inj))
 	}
 	if len(unary) > 0 {
 		opts = append(opts, grpc.ChainUnaryInterceptor(unary...))

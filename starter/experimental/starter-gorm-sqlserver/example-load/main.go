@@ -33,6 +33,7 @@ import (
 	"go-spring.org/cloud/loadtest"
 	"go-spring.org/spring/gs"
 	StarterGormSqlserver "go-spring.org/starter-gorm-sqlserver"
+	_ "go-spring.org/cloud/govern"
 )
 
 // Service is the root bean holding the autowired client instance "load".

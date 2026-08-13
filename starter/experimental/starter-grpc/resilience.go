@@ -30,29 +30,26 @@ type resilienceInterceptors struct {
 	unary grpc.UnaryServerInterceptor
 }
 
-// buildResilienceInterceptors constructs an inbound-admission executor from the
-// configured policy and returns the unary interceptor that runs each RPC through
-// it. The executor is wrapped with observe-resilience so breaker trips / rate
-// rejects / bulkhead rejects emit span + counter + histogram + access log.
+// buildResilienceInterceptors constructs an inbound-admission executor via the
+// NEUTRAL provider seam [resilience.ExecutorFor] and returns the unary
+// interceptor that runs each RPC through it. starter-govern registers a provider
+// backed by the governance center, so this server gets its rate-limit /
+// bulkhead / breaker policy WITHOUT injecting *govern.Center or even importing
+// cloud/govern. When governance is not configured the seam yields a transparent
+// no-op executor (fn runs once, untouched). Hot-reload is driven on the backing
+// executor by the provider. The executor is wrapped with observe-resilience so
+// breaker trips / rate rejects / bulkhead rejects emit span + counter +
+// histogram + access log.
 //
 // Inbound resilience is admission control: set RateLimit / MaxConcurrent to
 // protect the server from overload; ErrRateLimited / ErrBulkheadFull /
 // ErrCircuitOpen surface as the executor's error on the RPC. Do NOT configure
 // retry for inbound (a handler that has already produced side effects cannot be
 // replayed) — leave MaxRetries at 0: inbound serving is not idempotent.
-// Returns ok=false when resilience is disabled, so buildOptions skips it.
 func (s *SimpleGrpcServer) buildResilienceInterceptors() (resilienceInterceptors, bool) {
-	c := s.cfg
-	if !c.Resilience.Enabled {
-		return resilienceInterceptors{}, false
-	}
-	exec, err := resilience.NewExecutor(c.Resilience.Driver, c.Resilience.Policy())
-	if err != nil {
-		// A missing driver is fatal at boot — same posture as the other starters.
-		panic(err)
-	}
-	exec = resilobserve.WrapExecutor(exec, "grpc", c.Observability)
-	resource := resilience.ResourceLabel("grpc", c.Addr)
+	resource := resilience.ResourceLabel("grpc", s.cfg.Addr)
+	exec := resilience.ExecutorFor(resource)
+	exec = resilobserve.WrapExecutor(exec, "grpc", s.cfg.Observability)
 	return resilienceInterceptors{
 		unary: resilienceUnaryInterceptor(exec, resource),
 	}, true

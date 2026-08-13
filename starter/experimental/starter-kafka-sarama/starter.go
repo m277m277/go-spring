@@ -21,9 +21,12 @@ import (
 	"strings"
 
 	"github.com/IBM/sarama"
+	"go-spring.org/cloud/resilience"
 	"go-spring.org/log"
+	"go-spring.org/spring/conf"
 	"go-spring.org/spring/gs"
 	"go-spring.org/stdlib/errutil"
+	"go-spring.org/stdlib/flatten"
 )
 
 var starterTag = log.RegisterInfraTag("kafka_sarama", "")
@@ -37,7 +40,15 @@ func init() {
 	// Register multiple Kafka clients as a group.
 	// Each instance is created according to the configuration in "${spring.kafka-sarama}".
 	// This allows defining multiple Kafka (sarama) clients dynamically.
-	gs.Group("${spring.kafka-sarama}", newClient, destroyClient)
+	gs.Module(gs.OnProperty("spring.kafka-sarama"), func(r gs.BeanProvider, p flatten.Storage) error {
+		return conf.BindEach(p, "${spring.kafka-sarama}", func(name string, c Config) error {
+			r.Provide(newClient,
+				gs.IndexArg(1, gs.ValueArg(name)),
+				gs.IndexArg(2, gs.ValueArg(c)),
+			).Name(name).Destroy(destroyClient).Caller(1)
+			return nil
+		})
+	})
 }
 
 // newClient creates a shared low-level sarama.Client. Callers derive a
@@ -95,7 +106,7 @@ func newClient(ctx *gs.ContextProvider, name string, c Config) (sarama.Client, e
 		log.Errorf(ctx.Context, starterTag, "kafka sarama: no brokers after metadata fetch: %s", c.Brokers)
 		return nil, fmt.Errorf("kafka client has no brokers after metadata fetch: %s", c.Brokers)
 	}
-	if err := applyResilience(c, cl); err != nil {
+	if err := applyResilience(c, cl, resilience.ResourceLabel("kafka", c.Brokers)); err != nil {
 		log.Errorf(ctx.Context, starterTag, "kafka sarama: resilience setup failed: %v", err)
 		_ = cl.Close()
 		return nil, err

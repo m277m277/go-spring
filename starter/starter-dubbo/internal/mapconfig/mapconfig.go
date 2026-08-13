@@ -372,10 +372,21 @@ func (dc *MapDynamicConfiguration) safeProcess(listener config_center.Configurat
 // with both consumer-side and provider-side ConfigItems so the rule applies to
 // both roles automatically.
 func marshalOverrideRule(name string, scope string, params map[string]string) string {
+	// For service-level (general) rules the storage/listener key is the colon-
+	// separated interface:version:group (what referenceConfigurationListener
+	// subscribes to), but dubbo-go's getServiceString builds the override URL by
+	// splitting the ConfiguratorConfig.Key on "/" (group) then ":" (version).
+	// Translate between the two so the listener matches AND the parsed override
+	// URL carries the right interface/version/group. Application-scope keys (an
+	// app name, no colon) pass through unchanged.
+	yamlKey := name
+	if scope == parser.GeneralType {
+		yamlKey = parserServiceKey(name)
+	}
 	cfg := parser.ConfiguratorConfig{
 		ConfigVersion: "v2.7.1",
 		Scope:         scope,
-		Key:           name,
+		Key:           yamlKey,
 		Enabled:       true,
 		Configs: []parser.ConfigItem{
 			{
@@ -396,6 +407,31 @@ func marshalOverrideRule(name string, scope string, params map[string]string) st
 	}
 	raw, _ := yaml.Marshal(cfg)
 	return string(raw)
+}
+
+// parserServiceKey converts a colon-separated service storage key
+// (interface:version:group — the format referenceConfigurationListener
+// subscribes to, and what RefreshOverrideRules is keyed by) into the
+// group/interface:version service string dubbo-go's getServiceString expects in
+// a ConfiguratorConfig.Key. getServiceString splits on "/" first (group) then
+// ":" (version); feeding it the raw colon key would contaminate the version
+// param (e.g. "svc.F:1.0:v2" → version="1.0:v2"). ColonSeparatedKey always
+// carries exactly two ":" separators, so parts is always [interface, version,
+// group] with version/group possibly empty.
+func parserServiceKey(colonKey string) string {
+	parts := strings.Split(colonKey, ":")
+	if len(parts) != 3 {
+		return colonKey // unexpected shape; leave as-is rather than misparse
+	}
+	intf, version, group := parts[0], parts[1], parts[2]
+	out := intf
+	if version != "" {
+		out += ":" + version
+	}
+	if group != "" {
+		out = group + "/" + out
+	}
+	return out
 }
 
 type notification struct {

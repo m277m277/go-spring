@@ -20,7 +20,6 @@ import (
 	"time"
 
 	"go-spring.org/cloud/fault"
-	"go-spring.org/cloud/resilience"
 	"go-spring.org/cloud/tlsconf"
 	observe "go-spring.org/observe"
 )
@@ -68,14 +67,6 @@ type Config struct {
 	// JetStream configures the JetStream context derived from this connection.
 	JetStream JetStreamConfig `value:"${jetstream}"`
 
-	// Resilience optionally protects outbound calls with rate limiting and
-	// circuit breaking. It is disabled by default; when enabled the opt-in
-	// PublishGuarded/RequestGuarded methods on Conn route the outbound call
-	// through the selected resilience driver. nats has no reject-capable
-	// middleware seam, so plain Publish/Request stay unchanged — callers pick
-	// per-call whether they want the guard.
-	Resilience resilience.Config `value:"${resilience:=}"`
-
 	// Fault optionally injects failures/latency into outbound calls so retry/
 	// breaker can be proven under load. Disabled by default.
 	Fault fault.Config `value:"${fault:=}"`
@@ -86,15 +77,6 @@ type Config struct {
 	// "brief".
 	Observability observe.ObserveConfig `value:"${observability:=}"`
 }
-
-// Resilience binds the backend-neutral resilience knobs shared by every client
-// starter (see [resilience.Config]). Driver selects which registered backend
-// enforces them: "default" (bundled, zero-dependency) or "sentinel"
-// (recommended, enabled by blank-importing starter-resilience). Switching
-// backends is a one-line config change — no code touches the guard seam.
-//
-// Keep MaxRetries at 0 for publishing — retrying a publish can duplicate a
-// message; leave retry to the caller who knows whether the message is idempotent.
 
 // JetStream context is created from the connection and exposed on Conn.JetStream;
 // otherwise Conn.JetStream is nil.

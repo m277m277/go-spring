@@ -38,3 +38,4 @@ require (
 require go-spring.org/cloud v0.0.0
 
 replace go-spring.org/cloud => ../../../../cloud
+
