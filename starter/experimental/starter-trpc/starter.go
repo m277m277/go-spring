@@ -21,7 +21,6 @@ import (
 	"net"
 	"strconv"
 
-	"go-spring.org/cloud/fault"
 	"go-spring.org/log"
 	"go-spring.org/spring/gs"
 	"go-spring.org/stdlib/errutil"
@@ -70,7 +69,6 @@ type Config struct {
 	Protocol string         `value:"${protocol:=trpc}"`
 	Observer ObserverConfig `value:"${observer}"`
 	LoadTest LoadTestConfig `value:"${loadtest}"`
-	Fault    fault.Config   `value:"${fault}"`
 }
 
 // LoadTestConfig toggles registration of the inbound load-test identification
@@ -169,12 +167,11 @@ func (s *SimpleTrpcServer) Run(ctx context.Context, sig gs.ReadySignal) error {
 	}
 	// Register the inbound fault-injection filter ("fault"). Add "fault" to a
 	// service's filter chain to activate it; it injects latency/errors into
-	// inbound RPCs per cfg.Fault — the server-side counterpart to the client
-	// starters' fault.WrapExecutor.
-	if s.cfg.Fault.Enabled {
-		inj := fault.NewInjector(s.cfg.Fault)
-		filter.Register("fault", FaultServerFilter(inj), nil)
-	}
+	// inbound RPCs per the injector resolved from the neutral [fault.InjectorFor]
+	// seam (nil-safe pass-through when fault is off) — the server-side counterpart
+	// to the client starters' fault.WrapExecutor. Always registered; the injector
+	// is resolved per call so fault can be hot-toggled at runtime without a restart.
+	filter.Register("fault", FaultServerFilter(), nil)
 
 	// Bind the concrete service handler; the adapter itself stays service-agnostic.
 	s.reg(s.svr)

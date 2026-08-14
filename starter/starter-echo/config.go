@@ -19,7 +19,6 @@ package StarterEcho
 import (
 	"time"
 
-	"go-spring.org/cloud/fault"
 	"go-spring.org/cloud/tlsconf"
 )
 
@@ -41,7 +40,6 @@ type Config struct {
 	TLS          tlsconf.TLSConfig `value:"${tls}"`
 	Health       HealthConfig      `value:"${health}"`
 	Middleware   MiddlewareConfig  `value:"${middleware}"`
-	Fault        fault.Config      `value:"${fault}"`
 }
 
 // MiddlewareConfig groups the built-in middlewares the starter can install on

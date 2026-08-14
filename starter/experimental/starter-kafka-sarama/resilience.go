@@ -21,9 +21,9 @@ import (
 	"sync"
 
 	"github.com/IBM/sarama"
-	"go-spring.org/cloud/fault"
-	"go-spring.org/cloud/resilience"
-	resilobserve "go-spring.org/observe/resilience"
+	"go-spring.org/cloud/governance/fault"
+	"go-spring.org/cloud/governance/resilience"
+	resilobserve "go-spring.org/cloud/observe/resilience"
 )
 
 // resilienceExecs tracks the resilience executor attached to each client, so
@@ -44,14 +44,10 @@ var resilienceResources sync.Map // sarama.Client -> string
 //
 // The executor is resolved through the neutral [resilience.ExecutorFor] seam,
 // which starter-govern backs with the governance center — so this function has
-// zero coupling to cloud/govern. When governance is off, ExecutorFor yields a
+// zero coupling to cloud/governance. When governance is off, ExecutorFor yields a
 // transparent no-op executor; fault wraps it when enabled.
 func applyResilience(c Config, client sarama.Client, resource string) error {
-	fc := c.Fault
-	exec := resilience.ExecutorFor(resource)
-	if fc.Enabled {
-		exec = fault.WrapExecutor(exec, fault.NewInjector(fc))
-	}
+	exec := fault.WrapExecutor(resilience.ExecutorFor(resource), fault.InjectorFor())
 	// Wrap so breaker trips / rejects / retries emit span + counter + histogram
 	// + access log (the resilience core emits none). nil-safe, no-op without
 	// starter-otel.
@@ -68,7 +64,6 @@ func closeResilience(client sarama.Client) {
 	}
 	resilienceResources.Delete(client)
 }
-
 
 // executorFor loads the executor and resource label attached to client. Returns
 // (nil, "") when resilience is disabled for that client, so the wrapper falls

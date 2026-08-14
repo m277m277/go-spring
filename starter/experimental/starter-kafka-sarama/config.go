@@ -17,9 +17,8 @@
 package StarterKafkaSarama
 
 import (
-	"go-spring.org/cloud/fault"
+	observe "go-spring.org/cloud/observe"
 	"go-spring.org/cloud/tlsconf"
-	observe "go-spring.org/observe"
 )
 
 // Config defines Kafka client configuration via the sarama driver.
@@ -48,10 +47,6 @@ type Config struct {
 
 	// Producer tunes producer-side compression and acks.
 	Producer ProducerConfig `value:"${producer}"`
-
-	// Fault optionally injects failures/latency into outbound calls so retry/
-	// breaker can be proven under load. Disabled by default.
-	Fault fault.Config `value:"${fault:=}"`
 
 	// Observability configures the per-operation access log emitted by the
 	// resilience executor (off/brief/detailed). Defaults to "brief". This

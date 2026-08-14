@@ -24,8 +24,8 @@ import (
 	"testing"
 	"time"
 
-	"go-spring.org/cloud/resilience"
-	"go-spring.org/cloud/traffic"
+	"go-spring.org/cloud/governance/resilience"
+	"go-spring.org/cloud/governance/traffic"
 	"go-spring.org/stdlib/testing/assert"
 )
 
@@ -49,11 +49,21 @@ func countFn(counter *int32, err error) func(context.Context) error {
 	}
 }
 
-// TestWrapExecutor_NilInputs confirms the zero-config transparency invariant.
+// TestWrapExecutor_NilInputs confirms the zero-config transparency invariants:
+// nil inner => nil; nil injector => a lazy faultExecutor that is a transparent
+// pass-through until an injector is registered behind InjectorFor() (mirroring
+// resilience.ExecutorFor's deferred resolution).
 func TestWrapExecutor_NilInputs(t *testing.T) {
+	t.Cleanup(func() { RegisterInjector(nil) })
 	assert.That(t, WrapExecutor(nil, NewInjector(Config{Enabled: true})) == nil).True()
 	exec := newExec(t, resilience.Policy{})
-	assert.That(t, WrapExecutor(exec, nil) == exec).True()
+	wrapped := WrapExecutor(exec, nil)
+	assert.That(t, wrapped == exec).False() // lazy layer wraps, not returns inner
+	// With no injector registered, Execute is a transparent pass-through.
+	var calls int32
+	err := wrapped.Execute(context.Background(), "svc", countFn(&calls, nil))
+	assert.Error(t, err).Nil()
+	assert.That(t, atomic.LoadInt32(&calls)).Equal(int32(1))
 }
 
 // TestInjector_DisabledIsTransparent: Enabled=false => fn runs, no injection.

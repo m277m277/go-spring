@@ -20,8 +20,8 @@
 // open one OTel child span per transaction phase, so the saga/tcc/at starters
 // share one implementation instead of copy-pasting an otelObserver each.
 //
-// It lives in its own module (rather than inside the otel-free spring core that
-// defines the Observer interfaces, or copy-pasted per starter) for the same
+// It lives in the observe package (rather than inside the otel-free spring core
+// that defines the Observer interfaces, or copy-pasted per starter) for the same
 // reason observe-gorm and observe-lock exist: N starters, one shared adapter.
 // Everything rides the otel globals starter-otel installs; without it the
 // global tracer is a no-op, so an unconfigured app pays almost nothing.
@@ -45,7 +45,7 @@ import (
 
 // tracerName identifies spans emitted by this adapter, following the convention
 // used by the other shared observe adapters.
-const tracerName = "go-spring.org/observe/transaction"
+const tracerName = "go-spring.org/cloud/observe/transaction"
 
 // beginSpan opens a span named name as a child of ctx, tagged with attrs, and
 // returns an end func that records err on the span (setting error status) and

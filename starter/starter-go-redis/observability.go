@@ -21,7 +21,7 @@ import (
 	"errors"
 
 	"github.com/redis/go-redis/v9"
-	observe "go-spring.org/observe"
+	observe "go-spring.org/cloud/observe"
 )
 
 // applyObservability attaches an access-log Hook to client. go-redis already
@@ -32,7 +32,7 @@ import (
 // correlation. When ObserveConfig.Level is "off" the Observer emits nothing, so the
 // Hook is a no-op pass-through.
 func applyObservability(cfg observe.ObserveConfig, client redis.UniversalClient) {
-	obs := observe.NewClient("redis", cfg, observe.WithoutTraceAndMetric())
+	obs := observe.NewDB("redis", cfg, observe.WithoutTraceAndMetric())
 	client.AddHook(&observeHook{obs: obs})
 }
 

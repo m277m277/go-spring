@@ -19,9 +19,8 @@ package StarterNats
 import (
 	"time"
 
-	"go-spring.org/cloud/fault"
+	observe "go-spring.org/cloud/observe"
 	"go-spring.org/cloud/tlsconf"
-	observe "go-spring.org/observe"
 )
 
 // Config defines NATS client connection configuration.
@@ -66,10 +65,6 @@ type Config struct {
 
 	// JetStream configures the JetStream context derived from this connection.
 	JetStream JetStreamConfig `value:"${jetstream}"`
-
-	// Fault optionally injects failures/latency into outbound calls so retry/
-	// breaker can be proven under load. Disabled by default.
-	Fault fault.Config `value:"${fault:=}"`
 
 	// Observability configures the per-operation instrumentation (producer span +
 	// duration/in-flight metric + access log off/brief/detailed) emitted by the

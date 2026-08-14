@@ -21,11 +21,10 @@ import (
 	"sync/atomic"
 
 	"go-spring.org/cloud/discovery"
-	"go-spring.org/cloud/fault"
-	"go-spring.org/cloud/resilience"
-	observe "go-spring.org/observe"
-	"go-spring.org/observe/resilience"
-	"go-spring.org/spring/gs"
+	"go-spring.org/cloud/governance/fault"
+	"go-spring.org/cloud/governance/resilience"
+	observe "go-spring.org/cloud/observe"
+	"go-spring.org/cloud/observe/resilience"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
@@ -46,12 +45,9 @@ import (
 // the swap takes effect without rebuilding the client.
 type Client struct {
 	*mongo.Client
-	// Fault is the per-client fault-injection config (a separate concern from
-	// centralized resilience governance). Resilience itself is no longer injected
-	// here: this client resolves its executor through the neutral
-	// [resilience.ExecutorFor] seam, which starter-govern backs with the
-	// governance center — so this struct has zero coupling to cloud/govern.
-	Fault         gs.Dync[fault.Config] `value:"${fault:=}"`
+	// Both resilience and fault are resolved through neutral seams
+	// ([resilience.ExecutorFor] / [fault.InjectorFor]) backed by starter-govern's
+	// governance center — so this struct has zero coupling to cloud/governance.
 	Observability observe.ObserveConfig `value:"${observability:=}"`
 
 	// cfg is the connection config, retained for the resilience resource label.
@@ -68,31 +64,22 @@ type Client struct {
 	// exec is the resilience executor protecting dials, resolved via
 	// resilience.ExecutorFor; no-op when governance is off.
 	exec resilience.Executor
-	// faultInj is the fault injector short-circuiting dials when fault
-	// injection is enabled. nil when fault is off.
-	faultInj *fault.Injector
 	// resource is the resilience resource key ("mongodb:<...>") exec scopes
 	// limiter/breaker state by.
 	resource string
 }
 
-// Init is the gs InitMethod: gs field-injects Fault + Observability
-// after newClient returns, then calls this. It builds the observe.Observer (needs
-// Observability) and resolves the executor through the neutral
-// [resilience.ExecutorFor] seam (backed by starter-govern's governance center
-// when imported), wraps it, swaps the resilience-wrapped dial function into the
-// shared dialer. When governance is off the resolved executor is a transparent
-// no-op; fault wrapping still applies when enabled.
+// Init is the gs InitMethod: gs field-injects Observability after newClient
+// returns, then calls this. It builds the observe.Observer (needs Observability)
+// and resolves the executor through the neutral [resilience.ExecutorFor] seam
+// (backed by starter-govern's governance center when imported), wraps it with the
+// process-wide fault injector ([fault.InjectorFor], nil-safe), swaps the
+// resilience-wrapped dial function into the shared dialer. When governance is off
+// the resolved executor is a transparent no-op.
 func (o *Client) Init() error {
-	o.obs.Store(observe.NewClient("mongodb", o.Observability))
-	fc := o.Fault.Value()
+	o.obs.Store(observe.NewDB("mongodb", o.Observability))
 	o.resource = resilience.ResourceLabel("mongodb", o.cfg.ServiceName, o.cfg.URI)
-	exec := resilience.ExecutorFor(o.resource)
-	if fc.Enabled {
-		o.faultInj = fault.NewInjector(fc)
-		exec = fault.WrapExecutor(exec, o.faultInj)
-		o.Fault.OnChanged(func(new, _ fault.Config) { o.faultInj.SetConfig(new) })
-	}
+	exec := fault.WrapExecutor(resilience.ExecutorFor(o.resource), fault.InjectorFor())
 	exec = resilobserve.WrapExecutor(exec, "mongodb", o.Observability)
 	o.exec = exec
 	// Wrap the current (plain/discovery) dial with the policy and swap it into

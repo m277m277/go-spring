@@ -28,10 +28,10 @@ import (
 	"sync/atomic"
 
 	"go-spring.org/cloud/discovery"
-	"go-spring.org/cloud/resilience"
+	"go-spring.org/cloud/governance/resilience"
+	observe "go-spring.org/cloud/observe"
+	"go-spring.org/cloud/observe/resilience"
 	"go-spring.org/log"
-	observe "go-spring.org/observe"
-	"go-spring.org/observe/resilience"
 	"go-spring.org/spring/gs"
 )
 
@@ -196,7 +196,7 @@ func (t *RouteTable) recompile(raw map[string]RouteRaw) error {
 // "gateway:<name>": starter-govern registers a provider backed by the governance
 // center, so gateway's per-route protection is governed centrally (and
 // hot-reloaded on the backing executor by the provider) WITHOUT this package
-// injecting or even naming cloud/govern. When governance is off the seam yields a
+// injecting or even naming cloud/governance. When governance is off the seam yields a
 // transparent no-op executor. Cfg.Resilience stays as the name registry routes
 // reference (its local policy VALUES are no longer consumed — the governance
 // authority owns all policy values now, uniformly with every other starter).

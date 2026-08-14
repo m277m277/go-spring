@@ -25,7 +25,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"go-spring.org/cloud/traffic"
+	"go-spring.org/cloud/governance/traffic"
 )
 
 // Classify maps an op's error to a bucket label. The default ([DefaultClassify])

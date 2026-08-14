@@ -22,7 +22,7 @@ import (
 	"testing"
 
 	"go-spring.org/cloud/experimental/transaction/tcc"
-	"go-spring.org/observe/transaction"
+	"go-spring.org/cloud/observe/transaction"
 	"go-spring.org/stdlib/testing/assert"
 )
 

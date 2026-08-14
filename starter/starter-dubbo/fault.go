@@ -18,47 +18,37 @@ package StarterDubbo
 
 import (
 	"context"
-	"sync/atomic"
 
-	"go-spring.org/cloud/fault"
 	"dubbo.apache.org/dubbo-go/v3/common/extension"
 	"dubbo.apache.org/dubbo-go/v3/filter"
 	"dubbo.apache.org/dubbo-go/v3/protocol/base"
 	"dubbo.apache.org/dubbo-go/v3/protocol/result"
+	"go-spring.org/cloud/governance/fault"
 )
 
 func init() {
-	// Register the inbound fault-injection filter under "fault". It reads the
-	// package-level injector (set via [SetFaultInjector]); until that is set it
-	// is a transparent pass-through. Activate by calling SetFaultInjector and
-	// adding "fault" to a provider's filter chain. dubbo's filter registry hands
-	// out filters via a no-arg constructor, so the injector is plumbed through a
-	// package-level pointer rather than a constructor argument.
+	// Register the inbound fault-injection filter under "fault". Add "fault" to
+	// a provider's filter chain to activate it. The injector is resolved from the
+	// neutral [fault.InjectorFor] seam (backed by the governance center) on each
+	// call; when no injector is registered fault.Apply is a transparent pass-
+	// through, so the filter is always safe to install. dubbo's filter registry
+	// hands out filters via a no-arg constructor, so the injector is resolved at
+	// call time rather than passed through a constructor argument.
 	extension.SetFilter(faultFilterKey, newFaultFilter)
 }
 
 const faultFilterKey = "fault"
 
-// faultInjector holds the live fault injector for the registered "fault"
-// filter. nil (the zero value) means no fault injection — the filter passes
-// every call through. Set via [SetFaultInjector].
-var faultInjector atomic.Pointer[fault.Injector]
-
-// SetFaultInjector installs the injector the "fault" filter injects with,
-// letting an operator "set fire" to a running dubbo server. Pass nil to disarm.
-// It is the dubbo server-side counterpart to the client starters'
-// fault.WrapExecutor.
-func SetFaultInjector(inj *fault.Injector) {
-	faultInjector.Store(inj)
-}
-
 type dubboFaultFilter struct{}
 
 func newFaultFilter() filter.Filter { return &dubboFaultFilter{} }
 
-// Invoke gates the service call with [fault.Apply] when an injector is set.
+// Invoke gates the service call with [fault.Apply] when an injector is
+// registered. The injector is resolved from [fault.InjectorFor] on each call so
+// fault can be hot-toggled at runtime without a restart; nil means no fault is
+// configured and the call passes through untouched.
 func (f *dubboFaultFilter) Invoke(ctx context.Context, invoker base.Invoker, inv base.Invocation) result.Result {
-	inj := faultInjector.Load()
+	inj := fault.InjectorFor()
 	if inj == nil {
 		return invoker.Invoke(ctx, inv)
 	}

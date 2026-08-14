@@ -25,7 +25,7 @@ import (
 	"slices"
 	"sync"
 
-	"go-spring.org/cloud/resilience"
+	"go-spring.org/cloud/governance/resilience"
 )
 
 // ErrUnknownTransaction is returned when a branch registers under, or a caller

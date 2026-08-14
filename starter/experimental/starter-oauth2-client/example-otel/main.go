@@ -42,8 +42,8 @@ import (
 	"go-spring.org/spring/gs"
 	"golang.org/x/oauth2"
 
+	_ "go-spring.org/cloud/governance"
 	StarterOAuth2Client "go-spring.org/starter-oauth2-client"
-	_ "go-spring.org/cloud/govern"
 	_ "go-spring.org/starter-otel"
 )
 

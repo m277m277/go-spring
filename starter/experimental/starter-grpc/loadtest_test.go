@@ -20,7 +20,7 @@ import (
 	"context"
 	"testing"
 
-	"go-spring.org/cloud/traffic"
+	"go-spring.org/cloud/governance/traffic"
 	"go-spring.org/stdlib/testing/assert"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
@@ -130,6 +130,8 @@ func TestUserInterceptorRegistrySnapshotAndNil(t *testing.T) {
 	assert.That(t, order).Equal([]string{"first", "second"})
 
 	// Snapshot is a copy.
-	UseUnaryInterceptor(func(ctx context.Context, _ any, _ *grpc.UnaryServerInfo, h grpc.UnaryHandler) (any, error) { return h(ctx, nil) })
+	UseUnaryInterceptor(func(ctx context.Context, _ any, _ *grpc.UnaryServerInfo, h grpc.UnaryHandler) (any, error) {
+		return h(ctx, nil)
+	})
 	assert.That(t, len(snap)).Equal(2)
 }

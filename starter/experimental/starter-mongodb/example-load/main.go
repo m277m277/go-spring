@@ -35,7 +35,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
-	_ "go-spring.org/cloud/govern"
+	_ "go-spring.org/cloud/governance"
 	StarterMongoDB "go-spring.org/starter-mongodb"
 )
 

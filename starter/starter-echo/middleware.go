@@ -24,8 +24,8 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
-	"go-spring.org/cloud/fault"
-	"go-spring.org/cloud/traffic"
+	"go-spring.org/cloud/governance/fault"
+	"go-spring.org/cloud/governance/traffic"
 	"go-spring.org/log"
 )
 
@@ -43,7 +43,7 @@ type requestIDCtxKey struct{}
 // X-LoadTest) it tags the request context via traffic.WithLoadTest, so the
 // handler chain and every outbound client the handlers drive can recognise
 // synthetic load through traffic.IsLoadTest(c.Request().Context()). It is the
-// inbound companion to cloud/traffic's outbound injection. An empty header
+// inbound companion to cloud/governance/traffic's outbound injection. An empty header
 // falls back to the traffic package default. Without the marker it is a no-op.
 func LoadTest(header string) echo.MiddlewareFunc {
 	if header == "" {
@@ -126,26 +126,25 @@ func applyMiddlewares(e *echo.Echo, cfg Config) error {
 	if cfg.MaxBodySize > 0 {
 		e.Use(middleware.BodyLimit(strconv.FormatInt(cfg.MaxBodySize, 10)))
 	}
-	// Fault injection (opt-in), innermost so the resulting 503 is still logged by
-	// the access log. Lets an operator "set fire" to the running server.
-	if fm := buildFault(cfg); fm != nil {
-		e.Use(fm)
-	}
+	// Fault injection (always installed, innermost so the resulting 503 is still
+	// logged by the access log). The injector is resolved from the neutral
+	// [fault.InjectorFor] seam (nil-safe: a transparent pass-through when fault is
+	// off / governance not imported), letting an operator "set fire" to the running
+	// server and hot-toggle it at runtime without a restart.
+	e.Use(buildFault())
 	return nil
 }
 
-// buildFault builds the inbound fault-injection middleware from cfg, or returns
-// nil when fault is disabled. It gates the handler call with [fault.Apply] so a
-// configured fraction of inbound requests fail or slow down — the server-side
-// counterpart to the client starters' fault.WrapExecutor.
-func buildFault(cfg Config) echo.MiddlewareFunc {
-	if !cfg.Fault.Enabled {
-		return nil
-	}
-	inj := fault.NewInjector(cfg.Fault)
+// buildFault builds the inbound fault-injection middleware. It gates the handler
+// call with [fault.Apply] so a configured fraction of inbound requests fail or
+// slow down — the server-side counterpart to the client starters'
+// fault.WrapExecutor. The injector comes from the neutral [fault.InjectorFor]
+// seam (backed by the governance center); when no injector is registered Apply
+// is a transparent pass-through.
+func buildFault() echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
-			err := fault.Apply(c.Request().Context(), inj, "echo", func() error {
+			err := fault.Apply(c.Request().Context(), fault.InjectorFor(), "echo", func() error {
 				return next(c)
 			})
 			if err != nil && !c.Response().Committed {

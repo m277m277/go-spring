@@ -45,12 +45,12 @@ import (
 
 	"github.com/bradfitz/gomemcache/memcache"
 	"go-spring.org/cloud/discovery"
-	"go-spring.org/cloud/resilience"
+	"go-spring.org/cloud/governance/resilience"
 	"go-spring.org/spring/gs"
 
+	_ "go-spring.org/cloud/governance"    // registers the centralized governance center
 	_ "go-spring.org/starter-actuator"    // aggregates the memcached health.Indicator
 	_ "go-spring.org/starter-config-file" // registers the file-watch config provider
-	_ "go-spring.org/cloud/govern"      // registers the centralized governance center
 	StarterMemcached "go-spring.org/starter-memcached"
 )
 

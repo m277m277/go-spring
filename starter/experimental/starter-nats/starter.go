@@ -19,9 +19,9 @@ package StarterNats
 import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
-	"go-spring.org/cloud/resilience"
+	"go-spring.org/cloud/governance/resilience"
+	observe "go-spring.org/cloud/observe"
 	"go-spring.org/log"
-	observe "go-spring.org/observe"
 	"go-spring.org/spring/conf"
 	"go-spring.org/spring/gs"
 	"go-spring.org/stdlib/errutil"

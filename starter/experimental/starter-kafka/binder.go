@@ -22,7 +22,7 @@ import (
 
 	"github.com/twmb/franz-go/pkg/kgo"
 	"go-spring.org/cloud/experimental/messaging"
-	"go-spring.org/cloud/traffic"
+	"go-spring.org/cloud/governance/traffic"
 	"go-spring.org/log"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"

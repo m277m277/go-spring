@@ -25,11 +25,14 @@ package StarterRedigo
 
 import (
 	"go-spring.org/cloud/actuator/health"
+	observe "go-spring.org/cloud/observe"
+	"go-spring.org/log"
 	"go-spring.org/spring/conf"
 	"go-spring.org/spring/data/cache"
 	"go-spring.org/spring/gs"
 	"go-spring.org/starter-redigo/bytecache"
 	poolhealth "go-spring.org/starter-redigo/health"
+	"go-spring.org/stdlib/errutil"
 	"go-spring.org/stdlib/flatten"
 )
 
@@ -42,10 +45,22 @@ func init() {
 	gs.Module(gs.OnProperty("spring.redigo"), func(r gs.BeanProvider, p flatten.Storage) error {
 		return conf.BindEach(p, "${spring.redigo}", func(name string, c Config) error {
 
-			r.Provide(newPool, gs.IndexArg(1, gs.ValueArg(c))).
-				Name(name).
-				Init((*Pool).Init).
-				Destroy((*Pool).Destroy)
+			// The adapter is the gs↔NewPool bridge: it converts the
+			// *gs.ContextProvider into a plain context.Context, so NewPool itself
+			// never touches gs types and is usable standalone. Users wanting
+			// custom assembly skip this bean entirely and call NewPool (or
+			// NewConn) themselves.
+			//
+			// IndexArg(2) binds the GLOBAL observability policy (the
+			// observability.* keys shared across all client starters) at provide
+			// time — the same TagArg-binds-a-struct pattern starter-gin uses for
+			// its Config. It is deliberately NOT part of per-instance Config
+			// (whose ObserveEnabled is only the kill switch).
+			r.Provide(
+				createPool,
+				gs.IndexArg(1, gs.ValueArg(c)),
+				gs.IndexArg(2, gs.TagArg("${observability:=}")),
+			).Name(name).Destroy(destroyPool)
 
 			// Contribute a health indicator for this instance unless the user
 			// disabled it (health.enabled=false), injecting the pool just
@@ -74,4 +89,68 @@ func init() {
 			return nil
 		}
 	})
+}
+
+// createPool is the gs entry: it dispatches to the configured Driver —
+// which owns the full pool assembly (the bundled DefaultDriver delegates to
+// [NewPool]) — and authoritatively re-attaches cfg (custom out-of-package
+// drivers cannot set unexported fields). The Driver's returned Pool is fully
+// armed; see [NewPool] and the Driver interface doc for the assembly contract
+// and the two customization shapes.
+//
+// obs is the GLOBAL observability policy shared across all client starters
+// (the observability.* keys); it is deliberately not part of per-instance
+// Config, whose ObserveEnabled is only the per-instance kill switch. The gs
+// entry binds it and passes it in; a programmatic caller passes
+// observe.ObserveConfig{} (or whatever policy it wants).
+func createPool(ctx *gs.ContextProvider, c Config, obs observe.ObserveConfig) (*Pool, error) {
+
+	log.Debugf(ctx.Context, starterTag, "creating redigo client, addr=%s service-name=%s", c.Addr, c.ServiceName)
+
+	if err := errutil.RequireAny("redis",
+		errutil.Field{Name: "addr", Value: c.Addr},
+		errutil.Field{Name: "service-name", Value: c.ServiceName},
+	); err != nil {
+		return nil, err
+	}
+
+	d, ok := driverRegistry[c.Driver]
+	if !ok {
+		log.Errorf(ctx.Context, starterTag, "redigo driver not found: %s", c.Driver)
+		return nil, errutil.Explain(nil, "redis driver not found: %s", c.Driver)
+	}
+
+	// The driver returns the wrapped Pool (NOT the raw *redis.Pool): it may
+	// customize the wrapper itself, and downstream consumers uniformly deal in
+	// the project's type.
+	w, err := d.CreateClient(ctx.Context, c, obs)
+	if err != nil {
+		log.Errorf(ctx.Context, starterTag, "redigo: create client failed: %v", err)
+		return nil, errutil.Explain(err, "failed to create redis client")
+	}
+	if w == nil || w.Pool == nil {
+		return nil, errutil.Explain(nil, "redis driver %s returned a nil pool", c.Driver)
+	}
+	w.cfg = c
+
+	// Fail fast (opt-in): the redigo pool dials lazily, so when StartupPing is
+	// set, dial one connection directly and PING it at startup. A misconfigured
+	// address or unreachable server then surfaces during boot rather than on
+	// the first request. The pool is already assembled at this point, so the
+	// ping runs through the command chain (span et al.) — a harmless, even
+	// useful, first blip. See startupPing for why it dials directly instead of
+	// via pool.Get.
+	if c.StartupPing {
+		if err := startupPing(ctx.Context, w.Pool); err != nil {
+			_ = w.Close() // stop resolver watch + close pool
+			return nil, err
+		}
+	}
+
+	log.Infof(ctx.Context, starterTag, "redigo client initialized, addr=%s", c.Addr)
+	return w, nil
+}
+
+func destroyPool(p *Pool) error {
+	return p.Close()
 }

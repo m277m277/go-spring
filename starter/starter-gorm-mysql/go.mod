@@ -4,7 +4,6 @@ go 1.26.1
 
 require (
 	github.com/go-sql-driver/mysql v1.9.3
-	go-spring.org/observe v0.0.0
 	go-spring.org/spring v1.3.4
 	go-spring.org/stdlib v0.1.7
 	gorm.io/driver/mysql v1.6.0
@@ -12,7 +11,6 @@ require (
 )
 
 // Local, not-yet-published observe kit and gorm bridge. Removed once tagged.
-replace go-spring.org/observe => ../../cloud/observe
 
 require (
 	filippo.io/edwards25519 v1.1.0 // indirect

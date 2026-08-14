@@ -4,7 +4,6 @@ go 1.26.1
 
 require (
 	go-spring.org/cloud v0.0.0
-	go-spring.org/observe v0.0.0
 	go-spring.org/stdlib v0.1.7
 	gorm.io/gorm v1.31.1
 )
@@ -25,6 +24,5 @@ require (
 	golang.org/x/text v0.40.0 // indirect
 )
 
-replace go-spring.org/observe => ../../cloud/observe
 
 replace go-spring.org/cloud => ../../cloud

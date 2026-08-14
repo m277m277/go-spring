@@ -20,7 +20,7 @@ import (
 	"context"
 	"time"
 
-	"go-spring.org/cloud/traffic"
+	"go-spring.org/cloud/governance/traffic"
 )
 
 // ScopeApplies reports whether fault injection should run for a call, given the

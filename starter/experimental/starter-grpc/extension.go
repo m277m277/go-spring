@@ -33,9 +33,9 @@ import (
 // grpc.NewServer call). UseUnaryInterceptor / UseStreamInterceptor let an
 // application compose its own interceptors onto the built-in stack instead.
 var (
-	extMu       sync.RWMutex
-	userUnary   []grpc.UnaryServerInterceptor
-	userStream  []grpc.StreamServerInterceptor
+	extMu      sync.RWMutex
+	userUnary  []grpc.UnaryServerInterceptor
+	userStream []grpc.StreamServerInterceptor
 )
 
 // UseUnaryInterceptor prepends a unary server interceptor to the built-in

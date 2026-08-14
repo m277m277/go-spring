@@ -20,8 +20,8 @@ import (
 	"context"
 
 	"github.com/IBM/sarama"
-	"go-spring.org/cloud/traffic"
-	observe "go-spring.org/observe"
+	"go-spring.org/cloud/governance/traffic"
+	observe "go-spring.org/cloud/observe"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 )

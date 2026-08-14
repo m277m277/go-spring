@@ -96,7 +96,7 @@ type SimpleGinServer struct {
 // the outside of the chain. cfg is bound from ${spring.gin.server}. Inbound
 // admission protection (rate-limit / breaker) is resolved inside
 // ApplyMiddlewares via the neutral resilience.ExecutorFor seam, so this server
-// has no coupling to cloud/govern.
+// has no coupling to cloud/governance.
 func NewSimpleGinServer(register RouterRegister, outer EngineMiddleware, cfg Config) (*SimpleGinServer, error) {
 	e := gin.New()
 

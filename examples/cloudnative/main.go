@@ -53,7 +53,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"go-spring.org/cloud/actuator/health"
 	"go-spring.org/cloud/discovery"
-	"go-spring.org/cloud/resilience"
+	"go-spring.org/cloud/governance/resilience"
 	"go-spring.org/spring/gs"
 
 	_ "go-spring.org/starter-actuator"    // registers the actuator Server bean (gated on spring.actuator.addr)
@@ -151,7 +151,7 @@ func main() {
 	}
 
 	// Build the resilience executor from the builtin "default" driver (registered
-	// by cloud/resilience on import — no external dependency).
+	// by cloud/governance/resilience on import — no external dependency).
 	driver, err := resilience.GetDriver("default")
 	if err != nil {
 		fail("resilience driver: %v", err)

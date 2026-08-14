@@ -25,7 +25,7 @@ import (
 	"github.com/apache/pulsar-client-go/pulsar"
 	plog "github.com/apache/pulsar-client-go/pulsar/log"
 	"github.com/prometheus/client_golang/prometheus"
-	"go-spring.org/cloud/resilience"
+	"go-spring.org/cloud/governance/resilience"
 	"go-spring.org/log"
 	"go-spring.org/spring/conf"
 	"go-spring.org/spring/gs"

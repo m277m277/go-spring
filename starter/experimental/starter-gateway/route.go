@@ -38,7 +38,7 @@ import (
 	"net/url"
 	"time"
 
-	"go-spring.org/cloud/resilience"
+	"go-spring.org/cloud/governance/resilience"
 )
 
 // Predicate reports whether a request matches a route. It is the Go-idiomatic

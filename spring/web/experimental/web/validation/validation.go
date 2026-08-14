@@ -16,7 +16,7 @@
 
 // Package validation defines a framework-agnostic, zero-dependency abstraction
 // for struct validation, split from its implementations exactly like
-// [go-spring.org/cloud/resilience] and [go-spring.org/spring/discovery].
+// [go-spring.org/cloud/governance/resilience] and [go-spring.org/spring/discovery].
 //
 // It answers one question — "is this struct well-formed?" — for the two binding
 // paths in the framework:

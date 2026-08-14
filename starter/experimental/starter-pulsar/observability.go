@@ -25,7 +25,7 @@ import (
 	"github.com/apache/pulsar-client-go/pulsar"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	observe "go-spring.org/observe"
+	observe "go-spring.org/cloud/observe"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"

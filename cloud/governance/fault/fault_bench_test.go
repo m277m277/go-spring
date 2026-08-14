@@ -20,7 +20,7 @@ import (
 	"context"
 	"testing"
 
-	"go-spring.org/cloud/resilience"
+	"go-spring.org/cloud/governance/resilience"
 )
 
 // noopFn is the operation handed to the executor: returns nil immediately so

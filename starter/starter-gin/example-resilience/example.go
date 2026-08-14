@@ -39,8 +39,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"go-spring.org/spring/gs"
 
+	_ "go-spring.org/cloud/governance"
 	StarterGin "go-spring.org/starter-gin"
-	_ "go-spring.org/cloud/govern"
 )
 
 func init() {

@@ -20,10 +20,10 @@ import (
 	"io"
 	"net/http"
 
-	"go-spring.org/cloud/resilience"
+	"go-spring.org/cloud/governance/resilience"
+	observe "go-spring.org/cloud/observe"
+	"go-spring.org/cloud/observe/resilience"
 	"go-spring.org/log"
-	observe "go-spring.org/observe"
-	"go-spring.org/observe/resilience"
 	"go-spring.org/spring/conf"
 	"go-spring.org/spring/gs"
 	"go-spring.org/stdlib/flatten"
@@ -87,7 +87,7 @@ func newClient(ctx *gs.ContextProvider, name string, c Config) (*http.Client, er
 	// Resolve the resilience executor through the NEUTRAL provider seam
 	// [resilience.ExecutorFor]: starter-govern registers a provider backed by the
 	// governance center, so this client gets its rate-limit/breaker/retry policy
-	// WITHOUT injecting *govern.Center or even importing cloud/govern. When
+	// WITHOUT injecting *governance.Center or even importing cloud/governance. When
 	// governance is not configured the seam yields a transparent no-op executor,
 	// so this call is always safe. Always non-nil; resolution is deferred to call
 	// time, so the order of this setup relative to starter-govern is irrelevant.

@@ -21,7 +21,7 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"go-spring.org/cloud/experimental/messaging"
-	"go-spring.org/cloud/traffic"
+	"go-spring.org/cloud/governance/traffic"
 )
 
 // NewBinder adapts a NATS connection to the broker-neutral messaging.Binder, so

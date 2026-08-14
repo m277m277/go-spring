@@ -8,21 +8,21 @@
 
 ## 1. 前置：引入 cloud/govern
 
-govern 不是自动生效的——必须在程序入口 blank import cloud/govern，它才会在启动时（作为一个 `gs.Runner`）把治理中心接到 resilience 的中立 seam 上：
+govern 不是自动生效的——必须在程序入口 blank import cloud/governance，它才会在启动时（作为一个 `gs.Runner`）把治理中心接到 resilience 的中立 seam 上：
 
 ```go
 import (
-    _ "go-spring.org/cloud/govern"   // 启动时注册 resilience executor provider
+    _ "go-spring.org/cloud/governance"   // 启动时注册 resilience executor provider
     _ "go-spring.org/starter-redigo"   // 你的业务 starter
     // ... 其他 starter
 )
 ```
 
-> **client starter 不需要 import（也不注入）govern。** 每个 client（redis/gorm/http/…）只调中立函数 `resilience.ExecutorFor(资源label)` 拿到它的 executor——不知道 govern 的存在。cloud/govern 内置了这段接线（`starter.go`），在进程启动时把治理中心注册成那个 executor 的来源（`gs.Runner` 保证执行，跟 actuator 同机制）。这是 2026-08-14 的重构：之前每个 client 注入 `*govern.Center`，现在零 govern 耦合。详见 [DESIGN_CN.md](./DESIGN_CN.md)。
+> **client starter 不需要 import（也不注入）govern。** 每个 client（redis/gorm/http/…）只调中立函数 `resilience.ExecutorFor(资源label)` 拿到它的 executor——不知道 govern 的存在。cloud/governance 内置了这段接线（`starter.go`），在进程启动时把治理中心注册成那个 executor 的来源（`gs.Runner` 保证执行，跟 actuator 同机制）。这是 2026-08-14 的重构：之前每个 client 注入 `*governance.Center`，现在零 govern 耦合。详见 [DESIGN_CN.md](./DESIGN_CN.md)。
 
-**不 import cloud/govern 时**：没有 provider 注册，`ExecutorFor` 返回透传的 noop executor，resilience 完全旁路（直连后端），不会报错。所以"没配治理"和"不能用 starter"是两回事。
+**不 import cloud/governance 时**：没有 provider 注册，`ExecutorFor` 返回透传的 noop executor，resilience 完全旁路（直连后端），不会报错。所以"没配治理"和"不能用 starter"是两回事。
 
-**例外：starter-dubbo**。dubbo 走自己的 URL-param 治理模型（timeout/retries 是 dubbo 参数，不走 resilience executor），所以它仍直接注入 `*govern.Center` 读 `PolicyFor` 的字段。这是唯一保留注入的 client。
+**例外：starter-dubbo**。dubbo 走自己的 URL-param 治理模型（timeout/retries 是 dubbo 参数，不走 resilience executor），所以它仍直接注入 `*governance.Center` 读 `PolicyFor` 的字段。这是唯一保留注入的 client。
 
 ---
 
@@ -46,7 +46,7 @@ govern.default.open-duration=5s     # 熔断持续 5s 后半开试探
 
 配完这 7 行，项目里的 redis、gorm、mongo、http-client……全部自动套用这套超时/重试/限流/熔断，且**热重载**——改完文件不用重启。
 
-> `govern.default.*` 下的可用字段就是 `resilience.Config` 的全部旋钮：`timeout` / `max-retries` / `rate-limit` / `burst` / `error-threshold` / `open-duration` / `breaker-strategy`(consecutive|error-rate) / `error-rate-threshold` / `min-requests` / `breaker-window`。字段含义见 [cloud/resilience/config.go](../resilience/config.go)。
+> `govern.default.*` 下的可用字段就是 `resilience.Config` 的全部旋钮：`timeout` / `max-retries` / `rate-limit` / `burst` / `error-threshold` / `open-duration` / `breaker-strategy`(consecutive|error-rate) / `error-rate-threshold` / `min-requests` / `breaker-window`。字段含义见 [cloud/governance/resilience/config.go](../resilience/config.go)。
 
 ---
 
@@ -166,55 +166,61 @@ dubbo 专属旋钮（loadbalance / cluster / serialization）不进 govern，留
 
 ---
 
-## 6. fault（放火）——多 starter 共享同一个开关 ⚠️
+## 6. fault（放火）——随 govern 集中化,一个开关烧全进程 ⚠️
 
-**这是最容易踩的坑**：当前每个 starter 的 fault 都绑**同一个顶层 `${fault}`**（绝对引用，不带实例前缀）。所以在多 starter 项目里：
+fault 注入已**收进治理中心**,和 resilience 共用同一个 `${govern}` Dync(参见 [DESIGN_CN.md §8](DESIGN_CN.md))。所以放火的 key 是 `govern.fault.*`(不再是顶层 `fault.*`):
 
 ```properties
-fault.enabled=true
-fault.rate=0.5
-fault.error=generic
+govern.fault.enabled=true
+govern.fault.rate=0.5
+govern.fault.error=generic
 ```
 
-这一条会**同时给所有 starter 放火**——redis、gorm、http-client 全部以 50% 概率注入错误。这不是 bug，是当前设计的后果（集中化改造前的状态）。
+这一条会**同时给全进程所有 starter 放火**——redis、gorm、http-client、gin 入站……全部以 50% 概率注入错误。这是集中化的预期效果:starter 侧通过中立的 `fault.InjectorFor()` seam 拿到唯一的进程级 injector,starter 自己不再绑 fault 配置、也不 import cloud/governance。
 
 ### 想只给某个资源放火
 
-用 `fault.rules[]` 做定向（catch-all 之外的细分）：
+用 `govern.fault.rules[]` 做定向(catch-all 之外的细分):
 
 ```properties
-fault.enabled=true
+govern.fault.enabled=true
 
-# 默认（catch-all）：不实际注入错误，只让框架进入"fault 模式"
-fault.rate=0
+# 默认(catch-all):不实际注入错误,只让框架进入"fault 模式"
+govern.fault.rate=0
 
 # 只给 redis 放火
-fault.rules[0].resources=redigo:cache
-fault.rules[0].rate=0.5
-fault.rules[0].error=timeout
+govern.fault.rules[0].resources=redigo:cache
+govern.fault.rules[0].rate=0.5
+govern.fault.rules[0].error=timeout
 ```
 
-> 注意 `fault.rules[N].resources` 里的值要和该 starter 实际传给 injector 的 resource label 对上（client 侧是 `redigo:cache` 这类）。server 侧（gin/grpc）的 fault 走中间件，label 规则不同，见各 server starter 文档。
+> 注意 `govern.fault.rules[N].resources` 里的值要和该 starter 实际传给 injector 的 resource label 对上(client 侧是 `redigo:cache` 这类)。server 侧(gin/grpc/echo/hertz/trpc/dubbo)的 fault 走中间件/拦截器,per-call 解析 injector,label 规则见各 server starter 文档(grpc 的 label 是 `grpc:<FullMethod>`)。
 
 ### fault 的安全保险
 
-放火忘了关很危险，fault 内置两个自愈上限：
+放火忘了关很危险,fault 内置两个自愈上限:
 
 ```properties
-fault.max-duration=10m     # 放火 10 分钟后自动停（从第一次生效算）
-fault.max-affected=1000    # 累计影响 1000 次调用后自动停
+govern.fault.max-duration=10m     # 放火 10 分钟后自动停(从第一次生效算)
+govern.fault.max-affected=1000    # 累计影响 1000 次调用后自动停
 ```
 
-**强烈建议**生产环境放火时必设其一，set fire and walk away 也不会烧到天荒地老。
+**强烈建议**生产环境放火时必设其一,set fire and walk away 也不会烧到天荒地老。
+
+> 注意:集中化后 `max-duration`/`max-affected` 是**进程级计数**(不再是 per-resource)。详见 DESIGN_CN.md §8 的取舍说明。
 
 ### fault 与真实流量
 
-用 `fault.scope` 限定只烧压测流量、不碰真实请求（依赖 cloud/traffic 的压测标记）：
+用 `govern.fault.scope` 限定只烧压测流量、不碰真实请求(依赖 cloud/governance/traffic 的压测标记):
 
 ```properties
-fault.scope=loadtest   # 只给带压测标记的流量放火；真实流量不受影响
-                     # 反向：real = 只烧真实流量；空 = 全烧（默认）
+govern.fault.scope=loadtest   # 只给带压测标记的流量放火;真实流量不受影响
+                            # 反向:real = 只烧真实流量;空 = 全烧(默认)
 ```
+
+### 运行时热更
+
+因为 fault 现在随 `${govern}` 走 centerHolder 的单一 Dync,**改配置 push 即可在不重启进程的情况下开关 fault**——这是集中化相比旧版"启动时必须开"的重要改进(starter 通过 `fault.InjectorFor()` per-call 惰性解析,中心 `SetConfig` 原地热更)。
 
 ---
 
@@ -271,7 +277,7 @@ fault.enabled=false
 
 ```go
 import (
-    _ "go-spring.org/cloud/govern"
+    _ "go-spring.org/cloud/governance"
     _ "go-spring.org/starter-gin"
     _ "go-spring.org/starter-redigo"
     StarterGormMysql "go-spring.org/starter-gorm-mysql"
@@ -290,5 +296,5 @@ import (
 | 用 `govern.override.<label>` 旧写法 | 已改为 `govern.rules[N].resources=<label>`。label 放值里，别再当 key（冒号会废掉 YAML）。 |
 | 不知道资源 label 是什么 | 配 `service-name` 让 label 稳定可读；查 DESIGN_CN.md §6 表。 |
 | 多 starter 项目写 `fault.enabled=true` 以为只烧一个 | fault 当前是全进程共享开关，会烧所有 starter。用 `fault.rules[].resources` 定向。 |
-| 没 import cloud/govern | Center 为 nil，resilience 完全旁路，不报错但也不生效。 |
+| 没 import cloud/governance | Center 为 nil，resilience 完全旁路，不报错但也不生效。 |
 | 改了配置没生效 | 确认走了热重载（file-watch / 配置中心）；govern 的单 Dync 本身支持热重载，但要看配置源是否推送了变更。 |

@@ -18,7 +18,7 @@ package StarterMQTT
 
 import (
 	mqtt "github.com/eclipse/paho.mqtt.golang"
-	"go-spring.org/cloud/resilience"
+	"go-spring.org/cloud/governance/resilience"
 	"go-spring.org/log"
 	"go-spring.org/spring/conf"
 	"go-spring.org/spring/gs"

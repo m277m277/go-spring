@@ -10,10 +10,7 @@ require (
 	gorm.io/gorm v1.31.1
 )
 
-require go-spring.org/observe v0.0.0
-
 // Local, not-yet-published observe kit and gorm bridge. Removed once tagged.
-replace go-spring.org/observe => ../../../cloud/observe
 
 require (
 	github.com/ClickHouse/ch-go v0.61.5 // indirect

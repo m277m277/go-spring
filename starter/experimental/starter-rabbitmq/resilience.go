@@ -21,9 +21,9 @@ import (
 	"sync"
 
 	amqp "github.com/rabbitmq/amqp091-go"
-	"go-spring.org/cloud/fault"
-	"go-spring.org/cloud/resilience"
-	resilobserve "go-spring.org/observe/resilience"
+	"go-spring.org/cloud/governance/fault"
+	"go-spring.org/cloud/governance/resilience"
+	resilobserve "go-spring.org/cloud/observe/resilience"
 )
 
 // resilienceExecs tracks the resilience executor attached to each connection,
@@ -44,14 +44,10 @@ var resilienceResources sync.Map // *amqp.Connection -> string
 //
 // The executor is resolved through the neutral [resilience.ExecutorFor] seam,
 // which starter-govern backs with the governance center — so this function has
-// zero coupling to cloud/govern. When governance is off, ExecutorFor yields a
+// zero coupling to cloud/governance. When governance is off, ExecutorFor yields a
 // transparent no-op executor; fault wraps it when enabled.
 func applyResilience(c Config, conn *amqp.Connection, resource string) error {
-	fc := c.Fault
-	exec := resilience.ExecutorFor(resource)
-	if fc.Enabled {
-		exec = fault.WrapExecutor(exec, fault.NewInjector(fc))
-	}
+	exec := fault.WrapExecutor(resilience.ExecutorFor(resource), fault.InjectorFor())
 	exec = resilobserve.WrapExecutor(exec, "rabbitmq", c.Observability)
 	resilienceExecs.Store(conn, exec)
 	resilienceResources.Store(conn, resource)
@@ -65,7 +61,6 @@ func closeResilience(conn *amqp.Connection) {
 	}
 	resilienceResources.Delete(conn)
 }
-
 
 // guard routes call through the executor attached to conn, and otherwise runs it
 // inline. When resilience is disabled for the connection this is a no-op

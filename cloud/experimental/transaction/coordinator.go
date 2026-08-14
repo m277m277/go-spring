@@ -23,7 +23,7 @@ import (
 	"slices"
 	"time"
 
-	"go-spring.org/cloud/resilience"
+	"go-spring.org/cloud/governance/resilience"
 )
 
 // Option configures the in-process [Coordinator] built by [NewCoordinator].

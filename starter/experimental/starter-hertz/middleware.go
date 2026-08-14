@@ -29,8 +29,8 @@ import (
 	"github.com/hertz-contrib/cors"
 	"github.com/hertz-contrib/gzip"
 	"github.com/hertz-contrib/requestid"
-	"go-spring.org/cloud/fault"
-	"go-spring.org/cloud/traffic"
+	"go-spring.org/cloud/governance/fault"
+	"go-spring.org/cloud/governance/traffic"
 	"go-spring.org/log"
 	"go-spring.org/stdlib/errutil"
 )
@@ -112,24 +112,24 @@ func applyMiddlewares(h *server.Hertz, cfg Config) error {
 	if mw.Gzip.Enabled {
 		h.Use(gzip.Gzip(mw.Gzip.Level))
 	}
-	// Fault injection (opt-in), innermost so the resulting 503 is still logged.
-	if fm := buildFault(cfg); fm != nil {
-		h.Use(fm)
-	}
+	// Fault injection (always installed, innermost so the resulting 503 is still
+	// logged). The injector is resolved from the neutral [fault.InjectorFor]
+	// seam (nil-safe: a transparent pass-through when fault is off / governance
+	// not imported), letting an operator "set fire" to the running server and
+	// hot-toggle it at runtime without a restart.
+	h.Use(buildFault())
 	return nil
 }
 
-// buildFault builds the inbound fault-injection middleware from cfg, or returns
-// nil when fault is disabled. It gates the handler call with [fault.Apply] so a
-// configured fraction of inbound requests fail or slow down — the server-side
-// counterpart to the client starters' fault.WrapExecutor.
-func buildFault(cfg Config) app.HandlerFunc {
-	if !cfg.Fault.Enabled {
-		return nil
-	}
-	inj := fault.NewInjector(cfg.Fault)
+// buildFault builds the inbound fault-injection middleware. It gates the handler
+// call with [fault.Apply] so a configured fraction of inbound requests fail or
+// slow down — the server-side counterpart to the client starters'
+// fault.WrapExecutor. The injector comes from the neutral [fault.InjectorFor]
+// seam (backed by the governance center); when no injector is registered Apply
+// is a transparent pass-through.
+func buildFault() app.HandlerFunc {
 	return func(ctx context.Context, c *app.RequestContext) {
-		err := fault.Apply(ctx, inj, "hertz", func() error {
+		err := fault.Apply(ctx, fault.InjectorFor(), "hertz", func() error {
 			c.Next(ctx)
 			return nil
 		})
@@ -157,7 +157,7 @@ func accessLogSkipSet(cfg Config) map[string]struct{} {
 // When the incoming request carries the configured marker header (default
 // X-LoadTest) it tags the request context via traffic.WithLoadTest, so handlers
 // and outbound clients can recognise synthetic load through traffic.IsLoadTest.
-// It is the inbound companion to cloud/traffic's outbound injection. An empty
+// It is the inbound companion to cloud/governance/traffic's outbound injection. An empty
 // header falls back to the traffic package default. Without the marker it is a
 // no-op. Hertz stores headers as []byte; Peek returns the raw value.
 func LoadTest(header string) app.HandlerFunc {

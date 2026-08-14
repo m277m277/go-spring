@@ -21,11 +21,10 @@ import (
 	"errors"
 
 	"github.com/allegro/bigcache/v3"
-	"go-spring.org/cloud/fault"
-	"go-spring.org/cloud/resilience"
-	observe "go-spring.org/observe"
-	"go-spring.org/observe/resilience"
-	"go-spring.org/spring/gs"
+	"go-spring.org/cloud/governance/fault"
+	"go-spring.org/cloud/governance/resilience"
+	observe "go-spring.org/cloud/observe"
+	"go-spring.org/cloud/observe/resilience"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -104,12 +103,9 @@ type Cache struct {
 	*bigcache.BigCache
 	obs *observe.Observer
 
-	// Fault is the per-cache fault-injection config (a separate concern from
-	// centralized resilience governance). Resilience itself is no longer injected
-	// here: this cache resolves its executor through the neutral
-	// [resilience.ExecutorFor] seam, which starter-govern backs with the
-	// governance center — so this struct has zero coupling to cloud/govern.
-	Fault         gs.Dync[fault.Config] `value:"${fault:=}"`
+	// Both resilience and fault are resolved through neutral seams
+	// ([resilience.ExecutorFor] / [fault.InjectorFor]) backed by starter-govern's
+	// governance center — so this struct has zero coupling to cloud/governance.
 	Observability observe.ObserveConfig `value:"${observability:=}"`
 
 	// name is the instance name (the spring.bigcache.<name> map key), used for
@@ -119,35 +115,22 @@ type Cache struct {
 	// exec is the resilience executor protecting Get/Set/Delete, resolved via
 	// resilience.ExecutorFor; no-op when governance is off.
 	exec resilience.Executor
-	// faultInj is the fault injector when fault is enabled; nil otherwise.
-	// It sits between the raw executor and the observe wrap so injected faults
-	// are observable. Set by Init when fault is enabled.
-	faultInj *fault.Injector
 	// resource is the resilience resource key ("bigcache:<instance-name>")
 	// exec scopes limiter/breaker state by.
 	resource string
 }
 
-// Init is the gs InitMethod: gs field-injects Fault + Observability
-// after newClient returns, then calls this. It builds the observe.Observer and
-// resolves the executor through the neutral [resilience.ExecutorFor] seam
-// (backed by starter-govern's governance center when imported), so this cache
-// neither injects nor names cloud/govern. When governance is off the resolved
-// executor is a transparent no-op; fault wrapping still applies when enabled.
+// Init is the gs InitMethod: gs field-injects Observability after newClient
+// returns, then calls this. It builds the observe.Observer and resolves the
+// executor through the neutral [resilience.ExecutorFor] seam (backed by
+// starter-govern's governance center when imported), so this cache neither
+// injects nor names cloud/governance. The executor is wrapped with the
+// process-wide fault injector ([fault.InjectorFor], nil-safe); when governance
+// is off the resolved executor is a transparent no-op.
 func (c *Cache) Init() error {
-	c.obs = observe.NewClient("bigcache", c.Observability)
-	fc := c.Fault.Value()
+	c.obs = observe.NewDB("bigcache", c.Observability)
 	c.resource = resilience.ResourceLabel("bigcache", c.name)
-	exec := resilience.ExecutorFor(c.resource)
-	if fc.Enabled {
-		c.faultInj = fault.NewInjector(fc)
-		exec = fault.WrapExecutor(exec, c.faultInj)
-		// Fault config is a separate concern (chaos injection, not governance) so
-		// it keeps its own Dync + OnChanged rather than flowing through the center.
-		c.Fault.OnChanged(func(new, _ fault.Config) {
-			c.faultInj.SetConfig(new)
-		})
-	}
+	exec := fault.WrapExecutor(resilience.ExecutorFor(c.resource), fault.InjectorFor())
 	c.exec = resilobserve.WrapExecutor(exec, "bigcache", c.Observability)
 	return nil
 }

@@ -19,9 +19,8 @@ package StarterKafka
 import (
 	"time"
 
-	"go-spring.org/cloud/fault"
+	observe "go-spring.org/cloud/observe"
 	"go-spring.org/cloud/tlsconf"
-	observe "go-spring.org/observe"
 )
 
 // Config defines Kafka client configuration.
@@ -54,10 +53,6 @@ type Config struct {
 	// hook (kotel already provides trace spans + metrics, so the hook is log-only,
 	// off/brief/detailed). Defaults to "brief".
 	Observability observe.ObserveConfig `value:"${observability:=}"`
-
-	// Fault optionally injects failures/latency into outbound calls so retry/
-	// breaker can be proven under load. Disabled by default.
-	Fault fault.Config `value:"${fault:=}"`
 }
 
 // SASLConfig configures SASL authentication. It is shared, by property name,

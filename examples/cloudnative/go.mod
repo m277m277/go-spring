@@ -53,7 +53,6 @@ require (
 	github.com/ugorji/go/codec v1.3.1 // indirect
 	go-spring.org/gs-mock v0.0.9 // indirect
 	go-spring.org/log v0.1.4 // indirect
-	go-spring.org/observe v0.0.0 // indirect
 	go-spring.org/stdlib v0.1.7 // indirect
 	go.mongodb.org/mongo-driver/v2 v2.6.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
@@ -73,7 +72,6 @@ require (
 replace (
 	go-spring.org/cloud => ../../cloud
 	go-spring.org/log => ../../log
-	go-spring.org/observe => ../../cloud/observe
 	go-spring.org/spring => ../../spring
 	go-spring.org/starter-actuator => ../../starter/experimental/starter-actuator
 	go-spring.org/starter-config-file => ../../starter/starter-config-file

@@ -20,7 +20,7 @@ import (
 	"context"
 
 	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
-	observe "go-spring.org/observe"
+	observe "go-spring.org/cloud/observe"
 )
 
 // Why a kit-backed Query entry (not a transparent driver wrapper):
@@ -38,7 +38,7 @@ import (
 // because the kit cannot bind to a free-function call path; the default level is
 // "brief"). It rides the OTel globals starter-otel installs.
 
-var defaultObs = observe.NewClient("neo4j", observe.ObserveConfig{Level: observe.DefaultBrief})
+var defaultObs = observe.NewDB("neo4j", observe.ObserveConfig{Level: observe.DefaultBrief})
 
 // Query runs a Cypher query via neo4j.ExecuteQuery, wrapped with the observe kit
 // (trace span + duration/in-flight metric + access log) and, when resilience is

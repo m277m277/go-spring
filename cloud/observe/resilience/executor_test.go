@@ -21,8 +21,8 @@ import (
 	"errors"
 	"testing"
 
-	"go-spring.org/cloud/resilience"
-	observe "go-spring.org/observe"
+	"go-spring.org/cloud/governance/resilience"
+	observe "go-spring.org/cloud/observe"
 	"go-spring.org/stdlib/testing/assert"
 )
 
@@ -33,7 +33,7 @@ type fakeExecutor struct{ err error }
 func (f fakeExecutor) Execute(ctx context.Context, resource string, fn func(context.Context) error) error {
 	return f.err
 }
-func (fakeExecutor) Close() error { return nil }
+func (fakeExecutor) Close() error                      { return nil }
 func (fakeExecutor) Refresh(p resilience.Policy) error { return nil }
 
 func TestWrapExecutor_NilInnerReturnsNil(t *testing.T) {

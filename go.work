@@ -3,7 +3,6 @@ go 1.26.1
 use (
 	./cloud
 	./cloud/event/example
-	./cloud/observe
 	./contrib/dubbo-go/dubbo
 	./contrib/dubbo-go/jsonrpc
 	./contrib/dubbo-go/rest
@@ -14,10 +13,6 @@ use (
 	./contrib/go-zero/greet-api
 	./contrib/go-zero/greet-rpc
 	./contrib/go-zero/greet-ws
-	./contrib/goframe/grpc
-	./contrib/goframe/http
-	./contrib/goframe/tcp
-	./contrib/goframe/websocket
 	./contrib/kitex/generic
 	./contrib/kitex/protobuf
 	./contrib/kitex/thrift
@@ -82,13 +77,6 @@ use (
 	./starter/experimental/starter-go-zero/rest/example-otel
 	./starter/experimental/starter-go-zero/zrpc/example
 	./starter/experimental/starter-go-zero/zrpc/example-otel
-	./starter/experimental/starter-goframe
-	./starter/experimental/starter-goframe/grpc/example
-	./starter/experimental/starter-goframe/grpc/example-otel
-	./starter/experimental/starter-goframe/http/example
-	./starter/experimental/starter-goframe/http/example-otel
-	./starter/experimental/starter-goframe/tcp/example
-	./starter/experimental/starter-goframe/ws/example
 	./starter/experimental/starter-gorm-clickhouse
 	./starter/experimental/starter-gorm-clickhouse/example
 	./starter/experimental/starter-gorm-clickhouse/example-load
@@ -105,8 +93,8 @@ use (
 	./starter/experimental/starter-hertz/example-otel
 	./starter/experimental/starter-http-client
 	./starter/experimental/starter-http-client/example
-	./starter/experimental/starter-http-client/example-otel
 	./starter/experimental/starter-http-client/example-load
+	./starter/experimental/starter-http-client/example-otel
 	./starter/experimental/starter-kafka
 	./starter/experimental/starter-kafka-sarama
 	./starter/experimental/starter-kafka-sarama/example

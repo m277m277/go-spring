@@ -20,7 +20,7 @@ import (
 	"net/http"
 
 	"github.com/elastic/elastic-transport-go/v8/elastictransport"
-	observe "go-spring.org/observe"
+	observe "go-spring.org/cloud/observe"
 )
 
 // newOtelInstrumentation builds the transport-level OpenTelemetry

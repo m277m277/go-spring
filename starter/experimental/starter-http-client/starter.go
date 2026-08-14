@@ -30,7 +30,7 @@ import (
 	"slices"
 
 	"go-spring.org/cloud/experimental/httpx"
-	"go-spring.org/cloud/resilience"
+	"go-spring.org/cloud/governance/resilience"
 	"go-spring.org/log"
 	"go-spring.org/spring/conf"
 	"go-spring.org/spring/gs"
@@ -83,7 +83,7 @@ func newClient(ctx *gs.ContextProvider, name string, c Config) (*http.Client, er
 	// Resolve the resilience executor through the NEUTRAL provider seam
 	// [resilience.ExecutorFor]: starter-govern registers a provider backed by the
 	// governance center, so this client gets its timeout/retry/breaker policy
-	// WITHOUT injecting *govern.Center or even importing cloud/govern. When
+	// WITHOUT injecting *governance.Center or even importing cloud/governance. When
 	// governance is not configured the seam yields a transparent no-op executor,
 	// so this call is always safe. Resolution is deferred to call time, hence the
 	// order of this setup relative to starter-govern's wiring is irrelevant.

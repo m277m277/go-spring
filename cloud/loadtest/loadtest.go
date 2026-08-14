@@ -47,8 +47,8 @@ import (
 	"io"
 	"time"
 
-	"go-spring.org/cloud/fault"
-	"go-spring.org/cloud/resilience"
+	"go-spring.org/cloud/governance/fault"
+	"go-spring.org/cloud/governance/resilience"
 )
 
 // Op is one operation a worker fires per dispatch. It returns nil on success.
@@ -100,8 +100,8 @@ type Result struct {
 
 	// GC summary, populated when [Runner.CaptureGC] was enabled; zero otherwise.
 	// AssertGCPauseAvgBelow reads GCPauseAvg.
-	NumGC       int64
-	GCPauseAvg  time.Duration
+	NumGC      int64
+	GCPauseAvg time.Duration
 
 	// Assertions holds the outcome of each [Assert] registered on the runner.
 	// [Result.Passed] reports whether every assertion passed.

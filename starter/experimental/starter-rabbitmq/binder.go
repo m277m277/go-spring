@@ -22,7 +22,7 @@ import (
 
 	amqp "github.com/rabbitmq/amqp091-go"
 	"go-spring.org/cloud/experimental/messaging"
-	"go-spring.org/cloud/traffic"
+	"go-spring.org/cloud/governance/traffic"
 	"go-spring.org/log"
 )
 

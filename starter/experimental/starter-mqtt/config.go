@@ -19,9 +19,8 @@ package StarterMQTT
 import (
 	"time"
 
-	"go-spring.org/cloud/fault"
+	observe "go-spring.org/cloud/observe"
 	"go-spring.org/cloud/tlsconf"
-	observe "go-spring.org/observe"
 )
 
 // Config defines MQTT client connection configuration.
@@ -58,10 +57,6 @@ type Config struct {
 	// Will configures the Last Will and Testament (LWT) message the broker
 	// publishes on the client's behalf if it disconnects ungracefully.
 	Will WillConfig `value:"${will}"`
-
-	// Fault optionally injects failures/latency into outbound calls so retry/
-	// breaker can be proven under load. Disabled by default.
-	Fault fault.Config `value:"${fault:=}"`
 
 	// Observability configures the per-operation access log emitted by the
 	// resilience executor (off/brief/detailed). Defaults to "brief". This

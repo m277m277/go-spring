@@ -44,9 +44,9 @@ import (
 	"time"
 
 	"go-spring.org/cloud/discovery"
+	"go-spring.org/cloud/governance/resilience"
+	"go-spring.org/cloud/governance/traffic"
 	"go-spring.org/cloud/loadbalance"
-	"go-spring.org/cloud/resilience"
-	"go-spring.org/cloud/traffic"
 )
 
 // Config describes how to assemble the transport for one declarative client.
@@ -224,7 +224,7 @@ func NewTransport(cfg Config) (rt http.RoundTripper, close func() error, err err
 
 // trafficTransport injects the load-test marker header onto each request when
 // the request's context is a load-test context, then delegates to base. It is
-// the outbound seam for [go-spring.org/cloud/traffic] on the HTTP client path.
+// the outbound seam for [go-spring.org/cloud/governance/traffic] on the HTTP client path.
 type trafficTransport struct {
 	base http.RoundTripper
 }

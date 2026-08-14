@@ -6,13 +6,11 @@ require (
 	github.com/elastic/elastic-transport-go/v8 v8.9.0
 	github.com/elastic/go-elasticsearch/v8 v8.19.6
 	go-spring.org/log v0.1.4
-	go-spring.org/observe v0.0.0
 	go-spring.org/spring v1.3.4
 	go-spring.org/stdlib v0.1.7
 )
 
 // Local, not-yet-published observe kit. Removed once the module is tagged.
-replace go-spring.org/observe => ../../../cloud/observe
 
 require (
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect

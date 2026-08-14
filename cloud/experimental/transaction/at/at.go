@@ -65,7 +65,7 @@ package at
 import (
 	"context"
 
-	"go-spring.org/cloud/resilience"
+	"go-spring.org/cloud/governance/resilience"
 )
 
 // RetryPolicy governs how a branch's second-phase operation (commit or

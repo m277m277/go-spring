@@ -5,13 +5,11 @@ go 1.26.1
 require (
 	github.com/redis/go-redis/extra/redisotel/v9 v9.21.0
 	github.com/redis/go-redis/v9 v9.21.0
-	go-spring.org/observe v0.0.0
 	go-spring.org/spring v1.3.4
 	go-spring.org/stdlib v0.1.7
 )
 
 // Local, not-yet-published observe kit. Removed once the module is tagged.
-replace go-spring.org/observe => ../../cloud/observe
 
 require (
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect

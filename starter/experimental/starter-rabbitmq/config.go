@@ -19,9 +19,8 @@ package StarterRabbitMQ
 import (
 	"time"
 
-	"go-spring.org/cloud/fault"
+	observe "go-spring.org/cloud/observe"
 	"go-spring.org/cloud/tlsconf"
-	observe "go-spring.org/observe"
 )
 
 // Config defines RabbitMQ connection configuration.
@@ -45,10 +44,6 @@ type Config struct {
 	// uniform across starters (cert-file / key-file / ca-file / server-name /
 	// insecure-skip-verify).
 	TLS tlsconf.TLSConfig `value:"${tls}"`
-
-	// Fault optionally injects failures/latency into outbound calls so retry/
-	// breaker can be proven under load. Disabled by default.
-	Fault fault.Config `value:"${fault:=}"`
 
 	// Observability configures the per-operation access log emitted by the
 	// resilience executor (off/brief/detailed). Defaults to "brief". This

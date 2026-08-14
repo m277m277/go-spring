@@ -24,9 +24,9 @@ import (
 	"testing"
 	"time"
 
-	"go-spring.org/cloud/fault"
-	"go-spring.org/cloud/resilience"
-	"go-spring.org/cloud/traffic"
+	"go-spring.org/cloud/governance/fault"
+	"go-spring.org/cloud/governance/resilience"
+	"go-spring.org/cloud/governance/traffic"
 	"go-spring.org/stdlib/testing/assert"
 )
 
@@ -36,7 +36,7 @@ func TestNewRunner_OpenLoopDrivesAtTargetRate(t *testing.T) {
 	var ops atomic.Int64
 	r := New().
 		Driver(OpenLoop(2000, 16)). // ~2000 ops/sec
-		Duration(60 * time.Millisecond).
+		Duration(60*time.Millisecond).
 		Run(context.Background(), func(context.Context) error {
 			ops.Add(1)
 			return nil
@@ -54,7 +54,7 @@ func TestNewRunner_OpenLoopDrivesAtTargetRate(t *testing.T) {
 func TestNewRunner_ClosedLoopPreservesLegacyBehavior(t *testing.T) {
 	r := New().
 		Driver(ClosedLoop{Concurrency: 4}).
-		Duration(30 * time.Millisecond).
+		Duration(30*time.Millisecond).
 		Run(context.Background(), func(context.Context) error { return nil })
 	assert.That(t, r.Driver).Equal("closed-loop")
 	assert.That(t, r.Ops > 0).True()
@@ -69,7 +69,7 @@ func TestNewRunner_RampIncreasesRate(t *testing.T) {
 	start := time.Now()
 	r := New().
 		Driver(Ramp(50, 2000, half, 32)).
-		Duration(2 * half).
+		Duration(2*half).
 		Run(context.Background(), func(context.Context) error {
 			if time.Since(start) < half {
 				first.Add(1)
@@ -86,7 +86,7 @@ func TestNewRunner_RampIncreasesRate(t *testing.T) {
 // op context as load-test traffic (parity with the legacy Run).
 func TestNewRunner_TagsOpContextLoadTest(t *testing.T) {
 	var seen atomic.Bool
-	New().Driver(ClosedLoop{Concurrency: 2}).Duration(20 * time.Millisecond).
+	New().Driver(ClosedLoop{Concurrency: 2}).Duration(20*time.Millisecond).
 		Run(context.Background(), func(ctx context.Context) error {
 			if traffic.IsLoadTest(ctx) {
 				seen.Store(true)
@@ -100,7 +100,7 @@ func TestNewRunner_TagsOpContextLoadTest(t *testing.T) {
 // Passed(), both passing and failing.
 func TestNewRunner_AssertVerdict(t *testing.T) {
 	// Passing case: error rate below a generous ceiling under a fault load.
-	r := New().Driver(ClosedLoop{Concurrency: 4}).Duration(30 * time.Millisecond).
+	r := New().Driver(ClosedLoop{Concurrency: 4}).Duration(30*time.Millisecond).
 		Assert("error-rate", AssertErrorRateBelow(0.5)).
 		Assert("qps-floor", AssertMinQPS(0)).
 		Run(context.Background(), func(context.Context) error { return nil })
@@ -108,7 +108,7 @@ func TestNewRunner_AssertVerdict(t *testing.T) {
 	assert.That(t, r.Passed()).True()
 
 	// Failing case: p99 below an impossibly small ceiling.
-	r2 := New().Driver(ClosedLoop{Concurrency: 2}).Duration(30 * time.Millisecond).
+	r2 := New().Driver(ClosedLoop{Concurrency: 2}).Duration(30*time.Millisecond).
 		Assert("p99", AssertP99Below(time.Nanosecond)).
 		Run(context.Background(), func(ctx context.Context) error {
 			<-ctx.Done() // force a real latency > 1ns
@@ -136,7 +136,7 @@ func TestNewRunner_CustomClassifyBuckets(t *testing.T) {
 	}
 	r := New().
 		Driver(ClosedLoop{Concurrency: 1}).
-		Duration(30 * time.Millisecond).
+		Duration(30*time.Millisecond).
 		Classify(custom).
 		Run(context.Background(), func(context.Context) error {
 			return busy // always busy
@@ -146,7 +146,7 @@ func TestNewRunner_CustomClassifyBuckets(t *testing.T) {
 
 	// Default classifier still routes resilience sentinels to typed fields.
 	inj := fault.ErrInjected
-	r2 := New().Driver(ClosedLoop{Concurrency: 1}).Duration(20 * time.Millisecond).
+	r2 := New().Driver(ClosedLoop{Concurrency: 1}).Duration(20*time.Millisecond).
 		Classify(custom).
 		Run(context.Background(), func(context.Context) error { return inj })
 	assert.That(t, r2.Injected > 0).True()
@@ -157,7 +157,7 @@ func TestNewRunner_CustomClassifyBuckets(t *testing.T) {
 // true without CaptureGC, and that CaptureGC populates NumGC under allocation.
 func TestNewRunner_AssertGCPauseRequiresCapture(t *testing.T) {
 	// Without CaptureGC: NumGC is 0 -> AssertGCPauseAvgBelow passes trivially.
-	r := New().Driver(ClosedLoop{Concurrency: 1}).Duration(20 * time.Millisecond).
+	r := New().Driver(ClosedLoop{Concurrency: 1}).Duration(20*time.Millisecond).
 		Assert("gc", AssertGCPauseAvgBelow(time.Microsecond)).
 		Run(context.Background(), func(context.Context) error { return nil })
 	assert.That(t, r.NumGC).Equal(int64(0))

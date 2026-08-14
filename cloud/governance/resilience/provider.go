@@ -23,13 +23,13 @@ import (
 )
 
 // Provider builds the resilience [Executor] a given resource should run under.
-// It is the bridge between the centralized governance authority (cloud/govern,
+// It is the bridge between the centralized governance authority (cloud/governance,
 // wired by starter-govern) and every client adapter: clients call
 // [ExecutorFor] with their resource label and get back an executor whose policy
 // the authority owns and hot-reloads — WITHOUT the client having to inject or
 // even name the governance type. This keeps cross-cutting resilience out of
 // client structs: a client imports only this package (which it already does to
-// build executors) and calls a neutral function, never cloud/govern.
+// build executors) and calls a neutral function, never cloud/governance.
 //
 // The provider is registered once, by starter-govern, after it has built the
 // governance center. Resolution is deferred to call time (see [ExecutorFor]),

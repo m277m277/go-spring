@@ -20,7 +20,7 @@ import (
 	"context"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
-	observe "go-spring.org/observe"
+	observe "go-spring.org/cloud/observe"
 )
 
 // MQTT observability is driven by these kit-backed helpers rather than a

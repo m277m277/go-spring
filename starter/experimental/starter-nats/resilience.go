@@ -21,9 +21,9 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go"
-	"go-spring.org/cloud/fault"
-	"go-spring.org/cloud/resilience"
-	"go-spring.org/observe/resilience"
+	"go-spring.org/cloud/governance/fault"
+	"go-spring.org/cloud/governance/resilience"
+	"go-spring.org/cloud/observe/resilience"
 )
 
 // applyResilience builds an executor and attaches it to conn. This is the nats
@@ -34,14 +34,10 @@ import (
 //
 // The executor is resolved through the neutral [resilience.ExecutorFor] seam,
 // which starter-govern backs with the governance center — so this function has
-// zero coupling to cloud/govern. When governance is off, ExecutorFor yields a
+// zero coupling to cloud/governance. When governance is off, ExecutorFor yields a
 // transparent no-op executor; fault wraps it when enabled.
 func applyResilience(c Config, conn *Conn, resource string) error {
-	fc := c.Fault
-	exec := resilience.ExecutorFor(resource)
-	if fc.Enabled {
-		exec = fault.WrapExecutor(exec, fault.NewInjector(fc))
-	}
+	exec := fault.WrapExecutor(resilience.ExecutorFor(resource), fault.InjectorFor())
 	// Wrap so breaker trips / rejects / retries emit span + counter + histogram
 	// + access log (the resilience core emits none). nil-safe, no-op without
 	// starter-otel.
@@ -50,7 +46,6 @@ func applyResilience(c Config, conn *Conn, resource string) error {
 	conn.resource = resource
 	return nil
 }
-
 
 // guard routes call through the executor when one is attached, and otherwise
 // runs it inline. Splitting this out keeps the guarded methods trivial and

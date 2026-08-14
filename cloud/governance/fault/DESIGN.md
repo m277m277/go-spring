@@ -2,7 +2,7 @@
 [English](DESIGN.md) | [中文](DESIGN_CN.md)
 
 `fault` is the in-process fault-injection companion to
-[cloud/resilience](../resilience). Where resilience *protects* a client against
+[cloud/governance/resilience](../resilience). Where resilience *protects* a client against
 downstream failures, fault *manufactures* them on demand so the protection
 stack can be proven under load. It ships a single seam in this first cut —
 [WrapExecutor] — plus the load-test binary `starter-redigo/example-load` that
@@ -17,8 +17,8 @@ drives it end to end.
   Go errors (`context.DeadlineExceeded`, `syscall.ECONNRESET`).
 - **Refuses:**
   - No gs / spring dependency. fault is stdlib + resilience only; the gs.Dync
-    hot-reload wiring lives in each client starter (mirrors resilience's
-    layering).
+    hot-reload wiring lives in the governance center's centerHolder (it shares
+    the single ${govern} Dync with resilience), not in each client starter.
   - No metrics, tracing or logging of its own. Injected failures flow through
     the host's observe layer (the executor sits inside it), so they are recorded
     exactly like real failures — that is the whole point.

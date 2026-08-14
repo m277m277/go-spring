@@ -1,11 +1,11 @@
-# cloud/traffic — starter rollout status
+# cloud/governance/traffic — starter rollout status
 
 > Load-test traffic identification propagation across the go-spring starter
 > ecosystem. Status as of 2026-08-13.
 
 ## What "propagation" means here
 
-`cloud/traffic` tags a request/context as load-test traffic and ferries that
+`cloud/governance/traffic` tags a request/context as load-test traffic and ferries that
 marker across process boundaries so every hop can tell synthetic load from real
 traffic (`traffic.IsLoadTest(ctx)`). Each transport needs:
 
@@ -70,22 +70,26 @@ rationale.
 
 ## Server-side fault injection (direction symmetry)
 
-`cloud/fault` originally only gated outbound/client calls via `WrapExecutor`
-(inside a resilience Executor). A second seam, `fault.Apply`, now lets a server
-inject faults into INBOUND traffic — the same `Injector` config + Scope rule +
+`cloud/governance/fault` originally only gated outbound/client calls via `WrapExecutor`
+(inside a resilience Executor). A second seam, `fault.Apply`, lets a server inject
+faults into INBOUND traffic — the same `Injector` config + Scope rule +
 MaxDuration/MaxAffected guardrails, applied around the handler. Coverage:
 
 | starter | seam | activation |
 |---|---|---|
-| starter-gin | `buildFault` middleware | `${spring.gin.server.fault.enabled}` |
-| starter-echo | `buildFault` middleware | `${spring.echo.server.fault.enabled}` |
-| starter-hertz | `buildFault` middleware | `${spring.hertz.server.fault.enabled}` |
-| starter-grpc | `FaultUnary/StreamInterceptor` | `${spring.grpc.server.fault.enabled}` |
-| starter-trpc | registered filter "fault" | add "fault" to service filter chain |
-| starter-dubbo | registered filter "fault" | `SetFaultInjector` + add "fault" to provider filter chain |
+| starter-gin | `buildFault` middleware | always installed; `govern.fault.*` via `fault.InjectorFor()` |
+| starter-echo | `buildFault` middleware | always installed; `govern.fault.*` via `fault.InjectorFor()` |
+| starter-hertz | `buildFault` middleware | always installed; `govern.fault.*` via `fault.InjectorFor()` |
+| starter-grpc | `FaultUnary/StreamInterceptor` | always installed; `govern.fault.*` via `fault.InjectorFor()` |
+| starter-trpc | registered filter "fault" | always registered; add "fault" to service filter chain |
+| starter-dubbo | registered filter "fault" | always registered; add "fault" to provider filter chain |
 
-Injected faults surface as 503 (HTTP) / injected error (RPC), and (for grpc/trpc)
-flow back through tracing/metrics so the fault is observed. gin/echo/hertz/grpc
-build the injector once at startup from static server config; trpc/dubbo are
-config-driven named-filter models (same as their tracing/metrics filters).
+fault is now centralized: all of these resolve the single process-wide injector
+from `fault.InjectorFor()` per call (backed by starter-govern's `${govern}` Dync,
+see [../DESIGN_CN.md §8](../DESIGN_CN.md)), so there is one shared `govern.fault.*`
+config and no per-starter fault key. The middleware/filters are always installed
+(nil injector ⇒ transparent pass-through), and fault can be hot-toggled at
+runtime without a restart. Injected faults surface as 503 (HTTP) / injected error
+(RPC), and (for grpc/trpc) flow back through tracing/metrics so the fault is
+observed.
 

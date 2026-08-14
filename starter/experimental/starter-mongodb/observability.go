@@ -21,7 +21,7 @@ import (
 	"strconv"
 	"sync"
 
-	observe "go-spring.org/observe"
+	observe "go-spring.org/cloud/observe"
 	"go.mongodb.org/mongo-driver/v2/event"
 )
 

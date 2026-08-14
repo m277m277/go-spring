@@ -32,7 +32,7 @@ import (
 // tracerName identifies the OTel tracer/meter for this kit. Each Observer is
 // additionally labeled per client instance by the system argument, so spans and
 // metrics carry the concrete db.system / messaging.system rather than this name.
-const tracerName = "go-spring.org/observe"
+const tracerName = "go-spring.org/cloud/observe"
 
 // durationBuckets are the OTel histogram boundaries for operation duration (in
 // seconds). They span the range that matters for client ops — sub-millisecond
@@ -40,10 +40,47 @@ const tracerName = "go-spring.org/observe"
 // used by starter-gin so client and server latencies share a scale.
 var durationBuckets = []float64{0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1, 2.5, 5, 7.5, 10}
 
+// SemConv describes one OTel semantic-convention namespace: the metric-name
+// prefix and the attribute keys an Observer tags its spans, metrics, and access
+// logs with. The four fields travel together — a metric prefix is meaningless
+// without its matching attribute names — so the general constructor New takes
+// the whole bundle rather than loose strings. Start from DBSemConv or
+// MessagingSemConv when defining a custom one.
+type SemConv struct {
+	Domain    string // metric-name prefix: "db.client" -> db.client.operation.duration
+	SystemKey string // attribute naming the client system: "db.system"
+	OpKey     string // attribute naming the operation: "db.operation"
+	ArgKey    string // attribute carrying the operation argument: "db.statement"
+}
+
+// DBSemConv is the semantic convention for database/cache clients: metrics
+// under db.client.*, attributes from the OTel db namespace.
+var DBSemConv = SemConv{
+	Domain:    "db.client",
+	SystemKey: "db.system",
+	OpKey:     "db.operation",
+	ArgKey:    "db.statement",
+}
+
+// MessagingSemConv is the semantic convention for messaging clients: metrics
+// under messaging.client.*, attributes from the OTel messaging namespace.
+var MessagingSemConv = SemConv{
+	Domain:    "messaging.client",
+	SystemKey: "messaging.system",
+	OpKey:     "messaging.operation",
+	ArgKey:    "messaging.destination.name",
+}
+
+// statusKey labels the coarse ok/error dimension on metrics and the access log.
+// It is the kit's own attribute (not OTel semconv): the status code is the
+// metric dimension, the error detail lives on the span/log.
+const statusKey = "status"
+
 // Observer emits trace span + duration/in-flight metric + access log for one
-// client instance. Build one per configured instance with NewClient (database /
-// cache) or NewProducer/NewConsumer (messaging), then call Start at the start of
-// each operation and End on the returned Span when it completes.
+// client instance. Build one per configured instance with NewDB (database /
+// cache), NewProducer/NewConsumer (messaging), or New (a custom semantic
+// convention), then call Start at the start of each operation and End on the
+// returned Span when it completes.
 //
 // It rides the OTel globals: when starter-otel is not imported the global
 // TracerProvider and MeterProvider are no-ops, so trace+metric add negligible
@@ -51,8 +88,8 @@ var durationBuckets = []float64{0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5,
 // log). The access log itself always emits through the project log package,
 // gated by ObserveConfig.Level.
 type Observer struct {
-	system string // db.system / messaging.system attribute value, e.g. "redis"
-	domain string // metric-name prefix: "db.client" or "messaging.client"
+	system string  // db.system / messaging.system attribute value, e.g. "redis"
+	sc     SemConv // semantic-convention namespace this Observer emits into
 	kind   trace.SpanKind
 
 	trace  bool // emit a client span per op (default true)
@@ -85,30 +122,35 @@ func WithoutTrace() Option {
 	return func(o *Observer) { o.trace = false }
 }
 
-// NewClient builds an Observer for a database/cache client (span kind = client,
+// NewDB builds an Observer for a database/cache client (span kind = client,
 // metrics under db.client.operation.duration). system labels the spans/metrics
 // (e.g. "redis", "mysql", "mongo"). cfg controls the access log.
-func NewClient(system string, cfg ObserveConfig, opts ...Option) *Observer {
-	return newObserver(system, "db.client", trace.SpanKindClient, cfg, opts...)
+func NewDB(system string, cfg ObserveConfig, opts ...Option) *Observer {
+	return New(system, DBSemConv, trace.SpanKindClient, cfg, opts...)
 }
 
 // NewProducer builds an Observer for a messaging publisher (span kind = producer,
 // metrics under messaging.client.operation.duration). system is e.g. "nats",
-// "kafka". See NewClient for cfg.
+// "kafka". See NewDB for cfg.
 func NewProducer(system string, cfg ObserveConfig, opts ...Option) *Observer {
-	return newObserver(system, "messaging.client", trace.SpanKindProducer, cfg, opts...)
+	return New(system, MessagingSemConv, trace.SpanKindProducer, cfg, opts...)
 }
 
 // NewConsumer builds an Observer for a messaging consumer (span kind = consumer).
 // See NewProducer.
 func NewConsumer(system string, cfg ObserveConfig, opts ...Option) *Observer {
-	return newObserver(system, "messaging.client", trace.SpanKindConsumer, cfg, opts...)
+	return New(system, MessagingSemConv, trace.SpanKindConsumer, cfg, opts...)
 }
 
-func newObserver(system, domain string, kind trace.SpanKind, cfg ObserveConfig, opts ...Option) *Observer {
+// New builds an Observer for a semantic-convention namespace the named
+// constructors don't cover — the escape hatch for a custom client type with its
+// own conventions (metric prefix + attribute names, see SemConv). kind selects
+// the span kind. Prefer NewDB/NewProducer/NewConsumer when they fit; they
+// guarantee a coherent SemConv/span-kind pairing.
+func New(system string, sc SemConv, kind trace.SpanKind, cfg ObserveConfig, opts ...Option) *Observer {
 	o := &Observer{
 		system: system,
-		domain: domain,
+		sc:     sc,
 		kind:   kind,
 		trace:  true,
 		metric: true,
@@ -126,17 +168,16 @@ func newObserver(system, domain string, kind trace.SpanKind, cfg ObserveConfig, 
 	}
 	// Instruments are created unconditionally: they are no-ops when the metric
 	// flag is off (Start/End skip them), and creating them is cheap/idempotent.
-	tracer := otel.Tracer(tracerName)
+	o.tracer = otel.Tracer(tracerName)
 	meter := otel.Meter(tracerName)
-	o.tracer = tracer
 	o.duration, _ = meter.Float64Histogram(
-		domain+".operation.duration",
+		sc.Domain+".operation.duration",
 		metric.WithDescription("Duration of "+system+" client operations"),
 		metric.WithUnit("s"),
 		metric.WithExplicitBucketBoundaries(durationBuckets...),
 	)
 	o.active, _ = meter.Int64UpDownCounter(
-		domain+".active_requests",
+		sc.Domain+".active_requests",
 		metric.WithDescription("Number of in-flight "+system+" client operations"),
 		metric.WithUnit("{request}"),
 	)
@@ -163,11 +204,11 @@ func (o *Observer) Start(ctx context.Context, op, arg string, attrs ...attribute
 		return ctx, &Span{o: o, ctx: ctx, op: op, skipped: true}
 	}
 	attrs = append([]attribute.KeyValue{
-		attribute.String(o.systemAttrKey(), o.system),
-		attribute.String(o.opAttrKey(), op),
+		attribute.String(o.sc.SystemKey, o.system),
+		attribute.String(o.sc.OpKey, op),
 	}, attrs...)
 	if arg != "" {
-		attrs = append(attrs, attribute.String(o.argAttrKey(), boundArg(arg, o.cfg.maxArg())))
+		attrs = append(attrs, attribute.String(o.sc.ArgKey, boundArg(arg, o.cfg.maxArg())))
 	}
 	var span trace.Span
 	if o.trace {
@@ -176,8 +217,8 @@ func (o *Observer) Start(ctx context.Context, op, arg string, attrs ...attribute
 	var inflight metric.MeasurementOption
 	if o.metric {
 		inflight = metric.WithAttributes(
-			attribute.String(o.systemAttrKey(), o.system),
-			attribute.String(o.opAttrKey(), op),
+			attribute.String(o.sc.SystemKey, o.system),
+			attribute.String(o.sc.OpKey, op),
 		)
 		o.active.Add(ctx, 1, inflight)
 	}
@@ -208,7 +249,7 @@ func (s *Span) SetArg(arg string) {
 	}
 	s.arg = arg
 	if s.span != nil && arg != "" {
-		s.span.SetAttributes(attribute.String(s.o.argAttrKey(), boundArg(arg, s.o.cfg.maxArg())))
+		s.span.SetAttributes(attribute.String(s.o.sc.ArgKey, boundArg(arg, s.o.cfg.maxArg())))
 	}
 }
 
@@ -224,9 +265,9 @@ func (s *Span) End(err error, attrs ...attribute.KeyValue) {
 
 	if o.metric {
 		durAttrs := []attribute.KeyValue{
-			attribute.String(o.systemAttrKey(), o.system),
-			attribute.String(o.opAttrKey(), s.op),
-			attribute.String(o.statusAttrKey(), statusOf(err)),
+			attribute.String(o.sc.SystemKey, o.system),
+			attribute.String(o.sc.OpKey, s.op),
+			attribute.String(statusKey, statusOf(err)),
 		}
 		durAttrs = append(durAttrs, attrs...)
 		o.duration.Record(s.ctx, dur.Seconds(), metric.WithAttributes(durAttrs...))
@@ -250,12 +291,12 @@ func (s *Span) End(err error, attrs ...attribute.KeyValue) {
 // not process-fatal). Detailed mode appends the bounded operation argument.
 func (o *Observer) emitLog(ctx context.Context, op, arg string, dur time.Duration, err error) {
 	fields := []log.Field{
-		log.String(o.opAttrKey(), op),
-		log.String(o.statusAttrKey(), statusOf(err)),
+		log.String(o.sc.OpKey, op),
+		log.String(statusKey, statusOf(err)),
 		log.Float("duration_ms", float64(dur.Nanoseconds())/1e6),
 	}
 	if o.cfg.detailed() && arg != "" {
-		fields = append(fields, log.String(o.argAttrKey(), boundArg(arg, o.cfg.maxArg())))
+		fields = append(fields, log.String(o.sc.ArgKey, boundArg(arg, o.cfg.maxArg())))
 	}
 	if err != nil {
 		fields = append(fields, log.Any("error", err))
@@ -289,28 +330,3 @@ func boundArg(arg string, n int) string {
 	}
 	return arg[:cut] + "...(truncated)"
 }
-
-// --- attribute-name helpers (OTel semantic conventions) -----------------------
-
-func (o *Observer) systemAttrKey() string {
-	if o.domain == "messaging.client" {
-		return "messaging.system"
-	}
-	return "db.system"
-}
-
-func (o *Observer) opAttrKey() string {
-	if o.domain == "messaging.client" {
-		return "messaging.operation"
-	}
-	return "db.operation"
-}
-
-func (o *Observer) argAttrKey() string {
-	if o.domain == "messaging.client" {
-		return "messaging.destination.name"
-	}
-	return "db.statement"
-}
-
-func (o *Observer) statusAttrKey() string { return "status" }

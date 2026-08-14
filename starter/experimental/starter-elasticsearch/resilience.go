@@ -23,11 +23,10 @@ import (
 
 	"github.com/elastic/go-elasticsearch/v8"
 	"go-spring.org/cloud/discovery"
-	"go-spring.org/cloud/fault"
-	"go-spring.org/cloud/resilience"
-	observe "go-spring.org/observe"
-	"go-spring.org/observe/resilience"
-	"go-spring.org/spring/gs"
+	"go-spring.org/cloud/governance/fault"
+	"go-spring.org/cloud/governance/resilience"
+	observe "go-spring.org/cloud/observe"
+	"go-spring.org/cloud/observe/resilience"
 )
 
 // Client is the wrapper bean Elasticsearch clients are injected
@@ -48,12 +47,9 @@ import (
 // instance is not.
 type Client struct {
 	*elasticsearch.Client
-	// Fault is the per-client fault-injection config (a separate concern from
-	// centralized resilience governance). Resilience itself is no longer injected
-	// here: this client resolves its executor through the neutral
-	// [resilience.ExecutorFor] seam, which starter-govern backs with the
-	// governance center — so this struct has zero coupling to cloud/govern.
-	Fault         gs.Dync[fault.Config] `value:"${fault:=}"`
+	// Both resilience and fault are resolved through neutral seams
+	// ([resilience.ExecutorFor] / [fault.InjectorFor]) backed by starter-govern's
+	// governance center — so this struct has zero coupling to cloud/governance.
 	Observability observe.ObserveConfig `value:"${observability:=}"`
 
 	// cfg is the connection config, retained for the resilience resource label.
@@ -67,33 +63,23 @@ type Client struct {
 	// exec is the resilience executor protecting requests, resolved via
 	// resilience.ExecutorFor; no-op when governance is off.
 	exec resilience.Executor
-	// faultInj is the fault injector short-circuiting requests when
-	// fault injection is enabled. nil when fault is off.
-	faultInj *fault.Injector
 	// resource is the resilience resource key ("elasticsearch:<...>") exec
 	// scopes limiter/breaker state by.
 	resource string
 }
 
-// Init is the gs InitMethod: gs field-injects Fault + Observability
-// after newClient returns, then calls this. It builds the observe transport
-// (needs Observability) and resolves the executor through the neutral
-// [resilience.ExecutorFor] seam (backed by starter-govern's governance center
-// when imported), wraps them, and swaps the result into the client's dynamic
-// transport. When governance is off the resolved executor is a transparent
-// no-op (the round-tripper is effectively observe-only); fault wrapping still
-// applies when enabled.
+// Init is the gs InitMethod: gs field-injects Observability after newClient
+// returns, then calls this. It builds the observe transport (needs Observability)
+// and resolves the executor through the neutral [resilience.ExecutorFor] seam
+// (backed by starter-govern's governance center when imported), wraps it with the
+// process-wide fault injector ([fault.InjectorFor], nil-safe), and swaps the
+// result into the client's dynamic transport. When governance is off the resolved
+// executor is a transparent no-op (the round-tripper is effectively observe-only).
 func (o *Client) Init() error {
-	obs := observe.NewClient("elasticsearch", o.Observability, observe.WithoutTrace())
+	obs := observe.NewDB("elasticsearch", o.Observability, observe.WithoutTrace())
 	observeTransport := &obsTransport{base: http.DefaultTransport, obs: obs}
-	fc := o.Fault.Value()
 	o.resource = resourceLabel(o.cfg)
-	exec := resilience.ExecutorFor(o.resource)
-	if fc.Enabled {
-		o.faultInj = fault.NewInjector(fc)
-		exec = fault.WrapExecutor(exec, o.faultInj)
-		o.Fault.OnChanged(func(new, _ fault.Config) { o.faultInj.SetConfig(new) })
-	}
+	exec := fault.WrapExecutor(resilience.ExecutorFor(o.resource), fault.InjectorFor())
 	// Wrap the executor with observe-resilience so circuit-breaker trips,
 	// rate-limit rejects, bulkhead rejections and retries emit a span + call
 	// counter (by outcome) + duration histogram + access log.

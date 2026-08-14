@@ -50,7 +50,7 @@ spring.http.client.default.resilience.timeout=1s
 ### 3. 或直接使用
 
 ```go
-import "go-spring.org/spring/cloud/resilience"
+import "go-spring.org/cloud/governance/resilience"
 
 driver, _ := resilience.MustGetDriver("sentinel")
 exec, _ := driver.NewExecutor(resilience.Policy{

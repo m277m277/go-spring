@@ -19,8 +19,8 @@ package StarterGrpc
 import (
 	"context"
 
-	"go-spring.org/cloud/resilience"
-	"go-spring.org/observe/resilience"
+	"go-spring.org/cloud/governance/resilience"
+	"go-spring.org/cloud/observe/resilience"
 	"google.golang.org/grpc"
 )
 
@@ -34,8 +34,8 @@ type resilienceInterceptors struct {
 // NEUTRAL provider seam [resilience.ExecutorFor] and returns the unary
 // interceptor that runs each RPC through it. starter-govern registers a provider
 // backed by the governance center, so this server gets its rate-limit /
-// bulkhead / breaker policy WITHOUT injecting *govern.Center or even importing
-// cloud/govern. When governance is not configured the seam yields a transparent
+// bulkhead / breaker policy WITHOUT injecting *governance.Center or even importing
+// cloud/governance. When governance is not configured the seam yields a transparent
 // no-op executor (fn runs once, untouched). Hot-reload is driven on the backing
 // executor by the provider. The executor is wrapped with observe-resilience so
 // breaker trips / rate rejects / bulkhead rejects emit span + counter +

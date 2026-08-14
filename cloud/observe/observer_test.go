@@ -30,6 +30,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // installGlobals wires in-memory OTel providers so a test can assert the three
@@ -92,7 +93,7 @@ func histPoints(t *testing.T, rdr metric.Reader, name string) []metricdata.Histo
 // path most apps run until they import starter-otel.
 func TestStartEnd_NoopGlobals_NeverPanics(t *testing.T) {
 	for _, level := range []string{levelOff, levelBrief, levelDetailed} {
-		o := NewClient("redis", ObserveConfig{Level: level, MaxArgBytes: 8})
+		o := NewDB("redis", ObserveConfig{Level: level, MaxArgBytes: 8})
 		ctx, sp := o.Start(context.Background(), "GET", "user:1")
 		assert.Equal(t, "GET", sp.op)
 		assert.False(t, sp.skipped)
@@ -109,7 +110,7 @@ func TestSpanEmitted(t *testing.T) {
 	spanExp, _, cleanup := installGlobals(t)
 	defer cleanup()
 
-	o := NewClient("redis", ObserveConfig{Level: levelOff, MaxArgBytes: 100})
+	o := NewDB("redis", ObserveConfig{Level: levelOff, MaxArgBytes: 100})
 	ctx, sp := o.Start(context.Background(), "GET", "user:1")
 	_ = ctx
 	sp.End(errors.New("boom"))
@@ -132,7 +133,7 @@ func TestMetricEmitted(t *testing.T) {
 	_, rdr, cleanup := installGlobals(t)
 	defer cleanup()
 
-	o := NewClient("redis", ObserveConfig{Level: levelOff})
+	o := NewDB("redis", ObserveConfig{Level: levelOff})
 	_, sp := o.Start(context.Background(), "GET", "")
 	sp.End(nil)
 
@@ -148,7 +149,7 @@ func TestSkipOps(t *testing.T) {
 	spanExp, rdr, cleanup := installGlobals(t)
 	defer cleanup()
 
-	o := NewClient("redis", ObserveConfig{Level: levelBrief, SkipOps: []string{"PING"}})
+	o := NewDB("redis", ObserveConfig{Level: levelBrief, SkipOps: []string{"PING"}})
 	_, sp := o.Start(context.Background(), "PING", "")
 	require.True(t, sp.skipped, "PING must be skipped")
 	assert.NotPanics(t, func() { sp.End(nil) })
@@ -174,6 +175,37 @@ func TestMessagingAttrs(t *testing.T) {
 	assert.Equal(t, "publish", attrs["messaging.operation"].AsString())
 	assert.Equal(t, "events.created", attrs["messaging.destination.name"].AsString())
 	assert.Equal(t, "producer", stubs[0].SpanKind.String())
+}
+
+// TestNewCustomSemConv: the general constructor emits into the caller-supplied
+// namespace — custom metric prefix and custom attribute names — instead of
+// silently falling back to the db.* attribute family.
+func TestNewCustomSemConv(t *testing.T) {
+	spanExp, rdr, cleanup := installGlobals(t)
+	defer cleanup()
+
+	sc := SemConv{
+		Domain:    "kv.client",
+		SystemKey: "kv.store",
+		OpKey:     "kv.op",
+		ArgKey:    "kv.key",
+	}
+	o := New("titandb", sc, trace.SpanKindClient, ObserveConfig{Level: levelOff})
+	_, sp := o.Start(context.Background(), "get", "user:1")
+	sp.End(nil)
+
+	stubs := spanStubs(spanExp)
+	require.Len(t, stubs, 1)
+	attrs := attrMap(stubs[0].Attributes)
+	assert.Equal(t, "titandb", attrs["kv.store"].AsString())
+	assert.Equal(t, "get", attrs["kv.op"].AsString())
+	assert.Equal(t, "user:1", attrs["kv.key"].AsString())
+
+	pts := histPoints(t, rdr, "kv.client.operation.duration")
+	require.Len(t, pts, 1)
+	v, ok := pts[0].Attributes.Value(attrKey("kv.store"))
+	require.True(t, ok, "kv.store attribute on the duration metric")
+	assert.Equal(t, "titandb", v.AsString())
 }
 
 // TestBoundArg: truncation lands on a rune boundary and marks the cut.

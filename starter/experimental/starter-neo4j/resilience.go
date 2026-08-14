@@ -21,11 +21,10 @@ import (
 
 	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
 	"go-spring.org/cloud/discovery"
-	"go-spring.org/cloud/fault"
-	"go-spring.org/cloud/resilience"
-	observe "go-spring.org/observe"
-	"go-spring.org/observe/resilience"
-	"go-spring.org/spring/gs"
+	"go-spring.org/cloud/governance/fault"
+	"go-spring.org/cloud/governance/resilience"
+	observe "go-spring.org/cloud/observe"
+	"go-spring.org/cloud/observe/resilience"
 )
 
 // Client is the wrapper bean Neo4j drivers are injected as. It
@@ -44,12 +43,9 @@ import (
 // un-protected) unless it calls [RunWithResilience].
 type Client struct {
 	neo4j.DriverWithContext
-	// Fault is the per-driver fault-injection config (a separate concern from
-	// centralized resilience governance). Resilience itself is no longer injected
-	// here: this driver resolves its executor through the neutral
-	// [resilience.ExecutorFor] seam, which starter-govern backs with the
-	// governance center — so this struct has zero coupling to cloud/govern.
-	Fault         gs.Dync[fault.Config] `value:"${fault:=}"`
+	// Both resilience and fault are resolved through neutral seams
+	// ([resilience.ExecutorFor] / [fault.InjectorFor]) backed by starter-govern's
+	// governance center — so this struct has zero coupling to cloud/governance.
 	Observability observe.ObserveConfig `value:"${observability:=}"`
 
 	// cfg is the connection config, retained for the resilience resource label.
@@ -60,32 +56,21 @@ type Client struct {
 	// exec is the resilience executor protecting queries, resolved via
 	// resilience.ExecutorFor; no-op when governance is off.
 	exec resilience.Executor
-	// faultInj is the fault injector when fault is enabled; nil otherwise.
-	// It sits between the raw executor and the observe wrap so injected faults
-	// are observable. Set by Init when fault is enabled.
-	faultInj *fault.Injector
 	// resource is the resilience resource key ("neo4j:<...>") exec scopes
 	// limiter/breaker state by.
 	resource string
 }
 
-// Init is the gs InitMethod: gs field-injects Fault + Observability
-// after newClient returns, then calls this. It resolves the executor through the
-// neutral [resilience.ExecutorFor] seam (backed by starter-govern's governance
-// center when imported) and stores it on the wrapper so [Query] /
+// Init is the gs InitMethod: gs field-injects Observability after newClient
+// returns, then calls this. It resolves the executor through the neutral
+// [resilience.ExecutorFor] seam (backed by starter-govern's governance center
+// when imported), wraps it with the process-wide fault injector
+// ([fault.InjectorFor], nil-safe), and stores it on the wrapper so [Query] /
 // [RunWithResilience] can route through it. When governance is off the resolved
-// executor is a transparent no-op; fault wrapping still applies when enabled.
+// executor is a transparent no-op.
 func (o *Client) Init() error {
-	fc := o.Fault.Value()
 	o.resource = resilience.ResourceLabel("neo4j", o.cfg.ServiceName, o.cfg.URI)
-	exec := resilience.ExecutorFor(o.resource)
-	if fc.Enabled {
-		o.faultInj = fault.NewInjector(fc)
-		exec = fault.WrapExecutor(exec, o.faultInj)
-		o.Fault.OnChanged(func(new, _ fault.Config) {
-			o.faultInj.SetConfig(new)
-		})
-	}
+	exec := fault.WrapExecutor(resilience.ExecutorFor(o.resource), fault.InjectorFor())
 	o.exec = resilobserve.WrapExecutor(exec, "neo4j", o.Observability)
 	return nil
 }
@@ -116,4 +101,3 @@ func queryResilience(driver neo4j.DriverWithContext) (resilience.Executor, strin
 	}
 	return nil, ""
 }
-

@@ -25,7 +25,7 @@ import (
 	"github.com/gin-contrib/gzip"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"go-spring.org/cloud/traffic"
+	"go-spring.org/cloud/governance/traffic"
 	"go-spring.org/stdlib/errutil"
 )
 
@@ -132,9 +132,11 @@ func ApplyMiddlewares(e *gin.Engine, cfg Config) error {
 	// an operator can "set fire" to the running server. Sits inside Observe so
 	// the resulting 503s are observed, and after admission so a rate-limited
 	// request is not also faulted.
-	if fm := buildFault(cfg); fm != nil {
-		e.Use(fm)
-	}
+	// Fault injection (always installed). The injector is resolved from the
+	// neutral [fault.InjectorFor] seam (nil-safe: a transparent pass-through when
+	// fault is off / governance not imported), letting an operator "set fire" to
+	// the running server and hot-toggle it at runtime without a restart.
+	e.Use(buildFault())
 
 	// Policy middlewares - opt-in, and they sit inside Observe so short-circuit
 	// responses (204, 403) are still observed.
@@ -176,7 +178,7 @@ func ApplyMiddlewares(e *gin.Engine, cfg Config) error {
 // X-LoadTest) it tags the request context via traffic.WithLoadTest, so the
 // handler chain and every outbound client the handlers drive can recognise
 // synthetic load through traffic.IsLoadTest(c.Request.Context()). It is the
-// inbound companion to cloud/traffic's outbound injection: together they let a
+// inbound companion to cloud/governance/traffic's outbound injection: together they let a
 // load-test flag ride an HTTP hop end to end. An empty header falls back to the
 // traffic package default so the exported constructor is safe to call directly.
 //

@@ -19,9 +19,8 @@ package StarterGin
 import (
 	"time"
 
-	"go-spring.org/cloud/fault"
+	observe "go-spring.org/cloud/observe"
 	"go-spring.org/cloud/tlsconf"
-	observe "go-spring.org/observe"
 )
 
 // Config defines Gin server configuration, bound from ${spring.gin.server}.
@@ -31,7 +30,7 @@ import (
 // resilience binding here: it flows through the neutral resilience.ExecutorFor
 // seam (backed by starter-govern when armed), so an incoming request's protection
 // policy is governed alongside every outbound client and hot-reloads without
-// this starter coupling to cloud/govern. Fault injection stays server-local (it
+// this starter coupling to cloud/governance. Fault injection stays server-local (it
 // is chaos tooling, not governance).
 type Config struct {
 	Address       string                `value:"${addr}"`
@@ -41,7 +40,6 @@ type Config struct {
 	TLS           tlsconf.TLSConfig     `value:"${tls}"`
 	Health        HealthConfig          `value:"${health}"`
 	Middleware    MiddlewareConfig      `value:"${middleware}"`
-	Fault         fault.Config          `value:"${fault}"`
 	Observability observe.ObserveConfig `value:"${observability:=}"`
 }
 

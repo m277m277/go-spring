@@ -32,7 +32,7 @@ package gormobservability
 import (
 	"sync"
 
-	observe "go-spring.org/observe"
+	observe "go-spring.org/cloud/observe"
 	"gorm.io/gorm"
 )
 
@@ -119,5 +119,5 @@ func (p *observePlugin) Initialize(db *gorm.DB) error {
 // "mysql", "postgresql", "clickhouse", "microsoft.sql_server"). cfg controls the
 // access log (off/brief/detailed).
 func NewPlugin(system string, cfg observe.ObserveConfig) gorm.Plugin {
-	return &observePlugin{obs: observe.NewClient(system, cfg)}
+	return &observePlugin{obs: observe.NewDB(system, cfg)}
 }

@@ -22,52 +22,38 @@ import (
 	"io"
 
 	"github.com/redis/go-redis/v9"
-	"go-spring.org/cloud/fault"
-	"go-spring.org/cloud/resilience"
-	observe "go-spring.org/observe"
-	"go-spring.org/observe/resilience"
-	"go-spring.org/spring/gs"
+	"go-spring.org/cloud/governance/fault"
+	"go-spring.org/cloud/governance/resilience"
+	observe "go-spring.org/cloud/observe"
+	"go-spring.org/cloud/observe/resilience"
 )
 
 // Client is the wrapper bean go-redis clients are injected as. It
 // embeds the concrete redis.UniversalClient (a *redis.Client or *redis.ClusterClient
-// depending on mode, so methods promote unchanged) and field-injects the resilience
-// policy via gs.Dync so it hot-reloads on config change. newClient returns one; gs
-// field-injects Resilience + Observability, then calls Init (InitMethod).
+// depending on mode, so methods promote unchanged) and field-injects Observability.
+// newClient returns one; gs field-injects Observability, then calls Init (InitMethod).
+// Both resilience and fault are resolved through neutral seams
+// ([resilience.ExecutorFor] / [fault.InjectorFor]) backed by starter-govern's
+// governance center — so this struct has zero coupling to cloud/governance.
 type Client struct {
 	redis.UniversalClient
-	// Fault is the per-client fault-injection config (a separate concern from
-	// centralized resilience governance). Resilience itself is no longer injected
-	// here: this client resolves its executor through the neutral
-	// [resilience.ExecutorFor] seam, which starter-govern backs with the
-	// governance center — so this struct has zero coupling to cloud/govern.
-	Fault         gs.Dync[fault.Config] `value:"${fault:=}"`
 	Observability observe.ObserveConfig `value:"${observability:=}"`
 
-	cfg      Config // for resourceLabel (address fields)
+	cfg      Config              // for resourceLabel (address fields)
 	exec     resilience.Executor // resolved via resilience.ExecutorFor; no-op when governance is off
-	faultInj *fault.Injector
 	resource string
 	stop     io.Closer // driver-supplied teardown (e.g. discovery resolver watch)
 }
 
-// Init is the gs InitMethod (runs after gs field-injects Fault + Observability).
+// Init is the gs InitMethod (runs after gs field-injects Observability).
 // It resolves the executor through the neutral [resilience.ExecutorFor] seam
-// (backed by starter-govern's governance center when imported), wraps it, and
-// attaches the per-command hook so every command flows through it. When
-// governance is off the resolved executor is a transparent no-op; fault wrapping
-// still applies when enabled.
+// (backed by starter-govern's governance center when imported), wraps it with the
+// process-wide fault injector ([fault.InjectorFor], nil-safe), then the observe kit,
+// and attaches the per-command hook so every command flows through it. When
+// governance is off the resolved executor is a transparent no-op.
 func (o *Client) Init() error {
-	fc := o.Fault.Value()
 	o.resource = resourceLabel(o.cfg)
-	exec := resilience.ExecutorFor(o.resource)
-	if fc.Enabled {
-		o.faultInj = fault.NewInjector(fc)
-		exec = fault.WrapExecutor(exec, o.faultInj)
-		o.Fault.OnChanged(func(new, _ fault.Config) {
-			o.faultInj.SetConfig(new)
-		})
-	}
+	exec := fault.WrapExecutor(resilience.ExecutorFor(o.resource), fault.InjectorFor())
 	exec = resilobserve.WrapExecutor(exec, "redis", o.Observability)
 	o.exec = exec
 	o.AddHook(&resilienceHook{exec: exec, resource: o.resource})
@@ -163,7 +149,7 @@ func (h *resilienceHook) run(ctx context.Context, setErr func(error), call func(
 		// A non-nil executor error that is not a protection rejection. On the
 		// normal failure path it equals callErr (the closure returned it) and is
 		// already recorded on the command by go-redis. They diverge only when the
-		// closure body never ran — e.g. a fault injector (cloud/fault) short-
+		// closure body never ran — e.g. a fault injector (cloud/governance/fault) short-
 		// circuited the attempt before reaching call — leaving callErr nil while
 		// the executor still returns the injected error. Prefer execErr and tag
 		// the command so the failure is not silently swallowed as success.

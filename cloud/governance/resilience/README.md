@@ -41,7 +41,7 @@ Guard an HTTP client:
 import (
     "net/http"
 
-    "go-spring.org/spring/cloud/resilience"
+    "go-spring.org/spring/cloud/governance/resilience"
 )
 
 drv, _ := resilience.MustGetDriver("default")

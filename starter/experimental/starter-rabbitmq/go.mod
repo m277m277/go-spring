@@ -5,7 +5,6 @@ go 1.26.1
 require (
 	github.com/rabbitmq/amqp091-go v1.10.0
 	go-spring.org/log v0.1.4
-	go-spring.org/observe v0.0.0
 	go-spring.org/spring v1.3.4
 	go-spring.org/stdlib v0.1.7
 	go.opentelemetry.io/otel v1.45.0
@@ -13,7 +12,6 @@ require (
 )
 
 // Local, not-yet-published observe kit. Removed once the module is tagged.
-replace go-spring.org/observe => ../../../cloud/observe
 
 // Local, not-yet-published observe-resilience kit. Removed once tagged.
 

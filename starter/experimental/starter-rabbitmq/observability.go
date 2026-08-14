@@ -20,7 +20,7 @@ import (
 	"context"
 
 	amqp "github.com/rabbitmq/amqp091-go"
-	observe "go-spring.org/observe"
+	observe "go-spring.org/cloud/observe"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"

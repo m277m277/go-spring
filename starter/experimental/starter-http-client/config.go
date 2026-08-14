@@ -22,10 +22,10 @@ import (
 	"time"
 
 	"go-spring.org/cloud/experimental/httpx"
-	"go-spring.org/cloud/fault"
-	"go-spring.org/cloud/resilience"
-	observe "go-spring.org/observe"
-	"go-spring.org/observe/resilience"
+	"go-spring.org/cloud/governance/fault"
+	"go-spring.org/cloud/governance/resilience"
+	observe "go-spring.org/cloud/observe"
+	"go-spring.org/cloud/observe/resilience"
 )
 
 // Config binds one declarative-HTTP-client instance under
@@ -63,16 +63,6 @@ type Config struct {
 
 	// Timeout bounds each request made by the client. 0 means no timeout.
 	Timeout time.Duration `value:"${timeout:=0}"`
-
-	// Fault optionally injects failures/latency into outbound requests (via the
-	// same executor seam as resilience) so retry/breaker/timeout can be proven
-	// under load. Disabled by default.
-	//
-	// Resilience protection has no per-client binding here: it flows through the
-	// neutral resilience.ExecutorFor seam, backed by the centralized governance
-	// authority (starter-govern) when armed — scoped to this client's resource
-	// label and hot-reloaded without this starter touching cloud/govern.
-	Fault fault.Config `value:"${fault:=}"`
 
 	// Observability configures the resilience access log (off/brief/detailed)
 	// emitted alongside the trace span + metrics that observe-resilience wraps
@@ -121,19 +111,17 @@ func (c Config) toTransportConfig(base http.RoundTripper, exec resilience.Execut
 		EjectFor:       c.EjectFor,
 		Base:           base,
 	}
-	if exec != nil || c.Fault.Enabled {
-		cfg.Executor = exec
-		// Attach fault (innermost) then span + metric + log via observe-
-		// resilience, injected as a wrap hook so the otel-free httpx core stays
-		// decoupled. Stack order: observe( fault( rawExec ) ). exec is always
-		// non-nil (ExecutorFor yields a no-op when governance is off), so fault
-		// always has an executor to attach to.
-		cfg.WrapExec = func(e resilience.Executor) resilience.Executor {
-			if c.Fault.Enabled {
-				e = fault.WrapExecutor(e, fault.NewInjector(c.Fault))
-			}
-			return resilobserve.WrapExecutor(e, "http", c.Observability)
-		}
+	// Attach the executor and the fault + observe-resilience wrap hooks. Both
+	// resilience and fault are resolved through neutral seams
+	// ([resilience.ExecutorFor] / [fault.InjectorFor]) backed by the centralized
+	// governance authority (starter-govern) when armed — nil-safe and a no-op
+	// when governance/fault is off, so installing unconditionally is safe. Stack
+	// order: observe( fault( rawExec ) ). exec is always non-nil (ExecutorFor
+	// yields a no-op when governance is off), so fault always has an executor to
+	// attach to; fault.WrapExecutor is nil-safe when no injector is registered.
+	cfg.Executor = exec
+	cfg.WrapExec = func(e resilience.Executor) resilience.Executor {
+		return resilobserve.WrapExecutor(fault.WrapExecutor(e, fault.InjectorFor()), "http", c.Observability)
 	}
 	return cfg
 }

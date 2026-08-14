@@ -19,7 +19,7 @@ package StarterTrpc
 import (
 	"context"
 
-	"go-spring.org/cloud/fault"
+	"go-spring.org/cloud/governance/fault"
 	"trpc.group/trpc-go/trpc-go/filter"
 )
 
@@ -27,12 +27,14 @@ import (
 // into inbound RPCs per the injector's rules. The starter registers it under
 // the name "fault"; add "fault" to a service's filter chain to activate it. It
 // is the tRPC server-side counterpart to the client starters'
-// fault.WrapExecutor, letting an operator "set fire" to a running server. nil
-// injector makes it a pass-through (the starter does not register it then).
-func FaultServerFilter(inj *fault.Injector) filter.ServerFilter {
+// fault.WrapExecutor, letting an operator "set fire" to a running server. The
+// injector is resolved from the neutral [fault.InjectorFor] seam (backed by the
+// governance center) on each call; when no injector is registered fault.Apply is
+// a transparent pass-through.
+func FaultServerFilter() filter.ServerFilter {
 	return func(ctx context.Context, req interface{}, next filter.ServerHandleFunc) (interface{}, error) {
 		var resp interface{}
-		err := fault.Apply(ctx, inj, "trpc", func() error {
+		err := fault.Apply(ctx, fault.InjectorFor(), "trpc", func() error {
 			var e error
 			resp, e = next(ctx, req)
 			return e

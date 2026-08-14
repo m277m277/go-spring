@@ -23,8 +23,8 @@ import (
 	"time"
 
 	"go-spring.org/cloud/actuator/health"
+	observe "go-spring.org/cloud/observe"
 	"go-spring.org/log"
-	observe "go-spring.org/observe"
 	"go-spring.org/spring/conf"
 	"go-spring.org/spring/gs"
 	health2 "go-spring.org/starter-mongodb/health"

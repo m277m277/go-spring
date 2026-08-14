@@ -29,7 +29,7 @@ import (
 // it back in on a half-open trial once a cool-down elapses.
 //
 // It is the LB-layer counterpart to the circuit breaker in
-// [go-spring.org/cloud/resilience]: same consecutive-failure + half-open
+// [go-spring.org/cloud/governance/resilience]: same consecutive-failure + half-open
 // semantics, but keyed by endpoint address and *queryable* so a [Pool] can drop
 // bad instances from the candidate set proactively rather than only rejecting a
 // call after it is routed. The same [DoneInfo.Err] signal that feeds a

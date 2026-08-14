@@ -27,7 +27,6 @@ require (
 	github.com/spf13/cast v1.10.0 // indirect
 	go-spring.org/gs-mock v0.0.9 // indirect
 	go-spring.org/log v0.1.4
-	go-spring.org/observe v0.0.0
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	golang.org/x/arch v0.26.0 // indirect
 	golang.org/x/exp v0.0.0-20260410095643-746e56fc9e2f // indirect
@@ -39,7 +38,6 @@ require (
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
 
-replace go-spring.org/observe => ../../../cloud/observe
 
 require go-spring.org/cloud v0.0.0
 

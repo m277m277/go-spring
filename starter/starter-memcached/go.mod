@@ -5,13 +5,11 @@ go 1.26.1
 require (
 	github.com/bradfitz/gomemcache v0.0.0-20260422231931-4d751bb6e37c
 	go-spring.org/log v0.1.4
-	go-spring.org/observe v0.0.0
 	go-spring.org/spring v1.3.4
 	go-spring.org/stdlib v0.1.7
 )
 
 // Local, not-yet-published observe kit. Removed once the module is tagged.
-replace go-spring.org/observe => ../../cloud/observe
 
 // Local, not-yet-published resilience observability adapter.
 

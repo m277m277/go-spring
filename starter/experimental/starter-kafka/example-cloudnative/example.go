@@ -51,12 +51,12 @@ import (
 
 	"github.com/twmb/franz-go/pkg/kgo"
 	"go-spring.org/cloud/actuator/health"
-	"go-spring.org/cloud/resilience"
+	"go-spring.org/cloud/governance/resilience"
 	"go-spring.org/spring/gs"
 
+	_ "go-spring.org/cloud/governance"    // centralized governance center (govern.* config)
 	_ "go-spring.org/starter-actuator"    // aggregates health.Indicator beans on :9370
 	_ "go-spring.org/starter-config-file" // registers the file-watch config provider
-	_ "go-spring.org/cloud/govern"      // centralized governance center (govern.* config)
 	StarterKafka "go-spring.org/starter-kafka"
 )
 

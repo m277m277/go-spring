@@ -135,8 +135,8 @@ type Config struct {
 // OtelConfig toggles the built-in redisotel instrumentation per instance and per
 // signal. See [Config.Otel].
 type OtelConfig struct {
-	TracingEnabled  bool `value:"${tracing.enabled:=true}"`
-	MetricsEnabled  bool `value:"${metrics.enabled:=true}"`
+	TracingEnabled bool `value:"${tracing.enabled:=true}"`
+	MetricsEnabled bool `value:"${metrics.enabled:=true}"`
 }
 
 // Resilience and Observability are no longer fields of Config: they moved onto

@@ -21,10 +21,9 @@ import (
 	"net"
 	"time"
 
-	"go-spring.org/cloud/fault"
+	observe "go-spring.org/cloud/observe"
 	"go-spring.org/cloud/tlsconf"
 	"go-spring.org/log"
-	observe "go-spring.org/observe"
 	"go-spring.org/spring/gs"
 	"go-spring.org/stdlib/errutil"
 	"google.golang.org/grpc"
@@ -68,7 +67,7 @@ type HealthConfig struct {
 // LoadTest interceptors read the marker key (x-loadtest) off the incoming
 // metadata and tag the handler context, so tracing, metrics, resilience and the
 // handler itself can branch on traffic.IsLoadTest(ctx). It is the gRPC inbound
-// counterpart to cloud/traffic's outbound carrier injection.
+// counterpart to cloud/governance/traffic's outbound carrier injection.
 type LoadTestConfig struct {
 	Enabled bool `value:"${enabled:=true}"`
 }
@@ -85,7 +84,6 @@ type Config struct {
 	Health               HealthConfig          `value:"${health}"`
 	LoadTest             LoadTestConfig        `value:"${loadtest}"`
 	Observer             ObserverConfig        `value:"${observer}"`
-	Fault                fault.Config          `value:"${fault}"`
 	Observability        observe.ObserveConfig `value:"${observability:=}"`
 }
 
@@ -119,7 +117,7 @@ type SimpleGrpcServer struct {
 // NewSimpleGrpcServer creates a SimpleGrpcServer from ${spring.grpc.server}
 // configuration. Inbound admission protection (rate-limit / breaker) is
 // resolved inside buildResilienceInterceptors via the neutral
-// resilience.ExecutorFor seam, so this server has no coupling to cloud/govern.
+// resilience.ExecutorFor seam, so this server has no coupling to cloud/governance.
 func NewSimpleGrpcServer(cfg Config, reg ServiceRegister) *SimpleGrpcServer {
 	log.Debugf(context.Background(), grpcTag, "grpc server created addr=%s", cfg.Addr)
 	return &SimpleGrpcServer{cfg: cfg, reg: reg}
@@ -193,14 +191,13 @@ func (s *SimpleGrpcServer) buildOptions() ([]grpc.ServerOption, error) {
 	if ropts, ok := s.buildResilienceInterceptors(); ok {
 		unary = append(unary, ropts.unary)
 	}
-	// Fault injection (opt-in), innermost so an injected error flows back through
-	// tracing/metrics/resilience and is observed. Built once from cfg.Fault at
-	// server build (grpc server config is static; toggle via restart).
-	if s.cfg.Fault.Enabled {
-		inj := fault.NewInjector(s.cfg.Fault)
-		unary = append(unary, FaultUnaryInterceptor(inj))
-		stream = append(stream, FaultStreamInterceptor(inj))
-	}
+	// Fault injection (always installed), innermost so an injected error flows
+	// back through tracing/metrics/resilience and is observed. The injector is
+	// resolved from the neutral [fault.InjectorFor] seam on each call (nil-safe:
+	// a transparent pass-through when fault is off), so fault can be hot-toggled
+	// at runtime without a restart.
+	unary = append(unary, FaultUnaryInterceptor())
+	stream = append(stream, FaultStreamInterceptor())
 	if len(unary) > 0 {
 		opts = append(opts, grpc.ChainUnaryInterceptor(unary...))
 	}

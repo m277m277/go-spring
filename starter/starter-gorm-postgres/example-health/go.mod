@@ -32,7 +32,6 @@ require (
 	go-spring.org/starter-gorm v0.0.0 // indirect
 	go-spring.org/gs-mock v0.0.9 // indirect
 	go-spring.org/log v0.1.4 // indirect
-	go-spring.org/observe v0.0.0 // indirect
 	go-spring.org/stdlib v0.1.7 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel v1.45.0 // indirect
@@ -51,7 +50,6 @@ require (
 replace (
 	go-spring.org/cloud => ../../../cloud
 	go-spring.org/starter-gorm => ../../../starter/starter-gorm
-	go-spring.org/observe => ../../../cloud/observe
 	go-spring.org/starter-actuator => ../../experimental/starter-actuator
 	go-spring.org/starter-gorm-postgres => ..
 	go-spring.org/stdlib => ../../../stdlib

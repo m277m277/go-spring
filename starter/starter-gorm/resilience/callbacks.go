@@ -34,7 +34,7 @@ import (
 	"context"
 	"errors"
 
-	"go-spring.org/cloud/resilience"
+	"go-spring.org/cloud/governance/resilience"
 	"gorm.io/gorm"
 )
 
@@ -111,7 +111,7 @@ func runGuard(ctx context.Context, exec resilience.Executor, resource string, ca
 		}
 		// On the normal failure path execErr equals callErr (the closure returned
 		// it). They diverge only when the closure body never ran — e.g. a fault
-		// injector (cloud/fault) short-circuited the attempt before reaching call
+		// injector (cloud/governance/fault) short-circuited the attempt before reaching call
 		// — leaving callErr nil while the executor still returns the injected
 		// error. Prefer execErr so the failure is not silently swallowed.
 		if callErr == nil {

@@ -23,8 +23,8 @@ import (
 	"testing"
 
 	"go-spring.org/cloud/discovery"
-	"go-spring.org/cloud/resilience"
-	"go-spring.org/cloud/traffic"
+	"go-spring.org/cloud/governance/resilience"
+	"go-spring.org/cloud/governance/traffic"
 	"go-spring.org/stdlib/testing/assert"
 )
 
@@ -152,7 +152,7 @@ func TestNewTransport_ResilienceBreakerFastFails(t *testing.T) {
 
 // headerRT records whether a given header was present on the request it saw.
 type headerRT struct {
-	seen     bool
+	seen      bool
 	headerKey string
 }
 

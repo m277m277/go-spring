@@ -24,10 +24,10 @@ govern 把这 11 份 Dync 收敛成 **全进程唯一一个**。
 ```
                     ${govern}   ← 唯一一个配置源
                         │
-              gs.Dync[govern.Config]   （centerHolder.Gov，由 cloud/govern 持有）
+              gs.Dync[governance.Config]   （centerHolder.Gov，由 cloud/governance 持有）
                         │  OnChanged   ← 唯一一个订阅
                         ▼
-                govern.Center.Refresh(cfg)
+                governance.Center.Refresh(cfg)
                         │
             ┌───────────┼────────────┬───────────┬───────────┐
             ▼           ▼            ▼           ▼           ▼
@@ -39,13 +39,13 @@ govern 把这 11 份 Dync 收敛成 **全进程唯一一个**。
         时回调         时回调
 ```
 
-- **根**：`cloud/govern` 里的 `centerHolder`，持有唯一的 `gs.Dync[govern.Config]`，绑定 `${govern}`。
+- **根**：`cloud/governance` 里的 `centerHolder`，持有唯一的 `gs.Dync[governance.Config]`，绑定 `${govern}`。
 - **叶**：每个 client starter 在自己的 setup 阶段调一次 `Center.Register(label, cb)`，把自己登记为某个资源 label 的订阅者。
 - **分发**：配置变化时 `Center.Refresh` 重算每个订阅者所属 label 的 policy，**只在变化时**回调。
 
 > ⚠️ 看到代码里"到处都是 Register"是正常现象——这不是重复配置，而是 fan-out 拓扑的叶子节点。Dync 数从 11 → 1，Register 数多恰恰是"精确分发"的实现方式。
 
-> **client 怎么拿到 executor（2026-08-14 重构后）**：client starter **不再注入 `*govern.Center`**，而是调中立函数 `resilience.ExecutorFor(资源label)` 拿到自己的 executor——零 govern 耦合。cloud/govern 在启动时（作为一个 `gs.Runner`，gs 自动收集执行）把治理中心注册成 `ExecutorFor` 背后的 provider；上面的 `Register(label, cb)` 扇出由 provider 内部按 label 自动完成，client 不感知。`ExecutorFor` 返回的 executor 每次 Execute 时 lazy resolve（全局 memoize），与 provider 注册先后无关；无 provider 时返回透传 noop。唯一例外是 **dubbo**（URL-param 模型，仍注入 Center 直接读 `PolicyFor` 字段）。seam 代码见 [cloud/resilience/provider.go](../resilience/provider.go)。
+> **client 怎么拿到 executor（2026-08-14 重构后）**：client starter **不再注入 `*governance.Center`**，而是调中立函数 `resilience.ExecutorFor(资源label)` 拿到自己的 executor——零 govern 耦合。cloud/governance 在启动时（作为一个 `gs.Runner`，gs 自动收集执行）把治理中心注册成 `ExecutorFor` 背后的 provider；上面的 `Register(label, cb)` 扇出由 provider 内部按 label 自动完成，client 不感知。`ExecutorFor` 返回的 executor 每次 Execute 时 lazy resolve（全局 memoize），与 provider 注册先后无关；无 provider 时返回透传 noop。唯一例外是 **dubbo**（URL-param 模型，仍注入 Center 直接读 `PolicyFor` 字段）。seam 代码见 [cloud/governance/resilience/provider.go](../resilience/provider.go)。
 
 ## 3. 为什么是 per-label Register，而不是一个全局回调
 
@@ -64,7 +64,7 @@ per-label Register 配合"上次交付值"（`subscriber.last`）做**选择性�
 | 选择性分发 | 每个订阅者记 `last`，`Refresh` 时 DeepEqual 比对，未变不回调 | `Center.Refresh` |
 | 回调在锁外执行 | 锁内只收集 `todo`，锁外逐个调用；回调里再调 Center 不会自死锁 | `Center.Refresh` |
 | Disabled 即透传 | center 未启用时 `PolicyFor` 返回零值 `Policy{}`，executor 成为透明直连 | `Center.PolicyFor` |
-| 不导入 cloud/govern 也是 no-op | center 是无条件单例，未配 `${govern}` 时 `Enabled()==false` | `cloud/govern` |
+| 不导入 cloud/governance 也是 no-op | center 是无条件单例，未配 `${govern}` 时 `Enabled()==false` | `cloud/governance` |
 
 ## 5. 公共 API
 
@@ -86,7 +86,7 @@ func (c *Center) Enabled() bool
 func (c *Center) Driver() string
 func (c *Center) PolicyFor(label string) resilience.Policy   // 读路径，无锁；遍历 Rules 找首个命中，否则 Default
 func (c *Center) Register(label string, cb func(resilience.Policy)) resilience.Policy
-func (c *Center) Refresh(cfg Config)                          // cloud/govern 的唯一 OnChanged 调它
+func (c *Center) Refresh(cfg Config)                          // cloud/governance 的唯一 OnChanged 调它
 ```
 
 **为什么是 `Rules` 列表而不是 `map[label]`**：资源 label 用冒号分段（`gorm:mysql:orders-db`）。若 label 做 map key，冒号进到 YAML key 位置会让映射解析错乱（每个 key 都得加引号、漏一个就静默解析错）。改成列表后，label 退到 `resources` 值的位置——冒号在值里，properties 不转义、YAML 不加引号，两种格式都干净。`PolicyFor` 遍历 Rules（每进程就几条，O(n) 可忽略）找首个 `Resources` 含 label 的，找不到回落 Default。
@@ -135,15 +135,20 @@ dubbo 有自己的 URL-param 治理模型（timeout / retries / loadbalance / cl
 
 > Register 的回调里会重入 `poll`，所以 dubbo 在锁**外**收集待注册 label、锁**内**去重登记，避免持锁跨 `Register` 自死锁。这是回调在锁外执行这一不变量（§4）的一个具体应用。
 
-## 8. 与 fault 注入的关系（待落地的延伸）
+## 8. 与 fault 注入的关系（已落地）
 
-fault（"放火"）目前仍是每个 starter 各背一份 `gs.Dync[fault.Config]`，是 govern 改造前 resilience 的同款散装状态。一个自然的问题是：fault 是否也该进 govern？
+fault（"放火"）已**收进治理中心**,和 resilience 共用同一个 `${govern}` Dync。`govern.Config` 嵌入 `fault.Config`(`value:"${fault:=}"`,绑成 `govern.fault.*`),centerHolder 在 `Init` 里从同一份配置**无条件**建一个全进程共享的 `*fault.Injector`(Enabled=false 即 no-op),在 `Run` 里通过 `fault.RegisterInjector` 注册到中立 seam。`OnChanged` 回调在 resilience 的 `Refresh` 之外,额外 `injector.SetConfig(new.Fault)` 原地热更。
 
-**结论：该集中，但不该照搬 govern 的 per-label 解析。** 区别在于：
+**集中形态比 resilience 更简单——没有 per-label 解析,只有一个全局 injector。** 区别在于:
 
-- `resilience.Policy` **没有**内置的多资源定向能力，redis 和 gorm 是两个独立 Policy 对象，所以 center 必须按 label 解析出"属于你的那一个"。
-- [`fault.Config`](../fault/config.go) **天生带**多资源定向：`Rules []Rule` 每条有自己的 `Resources / Rate / Latency / Error`，一份 Config 即可描述"redis 打 0.5 错误、gorm 加延迟、其余全量慢调用"。
+- `resilience.Policy` **没有**内置的多资源定向能力,redis 和 gorm 是两个独立 Policy 对象,所以 center 必须按 label 解析出"属于你的那一个"。
+- [`fault.Config`](../fault/config.go) **天生带**多资源定向:`Rules []Rule` 每条有自己的 `Resources / Rate / Latency / Error`,一份 Config 即可描述"redis 打 0.5 错误、gorm 加延迟、其余全量慢调用"。所以 fault 不需要 per-label injector,一个全局 injector 在 `maybe(resource)` 时按 Rules 分发即可。
 
-因此 fault 的集中形态应比 govern 更简单——**一个全进程共享的 `*fault.Injector` bean**，所有 starter 的 `WrapExecutor` 包同一个 injector，热更新由唯一持有 Dync 的 starter 一次 `SetConfig` 完成，per-resource 定向在 injector 内部按 Rules 分发。详见 fault 集中化改造的专项设计。
+starter 侧通过中立 seam 接入,零耦合 cloud/governance:
 
-附带影响：`Injector` 的 `MaxAffected` / `MaxDuration` 安全熔断计数器将从"每资源各算"变成"全进程合计"。作为安全保险，全局语义更正确（不会因资源数被乘 N）。
+- **client 侧**:`fault.WrapExecutor(resilience.ExecutorFor(r), fault.InjectorFor())`。`WrapExecutor` 当传入 nil injector 时**惰性**在每次 `Execute` 解析 `InjectorFor()`——这镜像了 `resilience.ExecutorFor` 的 call-time 延迟解析,使 starter 能在 `Init`(早于 centerHolder 的 `Run` 注册)就调 `fault.InjectorFor()` 而不丢失注入器。
+- **server 侧**(gin/echo/hertz/grpc/trpc/dubbo):中间件/拦截器 per-call 调 `fault.Apply(ctx, fault.InjectorFor(), label, ...)`。`Apply` 对 nil injector 透明直通,所以这些中间件现在**无条件安装**(旧的"启动时必须 Enabled 才装"限制随之消除)。
+
+附带影响(已接受):`Injector` 的 `MaxAffected` / `MaxDuration` 安全熔断计数器从"每资源各算"变成"全进程合计"。作为安全保险,全局语义更正确(不会因资源数被乘 N)。
+
+顺带修复了集中前的潜在缺陷:旧版 Pattern A starter 的 `OnChanged` 仅在启动时 `Enabled==true` 才注册,运行时热更打开 fault 完全无效(gin 注释直言"toggle via restart")。集中化后 fault 可在任意时刻热开关。

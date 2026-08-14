@@ -18,7 +18,7 @@ package StarterLockRedis
 
 import (
 	"go-spring.org/cloud/experimental/lock"
-	"go-spring.org/observe/lock"
+	"go-spring.org/cloud/observe/lock"
 )
 
 func wrapLockerBean(c Config, inner lock.Locker) lock.Locker { return WrapLocker(inner) }

@@ -11,7 +11,6 @@ require (
 	go-spring.org/starter-redigo v0.0.0
 )
 
-require go-spring.org/observe v0.0.0 // indirect
 
 require go-spring.org/stdlib v0.1.7 // indirect
 
@@ -44,7 +43,6 @@ require (
 
 replace (
 	go-spring.org/cloud => ../../../cloud
-	go-spring.org/observe => ../../../cloud/observe
 	go-spring.org/spring => ../../../spring
 	go-spring.org/starter-actuator => ../../experimental/starter-actuator
 	go-spring.org/starter-config-file => ../../starter-config-file

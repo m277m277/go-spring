@@ -21,9 +21,9 @@ import (
 	"sync"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
-	"go-spring.org/cloud/fault"
-	"go-spring.org/cloud/resilience"
-	resilobserve "go-spring.org/observe/resilience"
+	"go-spring.org/cloud/governance/fault"
+	"go-spring.org/cloud/governance/resilience"
+	resilobserve "go-spring.org/cloud/observe/resilience"
 )
 
 // resilienceExecs tracks the resilience executor attached to each client, so
@@ -47,14 +47,10 @@ var resilienceResources sync.Map // mqtt.Client -> string
 //
 // The executor is resolved through the neutral [resilience.ExecutorFor] seam,
 // which starter-govern backs with the governance center — so this function has
-// zero coupling to cloud/govern. When governance is off, ExecutorFor yields a
+// zero coupling to cloud/governance. When governance is off, ExecutorFor yields a
 // transparent no-op executor; fault wraps it when enabled.
 func applyResilience(c Config, cl mqtt.Client, resource string) error {
-	fc := c.Fault
-	exec := resilience.ExecutorFor(resource)
-	if fc.Enabled {
-		exec = fault.WrapExecutor(exec, fault.NewInjector(fc))
-	}
+	exec := fault.WrapExecutor(resilience.ExecutorFor(resource), fault.InjectorFor())
 	exec = resilobserve.WrapExecutor(exec, "mqtt", c.Observability)
 	resilienceExecs.Store(cl, exec)
 	resilienceResources.Store(cl, resource)
@@ -68,7 +64,6 @@ func closeResilience(cl mqtt.Client) {
 	}
 	resilienceResources.Delete(cl)
 }
-
 
 // guard routes call through the executor attached to cl, and otherwise runs it
 // inline. When resilience is disabled for the client this is a no-op

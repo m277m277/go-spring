@@ -17,41 +17,37 @@
 package StarterGormSqlserver
 
 import (
-	"go-spring.org/cloud/fault"
-	"go-spring.org/cloud/resilience"
+	"go-spring.org/cloud/governance/fault"
+	"go-spring.org/cloud/governance/resilience"
+	observe "go-spring.org/cloud/observe"
+	"go-spring.org/cloud/observe/resilience"
 	gormobserve "go-spring.org/starter-gorm/observe"
 	"go-spring.org/starter-gorm/resilience"
-	observe "go-spring.org/observe"
-	"go-spring.org/observe/resilience"
-	"go-spring.org/spring/gs"
 	"gorm.io/gorm"
 )
 
 // DB is the wrapper bean gorm-sqlserver clients are injected as. It
-// embeds *gorm.DB so all gorm methods promote unchanged, and field-injects the
-// fault config via gs.Dync so it hot-reloads on config change. newClient
-// returns one; gs field-injects Fault + Observability, then calls
-// Init (InitMethod) to install the observe plugin and the resilience callbacks.
-// Resilience itself is no longer injected here: this DB resolves its executor
-// through the neutral [resilience.ExecutorFor] seam, which starter-govern backs
-// with the governance center — so this struct has zero coupling to cloud/govern.
+// embeds *gorm.DB so all gorm methods promote unchanged, and field-injects
+// Observability. newClient returns one; gs field-injects Observability, then
+// calls Init (InitMethod) to install the observe plugin and the resilience
+// callbacks. Both resilience and fault are resolved through neutral seams
+// ([resilience.ExecutorFor] / [fault.InjectorFor]) backed by starter-govern's
+// governance center — so this struct has zero coupling to cloud/governance.
 type DB struct {
 	*gorm.DB
-	Fault         gs.Dync[fault.Config] `value:"${fault:=}"`
 	Observability observe.ObserveConfig `value:"${observability:=}"`
 
-	cfg      Config // for resourceLabel (host/service-name)
+	cfg      Config              // for resourceLabel (host/service-name)
 	exec     resilience.Executor // resolved via resilience.ExecutorFor; no-op when governance is off
-	faultInj *fault.Injector
 	resource string
 }
 
-// Init is the gs InitMethod (runs after gs field-injects Fault +
-// Observability). It installs the shared gorm observe plugin, resolves the
-// resilience executor through the neutral [resilience.ExecutorFor] seam
-// (backed by starter-govern's governance center when configured; a transparent
-// no-op otherwise), optionally wraps it with the fault injector, and routes
-// every gorm processor through it via [gormresilience.ApplyCallbacks].
+// Init is the gs InitMethod (runs after gs field-injects Observability). It
+// installs the shared gorm observe plugin, resolves the resilience executor
+// through the neutral [resilience.ExecutorFor] seam (backed by starter-govern's
+// governance center when configured; a transparent no-op otherwise), wraps it
+// with the process-wide fault injector ([fault.InjectorFor], nil-safe), and
+// routes every gorm processor through it via [gormresilience.ApplyCallbacks].
 func (o *DB) Init() error {
 	if o.cfg.ObserveEnabled {
 		if err := o.DB.Use(gormobserve.NewPlugin("microsoft.sql_server", o.Observability)); err != nil {
@@ -59,15 +55,7 @@ func (o *DB) Init() error {
 		}
 	}
 	o.resource = resilience.ResourceLabel("gorm:sqlserver", o.cfg.ServiceName, o.cfg.Host)
-	exec := resilience.ExecutorFor(o.resource)
-	fc := o.Fault.Value()
-	if fc.Enabled {
-		o.faultInj = fault.NewInjector(fc)
-		exec = fault.WrapExecutor(exec, o.faultInj)
-		o.Fault.OnChanged(func(new, _ fault.Config) {
-			o.faultInj.SetConfig(new)
-		})
-	}
+	exec := fault.WrapExecutor(resilience.ExecutorFor(o.resource), fault.InjectorFor())
 	exec = resilobserve.WrapExecutor(exec, "microsoft.sql_server", o.Observability)
 	o.exec = exec
 	if err := gormresilience.ApplyCallbacks(o.DB, exec, o.resource); err != nil {
@@ -89,4 +77,3 @@ func (o *DB) Destroy() error {
 	}
 	return nil
 }
-

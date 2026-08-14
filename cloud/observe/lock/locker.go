@@ -20,10 +20,10 @@
 // [lock.system] semantic-convention value (e.g. "redis", "etcd", "consul",
 // "k8s") — the same trace signal every lock starter previously emitted.
 //
-// It lives in its own module (rather than copy-pasted into each lock starter,
-// or inside the otel-free spring core that defines [lock.Locker]) so the four
-// lock starters share one implementation instead of duplicating a ~70-line
-// wrapper each, differing only in the system label. A starter installs it with
+// It lives in the observe package (rather than copy-pasted into each lock
+// starter, or inside the otel-free spring core that defines [lock.Locker]) so
+// the four lock starters share one implementation instead of duplicating a
+// ~70-line wrapper each, differing only in the system label. A starter installs it with
 // its backend's system value:
 //
 //	locker = lockobserve.WrapLocker("redis", inner)
@@ -41,7 +41,7 @@ import (
 
 // tracerName identifies spans emitted by this adapter, following the
 // convention used by the other shared observe adapters.
-const tracerName = "go-spring.org/observe/lock"
+const tracerName = "go-spring.org/cloud/observe/lock"
 
 // WrapLocker returns a [lock.Locker] that wraps Acquire and TryAcquire with
 // OTel client spans labelled lock.system=system and lock.key=<key>. When

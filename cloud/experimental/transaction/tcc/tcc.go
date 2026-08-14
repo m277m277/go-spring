@@ -79,7 +79,7 @@ package tcc
 import (
 	"context"
 
-	"go-spring.org/cloud/resilience"
+	"go-spring.org/cloud/governance/resilience"
 )
 
 // RetryPolicy governs how a [Participant] phase (try, confirm or cancel) is

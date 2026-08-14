@@ -21,16 +21,16 @@ import (
 	"time"
 )
 
-// Config binds the fault-injection knobs from go-spring ${...} value tags and
-// mirrors the binding style of [resilience.Config]: a single shared struct each
-// client starter embeds under its own key prefix (redigo uses ${fault.*}). A
-// zero Config (Enabled false) injects nothing and [WrapExecutor] is not
-// installed by the starter.
+// Config binds the fault-injection knobs from go-spring ${...} value tags. It is
+// embedded in [governance.Config] under the `${govern}` Dync (field tag
+// `${fault:=}`, so its keys bind as govern.fault.*) and shares that single
+// binding with resilience — there is no per-starter fault key anymore. A zero
+// Config (Enabled false) injects nothing; the process-wide injector built from
+// it is a transparent no-op.
 //
-// The MVP is one global rule: Latency applies to every call, Error applies at
-// the configured Rate. For redigo (a single resource) global == per-resource;
-// per-resource Rules are a near-term extension once gs value binding for lists
-// is confirmed.
+// The top-level Rate/Latency/Error apply to every resource; per-resource
+// overrides go under Rules (matched by the resource label a starter passes to
+// the executor/Apply seam).
 type Config struct {
 	// Enabled turns fault injection on. When false no faults are injected even
 	// if Rate/Latency/Error are set.
@@ -100,7 +100,7 @@ type Rule struct {
 	// means catch-all (matches every resource). A resource label is what a
 	// starter passes to the executor/fault seam — e.g. "redis", "gorm:mysql",
 	// "http:user-svc", "gin", a downstream service name.
-	Resources []string `value:"${resources:=}"`
+	Resources []string      `value:"${resources:=}"`
 	Rate      float64       `value:"${rate:=0}"`
 	Latency   time.Duration `value:"${latency:=0}"`
 	Error     string        `value:"${error:=}"`

@@ -23,13 +23,42 @@ import (
 	"time"
 
 	"github.com/gomodule/redigo/redis"
-	"go-spring.org/cloud/resilience"
-	observe "go-spring.org/observe"
+	"go-spring.org/cloud/governance/resilience"
+	observe "go-spring.org/cloud/observe"
 )
 
-// Conn wraps a redis.Conn so every command flows through the shared observe kit
-// (trace span + duration/in-flight metric + access log) and, when resilience is
-// armed, through the resilience executor.
+// CommandHandler runs one Redis command. It is the pipeline's core signature:
+// ctx, cmd, and args are all in play, so each interceptor layer may rewrite any
+// of them before handing the command toward Redis.
+type CommandHandler func(
+	ctx context.Context,
+	cmd string,
+	args []interface{},
+) (reply interface{}, err error)
+
+// CommandInterceptor wraps a [CommandHandler] with additional behavior — the
+// onion/chain model, the same shape as grpc's Interceptor. A layer may:
+//   - run code before and after next (observe timing, mutate the reply, ...),
+//   - rewrite the ctx / cmd / args it passes to next,
+//   - or return WITHOUT calling next to short-circuit (e.g. a local-cache hit
+//     that must neither start a span nor consume a breaker permit).
+//
+// Conn's own capabilities are expressed as interceptors too: the command path
+// is user interceptors (outermost) → observe span → resilience executor → the
+// inner call. Because user layers sit outside the executor, a short-circuit
+// does NOT count toward the circuit breaker / rate limiter and does NOT emit a
+// span; an observer-style layer that wants the command to count must call next.
+//
+// Compose via [Pool.UseCommandInterceptor]; the FIRST registered interceptor is
+// the OUTERMOST layer.
+type CommandInterceptor func(next CommandHandler) CommandHandler
+
+// Conn wraps a redis.Conn so every command flows through an interceptor chain
+// assembled once at construction (see Pool.wrapConn): user interceptors (via
+// [Pool.UseCommandInterceptor], first-registered outermost), then the observe
+// layer (trace span + duration/in-flight metric + access log), then the
+// resilience layer (executor), then the inner call — all uniform
+// [CommandInterceptor] layers. Conn itself holds only the composed wrap.
 //
 // It implements the optional DoContext / DoWithTimeout interfaces so the wrapper
 // is transparent to type-asserting helpers (redis.DoContext etc.): when the
@@ -50,18 +79,39 @@ import (
 // out-of-scope instrumentation.
 type Conn struct {
 	redis.Conn
-	obs         *observe.Observer
-	exec        resilience.Executor // nil when resilience is disabled
-	resource    string              // resilience resource label (stable per pool)
-	interceptor CommandInterceptor  // nil when no per-command hook is registered
+	// wrap is the command chain composed once at construction
+	// (user → observe → resilience). nil when every layer is disabled — then a
+	// command IS the inner call, with zero wrapper overhead.
+	wrap CommandInterceptor
+}
+
+// NewConn wraps a raw redis.Conn, composing the given interceptors (earlier =
+// outermost) around the inner call. The layers are ordinary interceptors, any
+// mix in any order. Pool.newConn calls it for every connection the pool hands
+// out; it is equally usable standalone for hand assembly. With no layers the
+// wrapper is a near-zero-cost pass-through.
+func NewConn(raw redis.Conn, layers ...CommandInterceptor) *Conn {
+	var wrap CommandInterceptor
+	if len(layers) > 0 {
+		ls := layers
+		wrap = func(next CommandHandler) CommandHandler {
+			// fold from the innermost: the first layer ends up outermost.
+			for i := len(ls) - 1; i >= 0; i-- {
+				next = ls[i](next)
+			}
+			return next
+		}
+	}
+	return &Conn{Conn: raw, wrap: wrap}
 }
 
 // Do is the common, context-less path: its span is a root and an attempt-timeout
 // cannot interrupt it. It is mandatory (part of the redis.Conn interface) and the
 // fallback for the optional DoContext / DoWithTimeout when the inner conn lacks them.
 func (c *Conn) Do(cmd string, args ...interface{}) (interface{}, error) {
-	return c.run(context.Background(), cmd, args, func(context.Context) (interface{}, error) {
-		return c.Conn.Do(cmd, args...)
+	return c.run(context.Background(), cmd, args, func(
+		actx context.Context, acmd string, aargs []interface{}) (interface{}, error) {
+		return c.Conn.Do(acmd, aargs...)
 	})
 }
 
@@ -76,8 +126,9 @@ func (c *Conn) DoContext(ctx context.Context, cmd string, args ...interface{}) (
 	if !ok {
 		return c.Do(cmd, args...)
 	}
-	return c.run(ctx, cmd, args, func(actx context.Context) (interface{}, error) {
-		return inner.DoContext(actx, cmd, args...)
+	return c.run(ctx, cmd, args, func(
+		actx context.Context, acmd string, aargs []interface{}) (interface{}, error) {
+		return inner.DoContext(actx, acmd, aargs...)
 	})
 }
 
@@ -92,88 +143,87 @@ func (c *Conn) DoWithTimeout(timeout time.Duration, cmd string, args ...interfac
 	if !ok {
 		return c.Do(cmd, args...)
 	}
-	return c.run(context.Background(), cmd, args, func(context.Context) (interface{}, error) {
-		return inner.DoWithTimeout(timeout, cmd, args...)
+	return c.run(context.Background(), cmd, args, func(
+		actx context.Context, acmd string, aargs []interface{}) (interface{}, error) {
+		return inner.DoWithTimeout(timeout, acmd, aargs...)
 	})
 }
 
-// run dispatches one command. When a per-command interceptor is registered it
-// runs OUTERMOST — before the observe span and before the resilience executor —
-// so it can short-circuit (e.g. a local-cache hit) without starting a span or
-// consuming a breaker permit. next enters the built-in path (builtinRun); call
-// it exactly once to reach Redis, or skip it to short-circuit. With no
-// interceptor registered run delegates straight to builtinRun at zero extra
-// cost.
+// run dispatches one command through the chain composed at construction. With
+// every layer disabled (wrap nil) a command IS the inner call — zero wrapper
+// overhead — while the DoContext / DoWithTimeout interfaces stay transparent.
 func (c *Conn) run(ctx context.Context, cmd string, args []interface{},
-	call func(context.Context) (interface{}, error)) (reply interface{}, err error) {
+	call CommandHandler) (reply interface{}, err error) {
 
-	if c.interceptor != nil {
-		return c.interceptor(ctx, cmd, args, func(actx context.Context) (interface{}, error) {
-			return c.builtinRun(actx, cmd, args, call)
-		})
+	h := call // terminal: the inner command invocation
+	if c.wrap != nil {
+		h = c.wrap(h)
 	}
-	return c.builtinRun(ctx, cmd, args, call)
+	return h(ctx, cmd, args)
 }
 
-// builtinRun is the built-in command path: start a client span for cmd (when
-// observe is enabled), run call under the resilience executor (when armed), and
-// end the span with the result. ctx is the span parent — the caller's context
-// for DoContext (so the span links to the request trace and an attempt-timeout
-// can interrupt it), background for the context-less paths. The executor derives
-// its per-attempt context from ctx; the inner call receives that attempt context,
-// which only DoContext threads through (the others ignore it — redigo's Do and
-// DoWithTimeout take no context).
+// observeInterceptor is the observe layer of the command chain: it starts a
+// client span for the command (trace + duration/in-flight metric + access log),
+// runs next under it, and ends the span with the result. ctx is the span parent
+// — the caller's context for DoContext (so the span links to the request trace
+// and an attempt-timeout can interrupt it), background for the context-less
+// paths. The span sits OUTSIDE the resilience layer, so one Execute (with any
+// retries the policy drives) is covered by a single span.
+func observeInterceptor(obs *observe.Observer) CommandInterceptor {
+	return func(next CommandHandler) CommandHandler {
+		return func(ctx context.Context, cmd string, args []interface{}) (reply interface{}, err error) {
+			var sp *observe.Span
+			ctx, sp = obs.Start(ctx, cmd, summarizeCommand(cmd, args))
+			defer func() {
+				if sp != nil {
+					sp.End(err)
+				}
+			}()
+			return next(ctx, cmd, args)
+		}
+	}
+}
+
+// resilienceInterceptor is the resilience layer of the command chain: it runs
+// next under the executor (circuit breaker / rate limiter / bulkhead / retry).
+// The executor derives its per-attempt context from ctx; the inner call receives
+// that attempt context, which only DoContext threads through (the others ignore
+// it — redigo's Do and DoWithTimeout take no context).
 //
-// The executor sits INSIDE the span (span start → executor → inner call → span
-// end), so one Execute covers any retries the policy drives. redis.ErrNil (a
-// cache miss) is mapped to success so it never trips the breaker; protection
-// rejections (rate-limited / circuit-open / bulkhead-full) surface verbatim.
-// When observe is disabled (obs == nil) no span is started; when resilience is
-// disabled (exec == nil) call runs directly — so with both off (and no
-// interceptor) the Conn wrapper is a near-zero-cost pass-through that still
-// keeps the DoContext / DoWithTimeout interfaces transparent.
-func (c *Conn) builtinRun(ctx context.Context, cmd string, args []interface{},
-	call func(context.Context) (interface{}, error)) (reply interface{}, err error) {
+// redis.ErrNil (a cache miss) is mapped to success so it never trips the
+// breaker — the redigo analog of gorm.ErrRecordNotFound; protection rejections
+// (rate-limited / circuit-open / bulkhead-full) surface to the caller verbatim.
+func resilienceInterceptor(exec resilience.Executor, resource string) CommandInterceptor {
+	return func(next CommandHandler) CommandHandler {
+		return func(ctx context.Context, cmd string, args []interface{}) (reply interface{}, err error) {
+			var callErr error
+			execErr := exec.Execute(ctx, resource, func(attemptCtx context.Context) error {
+				reply, callErr = next(attemptCtx, cmd, args)
+				if callErr != nil && !errors.Is(callErr, redis.ErrNil) {
+					return callErr // a real failure feeds the breaker/retry
+				}
+				return nil // success or cache miss
+			})
 
-	var sp *observe.Span
-	if c.obs != nil {
-		ctx, sp = c.obs.Start(ctx, cmd, summarizeCommand(cmd, args))
-	}
-	defer func() {
-		if sp != nil {
-			sp.End(err)
+			if errors.Is(execErr, resilience.ErrRateLimited) ||
+				errors.Is(execErr, resilience.ErrCircuitOpen) ||
+				errors.Is(execErr, resilience.ErrBulkheadFull) {
+				return nil, execErr // rejected before (or around) the command
+			}
+
+			// On success execErr is nil and callErr is nil. On a command failure
+			// the fn closure returned callErr, so execErr == callErr and either is
+			// correct. They diverge only when fn never ran — e.g. a fault
+			// injector (cloud/governance/fault) short-circuited the attempt
+			// before reaching the command — leaving callErr nil while the
+			// executor still returns the injected error. Prefer execErr so such
+			// failures surface instead of being silently swallowed as success.
+			if execErr != nil {
+				return reply, execErr
+			}
+			return reply, callErr
 		}
-	}()
-
-	if c.exec == nil {
-		return call(ctx) // resilience disabled — no executor overhead
 	}
-
-	var callErr error
-	execErr := c.exec.Execute(ctx, c.resource, func(attemptCtx context.Context) error {
-		reply, callErr = call(attemptCtx)
-		if callErr != nil && !errors.Is(callErr, redis.ErrNil) {
-			return callErr // a real failure feeds the breaker/retry
-		}
-		return nil // success or cache miss
-	})
-
-	if errors.Is(execErr, resilience.ErrRateLimited) ||
-		errors.Is(execErr, resilience.ErrCircuitOpen) ||
-		errors.Is(execErr, resilience.ErrBulkheadFull) {
-		return nil, execErr // rejected before (or around) the command
-	}
-
-	// On success execErr is nil and callErr is nil. On a command failure the fn
-	// closure returned callErr, so execErr == callErr and either is correct.
-	// They diverge only when fn never ran — e.g. a fault injector (cloud/fault)
-	// short-circuited the attempt before reaching the command — leaving callErr
-	// nil while the executor still returns the injected error. Prefer execErr so
-	// such failures surface instead of being silently swallowed as success.
-	if execErr != nil {
-		return reply, execErr
-	}
-	return reply, callErr
 }
 
 // summarizeCommand renders a short, loggable summary of the command — the

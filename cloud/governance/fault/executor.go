@@ -19,7 +19,7 @@ package fault
 import (
 	"context"
 
-	"go-spring.org/cloud/resilience"
+	"go-spring.org/cloud/governance/resilience"
 )
 
 // WrapExecutor returns an Executor that injects faults into fn before
@@ -33,11 +33,18 @@ import (
 // would, rather than short-circuiting at the boundary where none of those
 // mechanisms are in play.
 //
-// nil inner => returns nil, and nil injector => returns inner unchanged,
-// preserving the zero-config transparency invariant mirrored from the
-// resilience seams ([resilience.NewDialer], [resilience.NewRoundTripper]).
+// in is the injector to fault with. When in != nil it is used directly — the
+// path tests and [cloud/loadtest] take to inject an explicit, locally-built
+// injector. When in == nil the process-wide injector ([InjectorFor]) is resolved
+// LAZILY on each Execute: this lets client starters pass fault.InjectorFor() at
+// wiring time (in their InitMethod) even though starter-govern registers the
+// injector later, at Runner time — mirroring how [resilience.ExecutorFor] defers
+// provider resolution to call time. When no injector is registered either way,
+// fn runs once untouched (zero-config transparency).
+//
+// nil inner => returns nil.
 func WrapExecutor(inner resilience.Executor, in *Injector) resilience.Executor {
-	if inner == nil || in == nil {
+	if inner == nil {
 		return inner
 	}
 	return &faultExecutor{inner: inner, in: in}
@@ -53,15 +60,26 @@ type faultExecutor struct {
 // via the attempt context); if the sleep is cancelled the context error is
 // returned so the executor's budget/timeout logic reacts rather than retrying
 // blindly.
+//
+// When e.in is nil (the lazy-global path) the injector is resolved here, per
+// Execute, via [InjectorFor]; nil means no fault is configured and inner runs fn
+// untouched.
 func (e *faultExecutor) Execute(ctx context.Context, resource string, fn func(context.Context) error) error {
+	in := e.in
+	if in == nil {
+		in = InjectorFor()
+	}
+	if in == nil {
+		return e.inner.Execute(ctx, resource, fn)
+	}
 	wrapped := func(attemptCtx context.Context) error {
 		// Gate injection on the configured Scope vs the call's load-test marker
 		// before consulting the rate/latency rules: when the scope excludes
 		// this traffic class the call passes through untouched.
-		if !ScopeApplies(e.in.Config(), attemptCtx) {
+		if !ScopeApplies(in.Config(), attemptCtx) {
 			return fn(attemptCtx)
 		}
-		inject, sleep, injErr := e.in.maybe(resource)
+		inject, sleep, injErr := in.maybe(resource)
 		if sleep > 0 && !resilience.SleepFor(attemptCtx, sleep) {
 			// The latency sleep was cancelled (caller cancel or budget expiry);
 			// surface the context error so the executor stops retrying.

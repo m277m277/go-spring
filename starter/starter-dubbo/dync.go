@@ -23,21 +23,23 @@ import (
 	"sync"
 	"time"
 
-	"go-spring.org/cloud/govern"
-	"go-spring.org/cloud/resilience"
+	"go-spring.org/cloud/governance"
+	"go-spring.org/cloud/governance/resilience"
 	"go-spring.org/spring/gs"
 	mapconfig "go-spring.org/starter-dubbo/internal/mapconfig"
 )
 
 func init() {
-	// IndexArg(1) injects *govern.Center (nullable "?"): when starter-govern is
-	// imported and ${govern.enabled=true}, the center takes over dubbo's timeout
-	// and retries (see consumerToOverrideRules); nil keeps the legacy
+	// dyncPoller is exported as a gs.Rooter so gs collects and instantiates it
+	// (nothing injects *dyncPoller). It reaches governance through the package
+	// facade (governance.Enabled / PolicyFor / Register / OnReady), so it does NOT
+	// inject or even name *governance.Center: when starter-govern is imported and
+	// ${govern.enabled} is true, governance takes over dubbo's timeout and retries
+	// (see consumerToOverrideRules); its absence keeps the legacy
 	// ${spring.dubbo.consumer}-only behavior unchanged.
 	gs.Provide(newDyncPoller,
 		gs.IndexArg(0, gs.TagArg("${spring.dubbo.application}")),
-		gs.IndexArg(1, gs.TagArg("?")),
-	).Init((*dyncPoller).Init)
+	).Init((*dyncPoller).Init).Export(gs.As[gs.Rooter]()).Caller(1)
 }
 
 // dyncPoller watches ${spring.dubbo.consumer} (the entire consumer node:
@@ -53,7 +55,6 @@ func init() {
 type dyncPoller struct {
 	dynCfg  *mapconfig.MapDynamicConfiguration // in-memory config center overrides are pushed into
 	appName string                             // application name, used as the app-level override key
-	center  *govern.Center                     // centralized governance authority; nil when starter-govern absent
 
 	// Consumer is the entire consumer node under ${spring.dubbo.consumer},
 	// hot-reloaded by go-spring on RefreshProperties.
@@ -64,13 +65,13 @@ type dyncPoller struct {
 	regged map[string]bool              // dubbo resource labels already Register-ed with the center
 }
 
-// newDyncPoller creates the poller bean. center is the optional governance
-// authority (nil when starter-govern is not imported).
-func newDyncPoller(app DubboApplication, center *govern.Center) *dyncPoller {
+// newDyncPoller creates the poller bean. Governance is resolved at use time via
+// the governance facade (Enabled()/PolicyFor() return false/zero when
+// starter-govern is not imported).
+func newDyncPoller(app DubboApplication) *dyncPoller {
 	return &dyncPoller{
 		dynCfg:  mapconfig.Singleton(),
 		appName: app.Name,
-		center:  center,
 		last:    make(map[string]map[string]string),
 		regged:  make(map[string]bool),
 	}
@@ -79,8 +80,15 @@ func newDyncPoller(app DubboApplication, center *govern.Center) *dyncPoller {
 // Init registers a change callback on the consumer Dync and pushes the current
 // override rules once. Subsequent hot-reloads fire the callback, which re-runs
 // poll; poll's internal diff skips no-op refreshes.
+//
+// gs wires Rooters before Runners, and the governance engine is a Runner while
+// this poller is a Rooter — so the first poll below can run BEFORE starter-govern
+// has registered the authority (governance.Enabled is false). governance.OnReady
+// guarantees a re-poll once governance goes live, so overrides are still pushed
+// at startup regardless of init ordering.
 func (p *dyncPoller) Init() error {
 	p.Consumer.OnChanged(func(_, _ DubboConsumer) { p.poll() })
+	governance.OnReady(func() { p.poll() })
 	p.poll() // initial push: OnChanged does not fire on the init bind
 	return nil
 }
@@ -88,15 +96,16 @@ func (p *dyncPoller) Init() error {
 func (p *dyncPoller) poll() {
 	consumer := p.Consumer.Value()
 
-	rules := consumerToOverrideRules(p.appName, &consumer, p.center)
+	rules := consumerToOverrideRules(p.appName, &consumer)
 
 	// Subscribe to governance policy changes for each dubbo resource label we
-	// publish, so a center hot-reload re-runs poll and re-pushes the merged
+	// publish, so a governance hot-reload re-runs poll and re-pushes the merged
 	// rules. Collected under p.mu (dedup via regged) but registered OUTSIDE the
 	// lock: Register arms its callback synchronously, and that callback re-enters
 	// poll - holding p.mu across Register would self-deadlock. The re-entrant poll
-	// is a no-op (changed() finds the same snapshot).
-	if p.center != nil && p.center.Enabled() {
+	// is a no-op (changed() finds the same snapshot). When governance is not armed
+	// (Enabled false / authority not yet registered) the whole block is skipped.
+	if governance.Enabled() {
 		labels := dubboResourceLabels(p.appName, &consumer)
 		var toReg []string
 		p.mu.Lock()
@@ -109,7 +118,7 @@ func (p *dyncPoller) poll() {
 		p.mu.Unlock()
 		for _, l := range toReg {
 			l := l
-			p.center.Register(l, func(resilience.Policy) { p.poll() })
+			governance.Register(l, func(resilience.Policy) { p.poll() })
 		}
 	}
 
@@ -136,7 +145,7 @@ func (p *dyncPoller) poll() {
 // override (<interface>:<version>:<group>.configurators), picked up by
 // referenceConfigurationListener, so each reference gets independent overrides
 // instead of being merged into a single last-wins rule.
-func consumerToOverrideRules(appName string, c *DubboConsumer, center *govern.Center) map[string]map[string]string {
+func consumerToOverrideRules(appName string, c *DubboConsumer) map[string]map[string]string {
 	rules := make(map[string]map[string]string)
 
 	// Consumer-level defaults → application-level override.
@@ -154,8 +163,8 @@ func consumerToOverrideRules(appName string, c *DubboConsumer, center *govern.Ce
 	if c.ForceTag {
 		appParams["force.tag"] = "true"
 	}
-	if center != nil && center.Enabled() {
-		applyGovernOverride(appParams, center.PolicyFor(dubboAppLabel(appName)))
+	if governance.Enabled() {
+		applyGovernOverride(appParams, governance.PolicyFor(dubboAppLabel(appName)))
 	}
 	if len(appParams) > 0 {
 		rules[appName] = appParams
@@ -201,8 +210,8 @@ func consumerToOverrideRules(appName string, c *DubboConsumer, center *govern.Ce
 			addIfSet(refParams, prefix+"execute.limit", strconv.Itoa(m.ExecuteLimit))
 			addIfSet(refParams, prefix+"execute.limit.rejected.handler", m.ExecuteLimitRejectedHandler)
 		}
-		if center != nil && center.Enabled() {
-			applyGovernOverride(refParams, center.PolicyFor(dubboRefLabel(key)))
+		if governance.Enabled() {
+			applyGovernOverride(refParams, governance.PolicyFor(dubboRefLabel(key)))
 		}
 		if len(refParams) > 0 {
 			rules[key] = refParams

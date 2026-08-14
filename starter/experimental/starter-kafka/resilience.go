@@ -21,9 +21,9 @@ import (
 	"sync"
 
 	"github.com/twmb/franz-go/pkg/kgo"
-	"go-spring.org/cloud/fault"
-	"go-spring.org/cloud/resilience"
-	resilobserve "go-spring.org/observe/resilience"
+	"go-spring.org/cloud/governance/fault"
+	"go-spring.org/cloud/governance/resilience"
+	resilobserve "go-spring.org/cloud/observe/resilience"
 )
 
 // resilienceExecs tracks the resilience executor attached to each client, so
@@ -43,16 +43,13 @@ var resilienceResources sync.Map // *kgo.Client -> string
 // ProduceSync path, which blocks until the broker acknowledges, is what
 // GuardedProduceSync protects. resource scopes the limiter/breaker state.
 //
-// The executor is resolved through the neutral [resilience.ExecutorFor] seam,
-// which starter-govern backs with the governance center — so this function has
-// zero coupling to cloud/govern. When governance is off, ExecutorFor yields a
-// transparent no-op executor; fault wraps it when enabled.
+// Both the executor and the fault injector are resolved through neutral seams
+// ([resilience.ExecutorFor] / [fault.InjectorFor]) that starter-govern backs with
+// the governance center — so this function has zero coupling to cloud/governance.
+// When governance is off, ExecutorFor yields a transparent no-op executor; fault
+// wraps it when an injector is registered (nil-safe otherwise).
 func applyResilience(c Config, cl *kgo.Client, resource string) error {
-	fc := c.Fault
-	exec := resilience.ExecutorFor(resource)
-	if fc.Enabled {
-		exec = fault.WrapExecutor(exec, fault.NewInjector(fc))
-	}
+	exec := fault.WrapExecutor(resilience.ExecutorFor(resource), fault.InjectorFor())
 	exec = resilobserve.WrapExecutor(exec, "kafka", c.Observability)
 	resilienceExecs.Store(cl, exec)
 	resilienceResources.Store(cl, resource)
@@ -66,7 +63,6 @@ func closeResilience(cl *kgo.Client) {
 	}
 	resilienceResources.Delete(cl)
 }
-
 
 // guard routes call through the executor attached to cl, and otherwise runs it
 // inline. When resilience is disabled for the client this is a no-op

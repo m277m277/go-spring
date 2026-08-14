@@ -19,8 +19,7 @@ package StarterPulsar
 import (
 	"time"
 
-	"go-spring.org/cloud/fault"
-	observe "go-spring.org/observe"
+	observe "go-spring.org/cloud/observe"
 )
 
 // Config defines Pulsar client configuration.
@@ -78,10 +77,6 @@ type Config struct {
 
 	// Metrics exposes the pulsar client's native Prometheus metrics.
 	Metrics MetricsConfig `value:"${metrics}"`
-
-	// Fault optionally injects failures/latency into outbound calls so retry/
-	// breaker can be proven under load. Disabled by default.
-	Fault fault.Config `value:"${fault:=}"`
 
 	// Observability configures the per-operation access log emitted by the
 	// resilience executor (off/brief/detailed). Defaults to "brief". This

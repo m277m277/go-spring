@@ -14,13 +14,14 @@
  * limitations under the License.
  */
 
-package govern
+package governance
 
 import (
 	"testing"
 	"time"
 
-	"go-spring.org/cloud/resilience"
+	"go-spring.org/cloud/governance/fault"
+	"go-spring.org/cloud/governance/resilience"
 )
 
 // dur is a shorthand for declaring timeouts in test policies.
@@ -32,6 +33,39 @@ func enabledTimeout(d int) Config {
 	return Config{
 		Enabled: true,
 		Default: resilience.Config{Enabled: true, AttemptTimeout: dur(d)},
+	}
+}
+
+// TestConfig_FaultEmbedding guards that Config carries the centralized fault
+// config as an embedded field, and that a Config built with Fault set both
+// preserves it (so Center.Init can read cfg.Fault and build the injector) and
+// does not disturb resilience PolicyFor. This is the structural anchor of fault
+// centralization (DESIGN_CN.md §8).
+func TestConfig_FaultEmbedding(t *testing.T) {
+	// Zero Config: fault disabled (transparent), resilience disabled.
+	var zero Config
+	if zero.Fault.Enabled {
+		t.Fatal("zero Config.Fault should be disabled")
+	}
+	c := NewCenter(zero)
+	if p := c.PolicyFor("x"); p.Timeout != 0 {
+		t.Fatalf("zero config PolicyFor: want no timeout, got %v", p.Timeout)
+	}
+
+	// Config carrying an armed fault: Fault is preserved on the Config (Center.Init
+	// reads cfg.Fault directly to build the injector) and resilience PolicyFor still
+	// resolves from Default/Rules unaffected.
+	cfg := Config{
+		Enabled: true,
+		Default: resilience.Config{Enabled: true, AttemptTimeout: dur(100)},
+		Fault:   fault.Config{Enabled: true, Rate: 0.5, Error: "generic"},
+	}
+	if !cfg.Fault.Enabled || cfg.Fault.Rate != 0.5 || cfg.Fault.Error != "generic" {
+		t.Fatalf("Config.Fault not preserved: %+v", cfg.Fault)
+	}
+	cc := NewCenter(cfg)
+	if p := cc.PolicyFor("redis:cache"); p.Timeout != dur(100) {
+		t.Fatalf("PolicyFor with Fault set: want timeout 100ms, got %v", p.Timeout)
 	}
 }
 

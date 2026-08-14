@@ -32,10 +32,10 @@ import (
 	"syscall"
 	"time"
 
-	"go-spring.org/cloud/resilience"
+	"go-spring.org/cloud/governance/resilience"
 	"go-spring.org/spring/gs"
 
-	_ "go-spring.org/cloud/govern" // registers the centralized governance center
+	_ "go-spring.org/cloud/governance" // registers the centralized governance center
 	StarterGoRedis "go-spring.org/starter-go-redis"
 )
 

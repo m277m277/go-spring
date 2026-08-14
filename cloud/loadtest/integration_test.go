@@ -22,8 +22,8 @@ import (
 	"testing"
 	"time"
 
-	"go-spring.org/cloud/fault"
-	"go-spring.org/cloud/resilience"
+	"go-spring.org/cloud/governance/fault"
+	"go-spring.org/cloud/governance/resilience"
 	"go-spring.org/stdlib/testing/assert"
 )
 
@@ -56,7 +56,7 @@ func TestIntegration_LoadFaultBreaker(t *testing.T) {
 
 	r := New().
 		Driver(ClosedLoop{Concurrency: 8}).
-		Duration(200 * time.Millisecond).
+		Duration(200*time.Millisecond).
 		Assert("breaker-opened", func(_ context.Context, r *Result) error {
 			if r.Circuit == 0 {
 				return fmt.Errorf("breaker never opened under fault (circuit=%d)", r.Circuit)
@@ -73,9 +73,9 @@ func TestIntegration_LoadFaultBreaker(t *testing.T) {
 		}).
 		Run(context.Background(), op)
 
-	assert.That(t, r.Passed()).True()           // both assertions held
-	assert.That(t, r.Circuit > 0).True()        // breaker opened, requests rejected as circuit-open
-	assert.That(t, r.Injected > 0).True()       // the injected failures that tripped it
+	assert.That(t, r.Passed()).True()     // both assertions held
+	assert.That(t, r.Circuit > 0).True()  // breaker opened, requests rejected as circuit-open
+	assert.That(t, r.Injected > 0).True() // the injected failures that tripped it
 }
 
 // TestIntegration_ScopeRealTrafficSkipsFault proves fault.Scope gates the

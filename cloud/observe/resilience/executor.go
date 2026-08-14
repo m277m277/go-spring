@@ -22,10 +22,10 @@
 // is the gap the core resilience package leaves by design (it deliberately does
 // no metric/trace/log).
 //
-// It lives in its own module for the same reason observe-gorm / observe-lock /
-// observe-transaction exist: the otel-free spring core defines the
-// [resilience.Executor] interface, and the instrumentation belongs beside the
-// adapters, not in core. A client starter that already builds an Executor wraps
+// It lives in the observe package for the same reason observe-gorm /
+// observe-lock / observe-transaction exist: the otel-free spring core defines
+// the [resilience.Executor] interface, and the instrumentation belongs beside
+// the adapters, not in core. A client starter that already builds an Executor wraps
 // it once at construction:
 //
 //	exec = resilobserve.WrapExecutor(exec, "redis", c.Observability)
@@ -40,9 +40,9 @@ import (
 	"errors"
 	"time"
 
-	"go-spring.org/cloud/resilience"
+	"go-spring.org/cloud/governance/resilience"
+	observe "go-spring.org/cloud/observe"
 	"go-spring.org/log"
-	observe "go-spring.org/observe"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -51,7 +51,7 @@ import (
 )
 
 // tracerName identifies the OTel tracer/meter for this kit.
-const tracerName = "go-spring.org/observe/resilience"
+const tracerName = "go-spring.org/cloud/observe/resilience"
 
 // durationBuckets mirror observe's client-op buckets so resilience latency
 // shares the same scale as the downstream client calls it protects.

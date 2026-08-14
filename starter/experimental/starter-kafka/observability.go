@@ -21,7 +21,7 @@ import (
 	"sync"
 
 	"github.com/twmb/franz-go/pkg/kgo"
-	observe "go-spring.org/observe"
+	observe "go-spring.org/cloud/observe"
 )
 
 // newObserveHook builds a kgo hook that emits a per-message access log through

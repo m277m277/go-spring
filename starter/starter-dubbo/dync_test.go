@@ -23,8 +23,8 @@ import (
 	"unsafe"
 
 	"dubbo.apache.org/dubbo-go/v3/config_center"
-	"go-spring.org/cloud/govern"
-	"go-spring.org/cloud/resilience"
+	"go-spring.org/cloud/governance"
+	"go-spring.org/cloud/governance/resilience"
 	mapconfig "go-spring.org/starter-dubbo/internal/mapconfig"
 )
 
@@ -37,7 +37,10 @@ func setDyncConsumer(p *dyncPoller, c DubboConsumer) {
 }
 
 func newTestPoller() *dyncPoller {
-	return newDyncPoller(DubboApplication{Name: testApp}, nil)
+	// Clear any authority a prior governance test armed on the global facade so
+	// these (non-governance) tests see Enabled()==false and don't inherit overrides.
+	governance.Reset()
+	return newDyncPoller(DubboApplication{Name: testApp})
 }
 
 // getRule fetches an override rule from the config center.
@@ -398,21 +401,21 @@ func TestDyncPoller_SidePresent(t *testing.T) {
 // how ${govern} takes over dubbo's dynamic timeout/retry.
 func TestDyncPoller_GovernOverride(t *testing.T) {
 	dc := mapconfig.Singleton()
-	center := govern.NewCenter(govern.Config{
+	reset := governance.Arm(governance.Config{
 		Enabled: true,
 		Driver:  "default",
 		Default: resilience.Config{Enabled: true, AttemptTimeout: 2 * time.Second, MaxRetries: 4},
 		// Per-reference override: a different timeout for one service. The key is
 		// the full dubbo resource label ("dubbo:" + colonSeparatedKey).
-		Rules: []govern.Rule{{
+		Rules: []governance.Rule{{
 			Resources: []string{"dubbo:greet.GreetService::"},
 			Config:    resilience.Config{Enabled: true, AttemptTimeout: 500 * time.Millisecond, MaxRetries: 1},
 		}},
 	})
+	t.Cleanup(reset) // don't leak into other tests
 	p := &dyncPoller{
 		dynCfg:  mapconfig.Singleton(),
 		appName: testApp,
-		center:  center,
 		last:    make(map[string]map[string]string),
 		regged:  make(map[string]bool),
 	}
@@ -459,9 +462,10 @@ func TestDyncPoller_GovernOverride(t *testing.T) {
 // the dubbo-native timeout/retries untouched - the Level A path is inert.
 func TestDyncPoller_GovernDisabledIsNoop(t *testing.T) {
 	dc := mapconfig.Singleton()
-	// Disabled center: Enabled=false even though Default has a policy.
-	center := govern.NewCenter(govern.Config{Enabled: false, Default: resilience.Config{Enabled: true, AttemptTimeout: 2 * time.Second}})
-	p := &dyncPoller{dynCfg: mapconfig.Singleton(), appName: testApp, center: center,
+	// Disabled authority: Enabled=false even though Default has a policy.
+	reset := governance.Arm(governance.Config{Enabled: false, Default: resilience.Config{Enabled: true, AttemptTimeout: 2 * time.Second}})
+	t.Cleanup(reset)
+	p := &dyncPoller{dynCfg: mapconfig.Singleton(), appName: testApp,
 		last: make(map[string]map[string]string), regged: make(map[string]bool)}
 
 	setDyncConsumer(p, DubboConsumer{

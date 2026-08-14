@@ -24,7 +24,7 @@ import (
 	"strings"
 	"sync"
 
-	"go-spring.org/cloud/resilience"
+	"go-spring.org/cloud/governance/resilience"
 	"go-spring.org/log"
 )
 

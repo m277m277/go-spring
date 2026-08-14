@@ -23,16 +23,16 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"go-spring.org/cloud/fault"
-	"go-spring.org/cloud/resilience"
-	"go-spring.org/observe/resilience"
+	"go-spring.org/cloud/governance/fault"
+	"go-spring.org/cloud/governance/resilience"
+	"go-spring.org/cloud/observe/resilience"
 )
 
 // buildAdmission builds the inbound admission middleware. The resilience
 // executor is resolved through the NEUTRAL provider seam
 // [resilience.ExecutorFor]: starter-govern registers a provider backed by the
 // governance center, so this server gets its rate-limit / bulkhead / breaker
-// policy WITHOUT injecting *govern.Center or even importing cloud/govern. When
+// policy WITHOUT injecting *governance.Center or even importing cloud/governance. When
 // governance is not configured the seam yields a transparent no-op executor, so
 // the admission middleware runs but never rejects (fn runs once, untouched).
 // Hot-reload is driven on the backing executor by the provider, so an operator
@@ -90,21 +90,19 @@ type errHTTP5xx struct{ code int }
 
 func (e errHTTP5xx) Error() string { return fmt.Sprintf("http: server returned %d", e.code) }
 
-// buildFault builds the inbound fault-injection middleware from cfg, or returns
-// nil when fault is disabled. It is the server-side counterpart to the client
-// starters' fault.WrapExecutor: instead of wrapping an outbound Executor, it
-// gates the handler call with [fault.Apply] so a configured fraction of inbound
-// requests are made to fail or slow down — letting an operator "set fire" to a
-// running server to verify its observe, its own resilience admission, and the
-// upstream clients' retry/breaker behavior. Built once at startup from cfg.Fault
-// (gin's server config is static; toggle via restart, or rebuild for hot-reload).
-func buildFault(cfg Config) gin.HandlerFunc {
-	if !cfg.Fault.Enabled {
-		return nil
-	}
-	inj := fault.NewInjector(cfg.Fault)
+// buildFault builds the inbound fault-injection middleware. It is the server-
+// side counterpart to the client starters' fault.WrapExecutor: instead of
+// wrapping an outbound Executor, it gates the handler call with [fault.Apply] so
+// a configured fraction of inbound requests are made to fail or slow down —
+// letting an operator "set fire" to a running server to verify its observe, its
+// own resilience admission, and the upstream clients' retry/breaker behavior.
+// The injector comes from the neutral [fault.InjectorFor] seam (backed by the
+// governance center); when no injector is registered Apply is a transparent
+// pass-through, so this is always installed. Unlike the static-cfg build it
+// replaces, fault can now be hot-toggled at runtime without a restart.
+func buildFault() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		err := fault.Apply(c.Request.Context(), inj, "gin", func() error {
+		err := fault.Apply(c.Request.Context(), fault.InjectorFor(), "gin", func() error {
 			c.Next()
 			return nil
 		})

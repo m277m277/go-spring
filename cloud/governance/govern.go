@@ -14,28 +14,33 @@
  * limitations under the License.
  */
 
-// Package govern is the centralized service-governance authority for the
+// Package governance is the centralized service-governance authority for the
 // process. Where each client starter used to bind its own gs.Dync[resilience.
 // Config] and subscribe its own OnChanged handler — eleven near-identical
 // copies across redis/gorm/mongo/es/neo4j/bigcache/memcached/gin/http-client/
 // gateway — govern collapses that to ONE refreshable [Config] and ONE fan-out.
 //
-// Client starters inject the [*Center] bean (provided by starter-govern) and
-// call [Center.PolicyFor] with their resource label to obtain the resolved
-// [resilience.Policy], then [Center.Register] to be notified when it changes.
-// The single gs.Dync that feeds the center lives in THIS package (starter.go):
-// importing cloud/govern is all an app needs to turn ${govern} config into live
-// policy. The pure-logic types below (Config, Center, PolicyFor, Refresh) carry
-// no container coupling; starter.go is the one file that imports spring/gs, so
-// cloud/govern as a whole is NOT gs-free — gs-wiring lives here rather than in
-// a separate starter module.
+// The governance authority is a process singleton, but callers never hold or
+// name a [*Center]: the package exposes a set of free functions (the "facade" in
+// global.go — [Enabled], [Driver], [PolicyFor], [Register], [OnReady]) that are
+// the sole public surface. [*Center] is an internal implementation detail,
+// built and registered by starter-govern; nothing outside this package ever
+// obtains one. This mirrors the neutral global seams the package already exposes
+// for resilience ([resilience.ExecutorFor]) and fault injection, but is the
+// direct surface for callers (like starter-dubbo) that already import governance.
+// The single gs.Dync that feeds the authority lives on [Center] itself
+// (govern.go); importing cloud/governance is all an app needs to turn ${govern}
+// config into live policy. cloud/governance is NOT gs-free — govern.go and
+// global.go both import spring/gs. The pure-logic methods (PolicyFor, Refresh,
+// Register) stay container-agnostic: [NewCenter] builds a Center usable without
+// gs, which is how [Arm] and the package tests drive it.
 //
 // Governance scope: govern covers every client that goes through the
 // resilience Executor seam. dubbo, which has its own URL-param governance
 // model, is adapted separately (its timeout/retries are driven from the same
 // center via an adapter); dubbo-unique knobs (loadbalance/cluster/serialization)
 // stay in a dubbo-specific config section.
-package govern
+package governance
 
 import (
 	"reflect"
@@ -43,7 +48,9 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"go-spring.org/cloud/resilience"
+	"go-spring.org/cloud/governance/fault"
+	"go-spring.org/cloud/governance/resilience"
+	"go-spring.org/spring/gs"
 )
 
 // Config is the single source of truth for governance. starter-govern binds it
@@ -87,6 +94,18 @@ type Config struct {
 	// is dot-safe and needs no escaping in .properties or YAML — unlike a
 	// map keyed by label, where the colon would have to appear in the key.
 	Rules []Rule `value:"${rules:=}"`
+
+	// Fault is the process-wide fault-injection config (chaos engineering), a
+	// sibling concern to resilience governance that rides the SAME ${govern}
+	// Dync rather than its own. starter-govern builds one global *fault.Injector
+	// from it (in [Center.Init]) and registers it behind the neutral
+	// [fault.InjectorFor] seam, so every client/server starter resolves fault
+	// injection through that seam instead of each binding its own gs.Dync. Per-
+	// resource fault differences live under fault.Config.Rules (matched by the
+	// same resource label passed to the executor/Apply seam). A zero Fault
+	// (Enabled false) injects nothing. Bind via govern.fault.* (e.g.
+	// govern.fault.enabled=true, govern.fault.rate=0.5).
+	Fault fault.Config `value:"${fault:=}"`
 }
 
 // Rule is one per-resource policy entry. Resources are the resource labels it
@@ -109,11 +128,42 @@ type Rule struct {
 // subscriber whose resolved policy changed — so a single config push fans out
 // to all clients through one OnChanged handler, not one per starter bean.
 // Safe for concurrent use.
+// Center is the runtime governance authority. It holds an atomic snapshot of
+// the current [Config] and, on [Center.Refresh], notifies every registered
+// subscriber whose resolved policy changed — so a single config push fans out
+// to all clients through one OnChanged handler, not one per starter bean.
+// Safe for concurrent use.
+//
+// Center is also the gs-managed singleton (global.go registers the package
+// instance [global] as the bean): the ${govern} gs.Dync is a field, and
+// [Center.Init] builds the fault injector, arms the OnChanged subscription,
+// registers the executor/fault seams, and marks the authority live. [NewCenter]
+// is the direct construction path used by tests and [Arm].
 type Center struct {
 	cfg atomic.Pointer[Config]
 
 	mu   sync.Mutex
 	subs map[string][]*subscriber // label -> subscribers
+
+	// The fields below are used only on the gs-managed path. They are left zero
+	// by [NewCenter] (tests drive the pure-logic methods directly).
+
+	// Gov is the single source of truth for governance. Field-injected and
+	// hot-reloaded: every client's resilience policy AND fault config flow from
+	// this one binding (resilience via PolicyFor, fault via injector).
+	Gov gs.Dync[Config] `value:"${govern:=}"`
+
+	// injector is the ONE process-wide fault injector, built from Gov's Fault
+	// config. It is always built (a disabled injector is a no-op), so fault can
+	// be toggled on at runtime via hot-reload; its config is swapped in place
+	// from the OnChanged handler.
+	injector *fault.Injector
+
+	// labelExecs memoizes the executor built per resource label so the
+	// governance subscription (Register) is armed exactly once per label, even
+	// if resilience.ExecutorFor hands the label to the provider concurrently on
+	// first use.
+	labelExecs sync.Map // label -> resilience.Executor
 }
 
 // subscriber is one client's interest in the policy for a label. last is the
@@ -126,12 +176,57 @@ type subscriber struct {
 }
 
 // NewCenter snapshots cfg and returns a Center that resolves policies from it.
-// The cfg is adopted atomically; callers mutate it only via Refresh.
+// The cfg is adopted atomically; callers mutate it only via Refresh. This is the
+// direct construction path (tests, [Arm]); the gs-managed path uses the package
+// singleton in global.go plus [Center.Init].
 func NewCenter(cfg Config) *Center {
 	c := &Center{subs: map[string][]*subscriber{}}
 	c.cfg.Store(&cfg)
 	return c
 }
+
+// Init is the gs lifecycle hook (global.go registers it). It snapshots the
+// bound ${govern} config into this singleton, builds the process-wide fault
+// injector, arms the ONE OnChanged subscription that fans both resilience and
+// fault hot-reloads, registers the executor/fault seams, and marks the authority
+// live (firing any [OnReady] callbacks). Registering the seams here (rather than
+// in a Runner.Run) is safe: both resolve lazily at call time.
+func (c *Center) Init() error {
+	cfg := c.Gov.Value()
+	c.cfg.Store(&cfg)
+	c.injector = fault.NewInjector(cfg.Fault)
+	c.Gov.OnChanged(func(new, _ Config) {
+		c.Refresh(new)
+		c.injector.SetConfig(new.Fault)
+	})
+	resilience.RegisterExecutorProvider(c.executorFor)
+	fault.RegisterInjector(c.injector)
+	markLive()
+	return nil
+}
+
+// executorFor is the governance-backed provider registered with
+// resilience.RegisterExecutorProvider. For a resource label it builds the
+// executor the center resolves (the center's driver + the label's policy) and
+// subscribes it to policy changes — so a hot-reload of ${govern} refreshes the
+// executor in place. Memoized per label so the subscription is armed once.
+func (c *Center) executorFor(label string) resilience.Executor {
+	if v, ok := c.labelExecs.Load(label); ok {
+		return v.(resilience.Executor)
+	}
+	exec, err := resilience.NewExecutor(c.Driver(), c.PolicyFor(label))
+	if err != nil || exec == nil {
+		return nil // resilience.resolve falls back to a no-op executor
+	}
+	c.Register(label, func(p resilience.Policy) { _ = exec.Refresh(p) })
+	actual, _ := c.labelExecs.LoadOrStore(label, exec)
+	return actual.(resilience.Executor)
+}
+
+// Destroy is a no-op today: the center holds only in-memory subscribers and an
+// atomic snapshot, with no background goroutines or closeable resources. It
+// exists so the gs lifecycle is symmetric and a future background pump can hook it.
+func (c *Center) Destroy() error { return nil }
 
 // Enabled reports whether the center is armed. When false, PolicyFor returns a
 // transparent pass-through policy and Register arms clients with a zero Policy.
