@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+// config.go is the config concept: the per-instance Config bound under
+// ${spring.mongodb}.*.
 package StarterMongoDB
 
 import (

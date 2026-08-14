@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+// config.go is the config concept: the per-instance Config bound under
+// ${spring.nats}.* and the nested JetStreamConfig.
 package StarterNats
 
 import (
@@ -71,6 +73,9 @@ type Config struct {
 	// Conn.PublishMsg wrapper and the binder's consume callback. Defaults to
 	// "brief".
 	Observability observe.ObserveConfig `value:"${observability:=}"`
+
+	// Driver specifies which NATS driver to use, defaults to DefaultDriver.
+	Driver string `value:"${driver:=DefaultDriver}"`
 }
 
 // JetStream context is created from the connection and exposed on Conn.JetStream;

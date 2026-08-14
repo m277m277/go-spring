@@ -14,26 +14,15 @@
  * limitations under the License.
  */
 
+// config.go is the config concept: the per-instance Config bound under
+// ${spring.neo4j}.* and the Driver selection key.
 package StarterNeo4j
 
 import (
-	"context"
-	"crypto/tls"
-	"crypto/x509"
-	"fmt"
-	"os"
 	"time"
 
-	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
-	"github.com/neo4j/neo4j-go-driver/v5/neo4j/auth"
 	"go-spring.org/cloud/tlsconf"
 )
-
-var driverRegistry = map[string]Driver{}
-
-func init() {
-	RegisterDriver("DefaultDriver", DefaultDriver{})
-}
 
 // Config defines Neo4j connection configuration.
 type Config struct {
@@ -104,73 +93,4 @@ type Config struct {
 	// naming service once via discovery.Register; the default backend name is
 	// "default".
 	Discovery string `value:"${discovery:=default}"`
-}
-
-// applyTLS configures the encryption-related fields of conf from the shared TLS
-// settings. The CA certificate (if any) is loaded into conf.TlsConfig, and a
-// client certificate (if any) is installed as a static certificate provider for
-// mutual TLS. Both only take effect for the "+s"/"+ssc" URI schemes.
-func applyTLS(t tlsconf.TLSConfig, conf *neo4j.Config) error {
-	if t.CAFile != "" {
-		pem, err := os.ReadFile(t.CAFile)
-		if err != nil {
-			return fmt.Errorf("neo4j: read ca cert: %w", err)
-		}
-		pool := x509.NewCertPool()
-		if !pool.AppendCertsFromPEM(pem) {
-			return fmt.Errorf("neo4j: no certificates parsed from %s", t.CAFile)
-		}
-		conf.TlsConfig = &tls.Config{RootCAs: pool}
-	}
-	if t.CertFile != "" || t.KeyFile != "" {
-		provider, err := auth.NewStaticClientCertificateProvider(
-			auth.ClientCertificate{CertFile: t.CertFile, KeyFile: t.KeyFile},
-		)
-		if err != nil {
-			return fmt.Errorf("neo4j: load client certificate: %w", err)
-		}
-		conf.ClientCertificateProvider = provider
-	}
-	return nil
-}
-
-// Driver interface defines how to create a Neo4j client.
-type Driver interface {
-	CreateClient(ctx context.Context, c Config) (neo4j.DriverWithContext, error)
-}
-
-// RegisterDriver registers a Neo4j driver with the given name.
-// It panics if the driver name has already been registered.
-func RegisterDriver(name string, driver Driver) {
-	if _, ok := driverRegistry[name]; ok {
-		panic("neo4j driver already registered: " + name)
-	}
-	driverRegistry[name] = driver
-}
-
-// DefaultDriver is the default implementation of the Driver interface.
-type DefaultDriver struct{}
-
-// CreateClient creates a new Neo4j client based on the provided configuration.
-func (DefaultDriver) CreateClient(ctx context.Context, c Config) (neo4j.DriverWithContext, error) {
-	auth := neo4j.NoAuth()
-	if c.Username != "" {
-		auth = neo4j.BasicAuth(c.Username, c.Password, c.Realm)
-	}
-	var tlsErr error
-	client, err := neo4j.NewDriverWithContext(c.URI, auth, func(conf *neo4j.Config) {
-		conf.MaxConnectionPoolSize = c.MaxConnectionPoolSize
-		conf.MaxConnectionLifetime = c.MaxConnectionLifetime
-		conf.ConnectionAcquisitionTimeout = c.ConnectionAcquisitionTimeout
-		conf.SocketConnectTimeout = c.SocketConnectTimeout
-		conf.MaxTransactionRetryTime = c.MaxTransactionRetryTime
-		tlsErr = applyTLS(c.TLS, conf)
-	})
-	if err != nil {
-		return nil, err
-	}
-	if tlsErr != nil {
-		return nil, tlsErr
-	}
-	return client, nil
 }

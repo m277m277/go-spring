@@ -193,35 +193,16 @@ func observeInterceptor(obs *observe.Observer) CommandInterceptor {
 // redis.ErrNil (a cache miss) is mapped to success so it never trips the
 // breaker — the redigo analog of gorm.ErrRecordNotFound; protection rejections
 // (rate-limited / circuit-open / bulkhead-full) surface to the caller verbatim.
+// The executor plumbing (nil-as-success + rejection/fault translation) lives in
+// [resilience.Run], shared with the other client adapters.
 func resilienceInterceptor(exec resilience.Executor, resource string) CommandInterceptor {
 	return func(next CommandHandler) CommandHandler {
-		return func(ctx context.Context, cmd string, args []interface{}) (reply interface{}, err error) {
-			var callErr error
-			execErr := exec.Execute(ctx, resource, func(attemptCtx context.Context) error {
-				reply, callErr = next(attemptCtx, cmd, args)
-				if callErr != nil && !errors.Is(callErr, redis.ErrNil) {
-					return callErr // a real failure feeds the breaker/retry
-				}
-				return nil // success or cache miss
+		return func(ctx context.Context, cmd string, args []interface{}) (interface{}, error) {
+			return resilience.Run(ctx, exec, resource, func(e error) bool {
+				return errors.Is(e, redis.ErrNil)
+			}, func(attemptCtx context.Context) (interface{}, error) {
+				return next(attemptCtx, cmd, args)
 			})
-
-			if errors.Is(execErr, resilience.ErrRateLimited) ||
-				errors.Is(execErr, resilience.ErrCircuitOpen) ||
-				errors.Is(execErr, resilience.ErrBulkheadFull) {
-				return nil, execErr // rejected before (or around) the command
-			}
-
-			// On success execErr is nil and callErr is nil. On a command failure
-			// the fn closure returned callErr, so execErr == callErr and either is
-			// correct. They diverge only when fn never ran — e.g. a fault
-			// injector (cloud/governance/fault) short-circuited the attempt
-			// before reaching the command — leaving callErr nil while the
-			// executor still returns the injected error. Prefer execErr so such
-			// failures surface instead of being silently swallowed as success.
-			if execErr != nil {
-				return reply, execErr
-			}
-			return reply, callErr
 		}
 	}
 }

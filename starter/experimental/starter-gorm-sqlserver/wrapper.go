@@ -17,6 +17,11 @@
 package StarterGormSqlserver
 
 import (
+	"context"
+	"net"
+	"sync"
+
+	"go-spring.org/cloud/discovery"
 	"go-spring.org/cloud/governance/fault"
 	"go-spring.org/cloud/governance/resilience"
 	observe "go-spring.org/cloud/observe"
@@ -76,4 +81,49 @@ func (o *DB) Destroy() error {
 		return sqlDB.Close()
 	}
 	return nil
+}
+
+// Discovery dialer — the live-dialer + resolver lifecycle concept. A client can
+// be dialed straight from a configured Host, or (when ServiceName is set and
+// mesh mode is off) through a discovery resolver whose background watch keeps
+// the endpoint set fresh. The resolver is adapted to mssql's Dialer interface
+// via resolverDialer, and is tracked per-client so Destroy can stop the watch
+// when the wrapper is torn down.
+
+// liveDialers tracks the discovery-backed resolver behind each client, so the
+// wrapper's Close can stop the watch when the client is torn down.
+var liveDialers sync.Map // *gorm.DB -> *discovery.Resolver
+
+// resolverDialer adapts a discovery.Resolver to mssql's Dialer interface
+// (DialContext(ctx, network, addr)). The network and addr arguments are ignored
+// — the dialer picks a live endpoint via the Resolver on every call.
+type resolverDialer struct {
+	r  *discovery.Resolver
+	nd *net.Dialer
+}
+
+func (d resolverDialer) DialContext(ctx context.Context, _, _ string) (net.Conn, error) {
+	ep, err := d.r.Pick()
+	if err != nil {
+		return nil, err
+	}
+	return d.nd.DialContext(ctx, "tcp", ep.Addr)
+}
+
+// newLiveResolver resolves the registered discovery backend for c and returns a
+// Resolver that keeps the service's endpoint set fresh via a background watch. It
+// returns (nil, nil) when service-name is unset or mesh mode is enabled (a sidecar
+// owns discovery+LB), in which case the caller dials the configured Host directly.
+// The caller owns the lifecycle and must release the resolver via stopLiveResolver.
+func newLiveResolver(ctx context.Context, c Config) (*discovery.Resolver, error) {
+	return discovery.NewResolver(ctx, c.Discovery, c.ServiceName, discovery.WithScheme(c.Scheme))
+}
+
+// stopLiveResolver stops the discovery watch behind the given client value. It is
+// the Close-half of the discovery lifecycle, symmetric with newLiveResolver; it
+// is a no-op for clients that never had a resolver.
+func stopLiveResolver(db *gorm.DB) {
+	if v, ok := liveDialers.LoadAndDelete(db); ok {
+		_ = v.(*discovery.Resolver).Stop()
+	}
 }

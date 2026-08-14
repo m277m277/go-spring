@@ -78,7 +78,7 @@ func ApplyCallbacks(db *gorm.DB, exec resilience.Executor, resource string) erro
 			// fault injector short-circuited the attempt before fn ran, leaving the
 			// injected error otherwise dropped. When fn ran and failed, tx.Error is
 			// already set and is left untouched.
-			if err != nil && (isRejection(err) || tx.Error == nil) {
+			if err != nil && (resilience.IsRejection(err) || tx.Error == nil) {
 				_ = tx.AddError(err)
 			}
 		}
@@ -89,42 +89,17 @@ func ApplyCallbacks(db *gorm.DB, exec resilience.Executor, resource string) erro
 	return nil
 }
 
-// runGuard executes call under exec, translating rejections but treating
-// gorm.ErrRecordNotFound as success. A real op error propagates through the
-// executor (feeding retry/breaker); the rejection sentinels are returned as-is
-// so ApplyCallbacks' wrapper can put them on tx.Error.
+// runGuard executes call under exec via [resilience.Run], treating
+// gorm.ErrRecordNotFound ("no rows") as success so it never trips the breaker.
+// A real op error propagates through the executor (feeding retry/breaker); the
+// rejection sentinels are returned as-is so ApplyCallbacks' wrapper can put them
+// on tx.Error.
 func runGuard(ctx context.Context, exec resilience.Executor, resource string, call func() error) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	var callErr error
-	execErr := exec.Execute(ctx, resource, func(context.Context) error {
-		callErr = call()
-		if callErr != nil && !errors.Is(callErr, gorm.ErrRecordNotFound) {
-			return callErr // a real failure feeds the breaker/retry
-		}
-		return nil // success or "no rows"
-	})
-	if execErr != nil {
-		if isRejection(execErr) {
-			return execErr
-		}
-		// On the normal failure path execErr equals callErr (the closure returned
-		// it). They diverge only when the closure body never ran — e.g. a fault
-		// injector (cloud/governance/fault) short-circuited the attempt before reaching call
-		// — leaving callErr nil while the executor still returns the injected
-		// error. Prefer execErr so the failure is not silently swallowed.
-		if callErr == nil {
-			return execErr
-		}
-		return callErr
-	}
-	return callErr
-}
-
-// isRejection reports whether err is one of the resilience protection rejects.
-func isRejection(err error) bool {
-	return errors.Is(err, resilience.ErrRateLimited) ||
-		errors.Is(err, resilience.ErrCircuitOpen) ||
-		errors.Is(err, resilience.ErrBulkheadFull)
+	_, err := resilience.Run(ctx, exec, resource,
+		func(e error) bool { return errors.Is(e, gorm.ErrRecordNotFound) },
+		func(context.Context) (struct{}, error) { return struct{}{}, call() })
+	return err
 }

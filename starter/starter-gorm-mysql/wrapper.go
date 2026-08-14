@@ -14,10 +14,24 @@
  * limitations under the License.
  */
 
+// wrapper.go is the DB entity concept of this starter — the DB wrapper gorm
+// clients are injected as, plus its lifecycle (Init/Destroy), resource label,
+// and the discovery-backed dialer that owns live-instance routing. The entity
+// embeds the concrete *gorm.DB and owns the resilience executor + the teardown
+// closer (stopping the discovery watch and deregistering the dialer), while the
+// DB-construction helpers live in db.go and the post-open extension seam in
+// extension.go.
 package StarterGormMySql
 
 import (
+	"context"
+	"fmt"
+	"net"
+	"sync"
+	"sync/atomic"
+
 	"github.com/go-sql-driver/mysql"
+	"go-spring.org/cloud/discovery"
 	"go-spring.org/cloud/governance/fault"
 	"go-spring.org/cloud/governance/resilience"
 	observe "go-spring.org/cloud/observe"
@@ -82,4 +96,59 @@ func (o *DB) Destroy() error {
 		return sqlDB.Close()
 	}
 	return nil
+}
+
+// liveDialers tracks the discovery-backed dialer and its registered network
+// name behind each client, so the wrapper's Close can stop the watch and
+// deregister.
+var liveDialers sync.Map // *gorm.DB -> *discoveryConn
+
+// netSeq makes each registered mysql dial network name unique, so multiple
+// instances discovering the same service never collide.
+var netSeq atomic.Uint64
+
+// discoveryConn pairs a live Resolver with the unique mysql dial network name
+// it registered, so the Close-half can stop the watch and deregister the dialer.
+type discoveryConn struct {
+	ld      *discovery.Resolver
+	netName string
+}
+
+// newDiscoveryConn resolves the registered discovery backend for c and registers
+// a mysql dialer that routes each new connection through a live endpoint. It
+// returns (nil, nil) when service-name is unset or mesh mode is enabled (a
+// sidecar owns discovery+LB), in which case the caller dials the configured Addr
+// directly. The caller owns the lifecycle and must release the conn via
+// stopDiscoveryConn.
+func newDiscoveryConn(ctx context.Context, c Config) (*discoveryConn, error) {
+	ld, err := discovery.NewResolver(ctx, c.Discovery, c.ServiceName, discovery.WithScheme(c.Scheme))
+	if err != nil {
+		return nil, err
+	}
+	if ld == nil {
+		return nil, nil
+	}
+	netName := fmt.Sprintf("gsdisco_%s_%d", c.ServiceName, netSeq.Add(1))
+	nd := &net.Dialer{}
+	// mysql.DialContextFunc is 2-arg: func(ctx, addr string) (net.Conn, error).
+	// The addr is ignored; the dialer picks a live endpoint via the Resolver.
+	mysql.RegisterDialContext(netName, func(ctx context.Context, _ string) (net.Conn, error) {
+		ep, perr := ld.Pick()
+		if perr != nil {
+			return nil, perr
+		}
+		return nd.DialContext(ctx, "tcp", ep.Addr)
+	})
+	return &discoveryConn{ld: ld, netName: netName}, nil
+}
+
+// stopDiscoveryConn stops the discovery watch and deregisters the mysql dialer
+// behind conn. It is the Close-half of the discovery lifecycle, symmetric with
+// newDiscoveryConn; it is a no-op for a nil conn (a client that never had one).
+func stopDiscoveryConn(conn *discoveryConn) {
+	if conn == nil {
+		return
+	}
+	_ = conn.ld.Stop()
+	mysql.DeregisterDialContext(conn.netName)
 }

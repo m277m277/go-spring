@@ -53,6 +53,9 @@ type Config struct {
 	// complements the package-level trace helpers in observability.go, which are
 	// driven by their own default level.
 	Observability observe.ObserveConfig `value:"${observability:=}"`
+
+	// Driver specifies which Kafka driver to use, defaults to DefaultDriver.
+	Driver string `value:"${driver:=DefaultDriver}"`
 }
 
 // SASLConfig configures SASL authentication. It is shared, by property name,

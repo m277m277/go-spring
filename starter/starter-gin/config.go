@@ -60,7 +60,7 @@ type HealthConfig struct {
 // toggles below rather than disabling the entire set.
 //
 // When Enabled is true, Observe bundles Recovery + Tracing + Metrics + AccessLog
-// into one always-on middleware (see observability.go) so a single deferred finalize
+// into one always-on middleware (see observe.go) so a single deferred finalize
 // owns every signal's end-of-request work, including on a handler panic.
 // RequestID is on by default; CORS, Gzip and SecureHeaders change
 // request/response behavior or carry security trade-offs, so they stay off until

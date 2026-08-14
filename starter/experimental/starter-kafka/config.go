@@ -53,6 +53,9 @@ type Config struct {
 	// hook (kotel already provides trace spans + metrics, so the hook is log-only,
 	// off/brief/detailed). Defaults to "brief".
 	Observability observe.ObserveConfig `value:"${observability:=}"`
+
+	// Driver specifies which Kafka driver to use, defaults to DefaultDriver.
+	Driver string `value:"${driver:=DefaultDriver}"`
 }
 
 // SASLConfig configures SASL authentication. It is shared, by property name,

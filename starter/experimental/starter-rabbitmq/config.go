@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+// config.go is the config concept: the per-instance Config bound under
+// ${spring.rabbitmq}.*.
 package StarterRabbitMQ
 
 import (
@@ -50,4 +52,7 @@ type Config struct {
 	// complements the package-level trace helpers in observability.go, which are
 	// driven by their own default level.
 	Observability observe.ObserveConfig `value:"${observability:=}"`
+
+	// Driver specifies which RabbitMQ driver to use, defaults to DefaultDriver.
+	Driver string `value:"${driver:=DefaultDriver}"`
 }

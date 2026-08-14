@@ -44,45 +44,25 @@ func init() {
 	})
 }
 
-// newClient creates and connects an MQTT client based on the provided configuration.
+// newClient creates and connects an MQTT client by dispatching to the configured
+// Driver, which owns full client assembly (broker URL, options, TLS, credentials,
+// will). After the client is built it is connected so a misconfigured broker
+// URL, bad credentials or TLS mismatch fail fast at startup instead of surfacing
+// on the first publish/consume, then the resilience executor is attached.
 func newClient(ctx *gs.ContextProvider, name string, c Config) (mqtt.Client, error) {
 	log.Debugf(ctx.Context, starterTag, "creating mqtt client, broker=%s client-id=%s", c.Broker, c.ClientID)
 
-	opts := mqtt.NewClientOptions().
-		AddBroker(c.Broker).
-		SetClientID(c.ClientID).
-		SetUsername(c.Username).
-		SetPassword(c.Password).
-		SetCleanSession(c.CleanSession).
-		SetKeepAlive(c.KeepAlive).
-		SetConnectTimeout(c.ConnectTimeout)
-
-	// Bridge connection-lifecycle events into go-spring's log so the client's
-	// health (default auto-reconnect stays on) shows up alongside app logs.
-	opts.SetOnConnectHandler(func(_ mqtt.Client) {
-		log.Infof(ctx.Context, log.TagAppDef, "mqtt connected to %q", c.Broker)
-	})
-	opts.SetConnectionLostHandler(func(_ mqtt.Client, err error) {
-		log.Warnf(ctx.Context, log.TagAppDef, "mqtt connection lost: %v", err)
-	})
-	opts.SetReconnectingHandler(func(_ mqtt.Client, _ *mqtt.ClientOptions) {
-		log.Infof(ctx.Context, log.TagAppDef, "mqtt reconnecting to %q", c.Broker)
-	})
-
-	tlsCfg, err := c.TLS.Build()
+	d, ok := driverRegistry[c.Driver]
+	if !ok {
+		log.Errorf(ctx.Context, starterTag, "mqtt driver not found: %s", c.Driver)
+		return nil, errutil.Explain(nil, "mqtt driver not found: %s", c.Driver)
+	}
+	client, err := d.CreateClient(ctx.Context, c)
 	if err != nil {
-		log.Errorf(ctx.Context, starterTag, "mqtt: build TLS failed: %v", err)
-		return nil, errutil.Explain(err, "mqtt: build TLS")
-	}
-	if tlsCfg != nil {
-		opts.SetTLSConfig(tlsCfg)
+		log.Errorf(ctx.Context, starterTag, "mqtt: create client failed: %v", err)
+		return nil, errutil.Explain(err, "failed to create mqtt client: %s", c.Broker)
 	}
 
-	if c.Will.Topic != "" {
-		opts.SetWill(c.Will.Topic, c.Will.Payload, c.Will.QoS, c.Will.Retained)
-	}
-
-	client := mqtt.NewClient(opts)
 	token := client.Connect()
 	token.Wait()
 	if err := token.Error(); err != nil {

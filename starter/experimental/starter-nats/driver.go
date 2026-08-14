@@ -1,0 +1,173 @@
+/*
+ * Copyright 2025 The Go-Spring Authors.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+// driver.go is the "construction seam" concept: the Driver interface + registry +
+// DefaultDriver, which owns the raw connection assembly (URL/options/auth/TLS +
+// nats.Connect). It mirrors starter-kafka's driver.go. Unlike the redis / kafka
+// drivers, DefaultDriver returns the raw *nats.Conn — the observe observers,
+// JetStream derivation and resilience executor are the starter's lifecycle
+// concerns (see newConn below), not the driver's.
+package StarterNats
+
+import (
+	"context"
+
+	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
+	"go-spring.org/cloud/governance/resilience"
+	observe "go-spring.org/cloud/observe"
+	"go-spring.org/log"
+	"go-spring.org/spring/gs"
+	"go-spring.org/stdlib/errutil"
+)
+
+var driverRegistry = map[string]Driver{}
+
+func init() {
+	RegisterDriver("DefaultDriver", DefaultDriver{})
+}
+
+// Driver interface defines how to create a NATS connection (a *nats.Conn). It is
+// the single extension point for customizing connection assembly: a company (or
+// the bundled DefaultDriver) implements it once and registers via
+// RegisterDriver; callers select one through Config.Driver, which defaults to
+// "DefaultDriver".
+type Driver interface {
+	CreateClient(ctx context.Context, c Config) (*nats.Conn, error)
+}
+
+// RegisterDriver registers a NATS driver with the given name.
+// It panics if the driver name has already been registered.
+func RegisterDriver(name string, driver Driver) {
+	if _, ok := driverRegistry[name]; ok {
+		panic("nats driver already registered: " + name)
+	}
+	driverRegistry[name] = driver
+}
+
+// DefaultDriver is the default implementation of the Driver interface.
+type DefaultDriver struct{}
+
+// CreateClient dials NATS from the provided configuration. It owns the raw
+// connection assembly — the name/reconnect/timeout options, the async
+// error/disconnect/reconnect/close logging handlers, the user/token/creds/nkey
+// auth and TLS — but not the observe observers, the JetStream context, the
+// resilience wiring or the *Conn wrapper, which are the starter's lifecycle
+// concerns (see newConn below).
+func (DefaultDriver) CreateClient(ctx context.Context, c Config) (*nats.Conn, error) {
+	opts := []nats.Option{
+		nats.Name(c.Name),
+		nats.MaxReconnects(c.MaxReconnects),
+		nats.ReconnectWait(c.ReconnectWait),
+		nats.Timeout(c.ConnectTimeout),
+		nats.ErrorHandler(func(_ *nats.Conn, sub *nats.Subscription, err error) {
+			subj := ""
+			if sub != nil {
+				subj = sub.Subject
+			}
+			log.Errorf(ctx, log.TagAppDef, "nats async error on %q: %v", subj, err)
+		}),
+		nats.DisconnectErrHandler(func(_ *nats.Conn, err error) {
+			log.Warnf(ctx, log.TagAppDef, "nats disconnected: %v", err)
+		}),
+		nats.ReconnectHandler(func(nc *nats.Conn) {
+			log.Infof(ctx, log.TagAppDef, "nats reconnected to %q", nc.ConnectedUrl())
+		}),
+		nats.ClosedHandler(func(_ *nats.Conn) {
+			log.Infof(ctx, log.TagAppDef, "nats connection closed")
+		}),
+	}
+	if c.Username != "" {
+		opts = append(opts, nats.UserInfo(c.Username, c.Password))
+	}
+	if c.Token != "" {
+		opts = append(opts, nats.Token(c.Token))
+	}
+	if c.CredsFile != "" {
+		opts = append(opts, nats.UserCredentials(c.CredsFile))
+	}
+	if c.NKeyFile != "" {
+		opt, err := nats.NkeyOptionFromSeed(c.NKeyFile)
+		if err != nil {
+			return nil, errutil.Explain(err, "failed to load nats nkey seed: %s", c.NKeyFile)
+		}
+		opts = append(opts, opt)
+	}
+	if c.TLS.Enabled {
+		tlsCfg, err := c.TLS.Build()
+		if err != nil {
+			log.Errorf(ctx, starterTag, "nats: build TLS failed: %v", err)
+			return nil, errutil.Explain(err, "nats: build TLS")
+		}
+		if tlsCfg != nil {
+			opts = append(opts, nats.Secure(tlsCfg))
+		} else {
+			opts = append(opts, nats.Secure())
+		}
+	}
+
+	nc, err := nats.Connect(c.URL, opts...)
+	if err != nil {
+		log.Errorf(ctx, starterTag, "nats: connect failed url=%s: %v", c.URL, err)
+		return nil, errutil.Explain(err, "failed to connect nats: %s", c.URL)
+	}
+	return nc, nil
+}
+
+// newConn creates a NATS connection by dispatching to the configured Driver,
+// which owns the raw connection assembly (options/auth/TLS + nats.Connect). After
+// the connection is built it is wrapped into a *Conn: the observe observers are
+// attached, the JetStream context is derived when enabled, and the resilience
+// executor is wired. Connection-layer events (async errors, disconnect, reconnect,
+// close) are bridged into go-spring's log by the driver's handlers so they show
+// up alongside app logs.
+func newConn(ctx *gs.ContextProvider, name string, c Config) (*Conn, error) {
+	log.Debugf(ctx.Context, starterTag, "creating nats connection, url=%s name=%s", c.URL, c.Name)
+
+	d, ok := driverRegistry[c.Driver]
+	if !ok {
+		log.Errorf(ctx.Context, starterTag, "nats driver not found: %s", c.Driver)
+		return nil, errutil.Explain(nil, "nats driver not found: %s", c.Driver)
+	}
+	nc, err := d.CreateClient(ctx.Context, c)
+	if err != nil {
+		log.Errorf(ctx.Context, starterTag, "nats: create client failed: %v", err)
+		return nil, errutil.Explain(err, "failed to create nats client: %s", c.URL)
+	}
+
+	conn := &Conn{Conn: nc}
+	// Attach the observe kit (trace+metric+log) for publishes and consumes.
+	// Nil-safe: when the level is "off" the observers are still set (the kit
+	// honors Level), so PublishMsg/startConsume route through them.
+	conn.pubObs = observe.NewProducer("nats", c.Observability)
+	conn.subObs = observe.NewConsumer("nats", c.Observability)
+	if c.JetStream.Enabled {
+		js, err := jetstream.New(nc)
+		if err != nil {
+			log.Errorf(ctx.Context, starterTag, "nats: create jetstream context failed: %v", err)
+			nc.Close()
+			return nil, errutil.Explain(err, "failed to create jetstream context")
+		}
+		conn.JetStream = js
+	}
+	if err := applyResilience(c, conn, resilience.ResourceLabel("nats", c.Name, c.URL)); err != nil {
+		log.Errorf(ctx.Context, starterTag, "nats: resilience setup failed: %v", err)
+		nc.Close()
+		return nil, err
+	}
+	log.Infof(ctx.Context, starterTag, "nats connection initialized, url=%s", c.URL)
+	return conn, nil
+}

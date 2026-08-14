@@ -36,18 +36,6 @@ import (
 
 var starterTag = log.RegisterInfraTag("mongodb", "")
 
-// dialerWrapper adapts a dial function (plain, discovery-backed, or
-// resilience-wrapped) to the mongo driver's options.Dialer interface. The
-// dialed address is taken as-is so the underlying function (which may itself
-// ignore it in favor of a Resolver pick) decides the target.
-type dialerWrapper struct {
-	dial func(ctx context.Context, network, address string) (net.Conn, error)
-}
-
-func (d *dialerWrapper) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
-	return d.dial(ctx, network, address)
-}
-
 func init() {
 	// Register multiple MongoDB clients as a group, one per entry under
 	// "${spring.mongodb}". A gs.Module (rather than gs.Group) is used so each

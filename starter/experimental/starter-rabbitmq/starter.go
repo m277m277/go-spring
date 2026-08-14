@@ -17,8 +17,6 @@
 package StarterRabbitMQ
 
 import (
-	"strings"
-
 	amqp "github.com/rabbitmq/amqp091-go"
 	"go-spring.org/cloud/governance/resilience"
 	"go-spring.org/log"
@@ -46,38 +44,28 @@ func init() {
 	})
 }
 
-// newClient dials RabbitMQ. amqp.Dial/DialConfig perform the TCP + AMQP
-// handshake synchronously, so a bad URL, wrong credentials or TLS mismatch
-// fail fast at startup rather than surfacing on the first channel/publish.
-// Once the connection is up a probe channel is opened and closed to confirm
+// newClient creates a RabbitMQ connection by dispatching to the configured
+// Driver, which owns connection assembly (TLS build + amqp.Dial/DialConfig).
+// amqp.Dial/DialConfig perform the TCP + AMQP handshake synchronously, so a bad
+// URL, wrong credentials or TLS mismatch fail fast at startup rather than
+// surfacing on the first channel/publish.
+//
+// Once the connection is built a probe channel is opened and closed to confirm
 // the AMQP layer is usable, then close/block notifiers are bridged into
-// go-spring's log so broker-driven events land alongside app logs.
+// go-spring's log so broker-driven events land alongside app logs, and finally
+// the resilience executor is attached.
 func newClient(ctx *gs.ContextProvider, name string, c Config) (*amqp.Connection, error) {
 	log.Debugf(ctx.Context, starterTag, "creating rabbitmq connection, url=%s vhost=%s", c.URL, c.Vhost)
 
-	tc, err := c.TLS.Build()
-	if err != nil {
-		log.Errorf(ctx.Context, starterTag, "rabbitmq: build TLS failed: %v", err)
-		return nil, errutil.Explain(err, "rabbitmq: build TLS")
+	d, ok := driverRegistry[c.Driver]
+	if !ok {
+		log.Errorf(ctx.Context, starterTag, "rabbitmq driver not found: %s", c.Driver)
+		return nil, errutil.Explain(nil, "rabbitmq driver not found: %s", c.Driver)
 	}
-	useTLS := tc != nil || strings.HasPrefix(strings.ToLower(c.URL), "amqps://")
-
-	var conn *amqp.Connection
-	if useTLS || c.Heartbeat > 0 || c.Vhost != "" {
-		cfg := amqp.Config{
-			Vhost:     c.Vhost,
-			Heartbeat: c.Heartbeat,
-		}
-		if tc != nil {
-			cfg.TLSClientConfig = tc
-		}
-		conn, err = amqp.DialConfig(c.URL, cfg)
-	} else {
-		conn, err = amqp.Dial(c.URL)
-	}
+	conn, err := d.CreateClient(ctx.Context, c)
 	if err != nil {
-		log.Errorf(ctx.Context, starterTag, "rabbitmq: dial failed url=%s: %v", c.URL, err)
-		return nil, errutil.Explain(err, "failed to dial rabbitmq: %s", c.URL)
+		log.Errorf(ctx.Context, starterTag, "rabbitmq: create client failed: %v", err)
+		return nil, errutil.Explain(err, "failed to create rabbitmq client: %s", c.URL)
 	}
 
 	// Confirm the AMQP channel layer is usable, not just the TCP handshake.

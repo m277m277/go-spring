@@ -14,9 +14,19 @@
  * limitations under the License.
  */
 
+// wrapper.go is the DB entity concept of this starter — the DB wrapper gorm
+// clients are injected as, plus its lifecycle (Init/Destroy), resource label,
+// and the discovery-backed resolver that owns live-instance routing. The entity
+// embeds the concrete *gorm.DB and owns the resilience executor + the teardown
+// closer (stopping the discovery watch), while the DB-construction helpers live
+// in db.go and the post-open extension seam in extension.go.
 package StarterGormPostgres
 
 import (
+	"context"
+	"sync"
+
+	"go-spring.org/cloud/discovery"
 	"go-spring.org/cloud/governance/fault"
 	"go-spring.org/cloud/governance/resilience"
 	observe "go-spring.org/cloud/observe"
@@ -76,4 +86,26 @@ func (o *DB) Destroy() error {
 		return sqlDB.Close()
 	}
 	return nil
+}
+
+// liveDialers tracks the discovery-backed resolver behind each client, so the
+// wrapper's Close can stop the background watch when the client is torn down.
+var liveDialers sync.Map // *gorm.DB -> *discovery.Resolver
+
+// newLiveResolver resolves the registered discovery backend for c and returns a
+// Resolver that keeps the service's endpoint set fresh via a background watch. It
+// returns (nil, nil) when service-name is unset or mesh mode is enabled (a sidecar
+// owns discovery+LB), in which case the caller dials the configured Host directly.
+// The caller owns the lifecycle and must release the resolver via stopLiveResolver.
+func newLiveResolver(ctx context.Context, c Config) (*discovery.Resolver, error) {
+	return discovery.NewResolver(ctx, c.Discovery, c.ServiceName, discovery.WithScheme(c.Scheme))
+}
+
+// stopLiveResolver stops the discovery watch behind the given client value. It is
+// the Close-half of the discovery lifecycle, symmetric with newLiveResolver; it
+// is a no-op for clients that never had a resolver.
+func stopLiveResolver(db *gorm.DB) {
+	if v, ok := liveDialers.LoadAndDelete(db); ok {
+		_ = v.(*discovery.Resolver).Stop()
+	}
 }

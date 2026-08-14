@@ -60,9 +60,12 @@ type Config struct {
 
 	// Observability configures the per-operation access log emitted by the
 	// resilience executor (off/brief/detailed). Defaults to "brief". This
-	// complements the package-level trace helpers in observability.go, which are
+	// complements the package-level trace helpers in command.go, which are
 	// driven by their own default level.
 	Observability observe.ObserveConfig `value:"${observability:=}"`
+
+	// Driver specifies which MQTT driver to use, defaults to DefaultDriver.
+	Driver string `value:"${driver:=DefaultDriver}"`
 }
 
 // WillConfig configures the Last Will and Testament message. The will is

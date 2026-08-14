@@ -14,21 +14,11 @@
  * limitations under the License.
  */
 
+// config.go is the config concept: the per-instance Config bound under
+// ${spring.memcached}.* and the Driver selection key.
 package StarterMemcached
 
-import (
-	"context"
-	"time"
-
-	"github.com/bradfitz/gomemcache/memcache"
-	"go-spring.org/stdlib/errutil"
-)
-
-var driverRegistry = map[string]Driver{}
-
-func init() {
-	RegisterDriver("DefaultDriver", DefaultDriver{})
-}
+import "time"
 
 // Config defines Memcached client connection configuration.
 type Config struct {
@@ -74,63 +64,3 @@ type Config struct {
 // Resilience and Observability are no longer fields of Config: they moved onto
 // the Client wrapper bean, field-injected by gs (Resilience via
 // gs.Dync, hot-reloadable) and consumed by Init (the gs InitMethod).
-
-// Driver interface defines how to create a Memcached client.
-type Driver interface {
-	CreateClient(ctx context.Context, c Config) (*memcache.Client, error)
-}
-
-// RegisterDriver registers a Memcached driver with the given name.
-// It panics if the driver name has already been registered.
-func RegisterDriver(name string, driver Driver) {
-	if _, ok := driverRegistry[name]; ok {
-		panic("memcached driver already registered: " + name)
-	}
-	driverRegistry[name] = driver
-}
-
-// DefaultDriver is the default implementation of the Driver interface.
-type DefaultDriver struct{}
-
-// CreateClient creates a new Memcached client based on the provided configuration.
-//
-// When c.ServiceName is set (and mesh mode is not enabled), the server list is
-// resolved through the registered discovery backend (c.Discovery) instead of
-// using c.Servers. A discovery.Resolver seeds the snapshot with an explicit
-// Resolve and keeps it fresh via a background Watch; gomemcache hashes keys
-// onto a fixed server set chosen at client creation, so only the initial
-// snapshot is applied to the client — the Resolver is retained solely to own
-// the watch lifecycle (Stop on shutdown).
-//
-// In mesh mode (mesh.Enabled) discovery is skipped entirely: a sidecar owns
-// discovery+LB, so the client connects straight to the configured static
-// Servers list (the service's stable DNS address).
-func (DefaultDriver) CreateClient(ctx context.Context, c Config) (*memcache.Client, error) {
-	servers := c.Servers
-	resolver, err := newLiveResolver(ctx, c)
-	if err != nil {
-		return nil, errutil.Explain(err, "memcached: discovery resolve %q failed", c.ServiceName)
-	}
-	if resolver != nil {
-		eps := resolver.Endpoints()
-		if len(eps) == 0 {
-			_ = resolver.Stop()
-			return nil, errutil.Explain(nil, "memcached: discovery returned no endpoints for %q", c.ServiceName)
-		}
-		servers = make([]string, 0, len(eps))
-		for _, ep := range eps {
-			servers = append(servers, ep.Addr)
-		}
-	}
-	client := memcache.New(servers...)
-	if c.Timeout > 0 {
-		client.Timeout = c.Timeout
-	}
-	if c.MaxIdleConns > 0 {
-		client.MaxIdleConns = c.MaxIdleConns
-	}
-	if resolver != nil {
-		resolvers.Store(client, resolver)
-	}
-	return client, nil
-}

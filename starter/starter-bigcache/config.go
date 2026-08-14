@@ -14,20 +14,11 @@
  * limitations under the License.
  */
 
+// config.go is the config concept: the per-instance Config bound under
+// ${spring.bigcache}.* and the Driver selection key.
 package StarterBigCache
 
-import (
-	"context"
-	"time"
-
-	"github.com/allegro/bigcache/v3"
-)
-
-var driverRegistry = map[string]Driver{}
-
-func init() {
-	RegisterDriver("DefaultDriver", DefaultDriver{})
-}
+import "time"
 
 // Config defines BigCache in-memory cache configuration. BigCache is a purely
 // in-process cache, so there is no address or connection pool to configure —
@@ -59,33 +50,4 @@ type Config struct {
 
 	// Driver specifies which BigCache driver to use, defaults to DefaultDriver.
 	Driver string `value:"${driver:=DefaultDriver}"`
-}
-
-// Driver interface defines how to create a BigCache instance.
-type Driver interface {
-	CreateClient(ctx context.Context, c Config) (*bigcache.BigCache, error)
-}
-
-// RegisterDriver registers a BigCache driver with the given name.
-// It panics if the driver name has already been registered.
-func RegisterDriver(name string, driver Driver) {
-	if _, ok := driverRegistry[name]; ok {
-		panic("bigcache driver already registered: " + name)
-	}
-	driverRegistry[name] = driver
-}
-
-// DefaultDriver is the default implementation of the Driver interface.
-type DefaultDriver struct{}
-
-// CreateClient creates a new BigCache instance based on the provided configuration.
-func (DefaultDriver) CreateClient(ctx context.Context, c Config) (*bigcache.BigCache, error) {
-	conf := bigcache.DefaultConfig(c.LifeWindow)
-	conf.Shards = c.Shards
-	conf.CleanWindow = c.CleanWindow
-	conf.MaxEntriesInWindow = c.MaxEntriesInWindow
-	conf.MaxEntrySize = c.MaxEntrySize
-	conf.HardMaxCacheSize = c.HardMaxCacheSize
-	conf.StatsEnabled = c.StatsEnabled
-	return bigcache.New(ctx, conf)
 }

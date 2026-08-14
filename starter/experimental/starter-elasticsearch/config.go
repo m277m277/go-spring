@@ -14,19 +14,9 @@
  * limitations under the License.
  */
 
+// config.go is the config concept: the per-instance Config bound under
+// ${spring.elasticsearch}.* and the Driver selection key.
 package StarterElasticsearch
-
-import (
-	"context"
-
-	"github.com/elastic/go-elasticsearch/v8"
-)
-
-var driverRegistry = map[string]Driver{}
-
-func init() {
-	RegisterDriver("DefaultDriver", DefaultDriver{})
-}
 
 // Config defines Elasticsearch client connection configuration.
 type Config struct {
@@ -100,59 +90,4 @@ type Config struct {
 
 	// Driver specifies which Elasticsearch driver to use, defaults to DefaultDriver.
 	Driver string `value:"${driver:=DefaultDriver}"`
-}
-
-// Driver interface defines how to create an Elasticsearch client.
-type Driver interface {
-	CreateClient(ctx context.Context, c Config) (*elasticsearch.Client, error)
-}
-
-// RegisterDriver registers an Elasticsearch driver with the given name.
-// It panics if the driver name has already been registered.
-func RegisterDriver(name string, driver Driver) {
-	if _, ok := driverRegistry[name]; ok {
-		panic("elasticsearch driver already registered: " + name)
-	}
-	driverRegistry[name] = driver
-}
-
-// DefaultDriver is the default implementation of the Driver interface.
-type DefaultDriver struct{}
-
-// CreateClient creates a new Elasticsearch client, bridged into go-spring's
-// unified observability. Passing a nil provider to NewOtelInstrumentation makes
-// the transport emit client spans through the OTel global TracerProvider that
-// starter-otel installs; when starter-otel is absent that global is a no-op, so
-// this stays a zero-config opt-in that needs no per-component adaptation.
-//
-// The transport is fixed at construction time and cannot be swapped on the
-// client afterwards, and the resilience/observability policy is only injected
-// into the wrapper after CreateClient returns. So CreateClient installs a thin
-// [dynamicTransport] (an atomic RoundTripper indirection) whose behavior
-// Init later swaps in — the observe+resilience transport built from
-// the injected policy. The dynamic transport is tracked in [dynamicTransports]
-// (keyed by the returned client) so newClient can hand it to the wrapper.
-func (DefaultDriver) CreateClient(ctx context.Context, c Config) (*elasticsearch.Client, error) {
-	dyn := newDynamicTransport()
-	client, err := elasticsearch.NewClient(elasticsearch.Config{
-		Addresses:              c.Addresses,
-		Username:               c.Username,
-		Password:               c.Password,
-		APIKey:                 c.APIKey,
-		ServiceToken:           c.ServiceToken,
-		CloudID:                c.CloudID,
-		CertificateFingerprint: c.CertificateFingerprint,
-		MaxRetries:             c.MaxRetries,
-		DisableRetry:           c.DisableRetry,
-		CompressRequestBody:    c.CompressRequestBody,
-		EnableMetrics:          c.EnableMetrics,
-		EnableDebugLogger:      c.EnableDebugLogger,
-		Instrumentation:        newOtelInstrumentation(),
-		Transport:              dyn,
-	})
-	if err != nil {
-		return nil, err
-	}
-	dynamicTransports.Store(client, dyn)
-	return client, nil
 }
