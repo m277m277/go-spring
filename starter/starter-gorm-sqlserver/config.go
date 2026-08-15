@@ -23,10 +23,15 @@ import (
 	"time"
 
 	"go-spring.org/cloud/tlsconf"
+	gormcore "go-spring.org/starter-gorm"
 )
 
-// Config holds the configuration parameters for a SQL Server connection.
+// Config holds the configuration parameters for a SQL Server connection. The
+// shared pool/discovery/observe settings come from the embedded gormcore.Common;
+// the fields below are the SQL Server-specific connection parameters.
 type Config struct {
+	gormcore.Common
+
 	User     string `value:"${user}"`       // Database username
 	Password string `value:"${password}"`   // Database password
 	Host     string `value:"${host:=}"`     // Database host (required unless ServiceName is set)
@@ -39,21 +44,6 @@ type Config struct {
 	DialTimeout    time.Duration `value:"${dialTimeout:=}"`    // TCP dial timeout
 	ConnectTimeout time.Duration `value:"${connectTimeout:=}"` // Login/connection timeout
 
-	// Connection pool tuning. A zero value leaves the database/sql default in
-	// place (see sql.DB.SetMaxOpenConns and friends).
-	MaxOpenConns    int           `value:"${max-open-conns:=0}"`     // Max open connections (0 = unlimited)
-	MaxIdleConns    int           `value:"${max-idle-conns:=0}"`     // Max idle connections (0 = default 2)
-	ConnMaxLifetime time.Duration `value:"${conn-max-lifetime:=0}"`  // Max lifetime of a connection (0 = unlimited)
-	ConnMaxIdleTime time.Duration `value:"${conn-max-idle-time:=0}"` // Max idle time of a connection (0 = unlimited)
-
-	// PingTimeout bounds the startup connectivity check. The client fails fast
-	// during creation if the server cannot be reached within this window.
-	PingTimeout time.Duration `value:"${ping-timeout:=5s}"`
-
-	// SlowThreshold enables GORM slow-query logging when > 0: queries slower than
-	// this are logged at warn level.
-	SlowThreshold time.Duration `value:"${slow-threshold:=0}"`
-
 	// TLS uses the shared tlsconf.TLSConfig block (nested keys:
 	// tls.enabled, tls.insecure-skip-verify, tls.ca-file). SQL Server maps
 	// them onto DSN parameters rather than a *tls.Config: TLS.Enabled →
@@ -61,27 +51,6 @@ type Config struct {
 	// TLS.CAFile → "certificate" (a PEM server certificate / CA path). The
 	// CertFile/KeyFile fields are unused because the DSN has no client-cert slot.
 	TLS tlsconf.TLSConfig `value:"${tls}"`
-
-	// ServiceName is the service discovery name. When set, Host/Port are
-	// ignored for dialing and the connection reaches a live instance resolved
-	// from the discovery backend.
-	ServiceName string `value:"${service-name:=}"`
-	// Scheme narrows discovery to endpoints of one transport scheme (e.g. "tls",
-	// "https"). Empty (the default) returns every scheme; set it when a service
-	// exposes both plain and secure instances and this client should reach only
-	// one. Only consulted when ServiceName is set.
-	Scheme string `value:"${scheme:=}"`
-	// Discovery selects which registered discovery backend resolves ServiceName.
-	// Only consulted when ServiceName is set; defaults to "default".
-	Discovery string `value:"${discovery:=default}"`
-
-	// ObserveEnabled is the hard per-instance kill switch for the gorm observe
-	// plugin (trace span + metric + access log on every Create/Query/Update/
-	// Delete). Defaults to true. Distinct from observability.level (which only
-	// controls access-log detail, leaving span/metric on): when false the plugin
-	// is not installed at all, so no per-query callbacks run — for high-throughput
-	// instances where the instrumentation overhead is unwanted.
-	ObserveEnabled bool `value:"${observe.enabled:=true}"`
 }
 
 // DSN constructs the SQL Server Data Source Name based on the configuration.

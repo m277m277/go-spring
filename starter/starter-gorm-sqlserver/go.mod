@@ -4,7 +4,7 @@ go 1.26.1
 
 require (
 	github.com/microsoft/go-mssqldb v1.8.2
-	go-spring.org/spring v1.3.4
+	go-spring.org/spring v1.3.4 // indirect
 	go-spring.org/stdlib v0.1.7
 	gorm.io/driver/sqlserver v1.6.1
 	gorm.io/gorm v1.31.1
@@ -48,8 +48,8 @@ require (
 
 require go-spring.org/cloud v0.0.0
 
-replace go-spring.org/cloud => ../../../cloud
+replace go-spring.org/cloud => ../../cloud
 
 require go-spring.org/starter-gorm v0.0.0
 
-replace go-spring.org/starter-gorm => ../../../starter/starter-gorm
+replace go-spring.org/starter-gorm => ../../starter/starter-gorm

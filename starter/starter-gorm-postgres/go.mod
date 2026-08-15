@@ -4,12 +4,11 @@ go 1.26.1
 
 require (
 	github.com/jackc/pgx/v5 v5.8.0
-	go-spring.org/spring v1.3.4
+	go-spring.org/spring v1.3.4 // indirect
 	go-spring.org/stdlib v0.1.7
 	gorm.io/driver/postgres v1.6.0
 	gorm.io/gorm v1.31.1
 )
-
 
 // Local, not-yet-published observe kit and gorm bridge. Removed once tagged.
 

@@ -20,10 +20,16 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	gormcore "go-spring.org/starter-gorm"
 )
 
-// Config holds the configuration parameters for a PostgreSQL connection.
+// Config holds the configuration parameters for a PostgreSQL connection. The
+// shared pool/discovery/observe settings come from the embedded gormcore.Common;
+// the fields below are the PostgreSQL-specific connection parameters.
 type Config struct {
+	gormcore.Common
+
 	Host           string        `value:"${host:=}"`           // Database host (required unless ServiceName is set)
 	Port           string        `value:"${port:=5432}"`       // Database port
 	User           string        `value:"${user}"`             // Database username
@@ -39,41 +45,6 @@ type Config struct {
 	SSLRootCert string `value:"${sslrootcert:=}"` // Path to CA certificate (PEM)
 	SSLCert     string `value:"${sslcert:=}"`     // Path to client certificate (PEM)
 	SSLKey      string `value:"${sslkey:=}"`      // Path to client private key (PEM)
-
-	// Connection pool tuning. A zero value leaves the database/sql default in
-	// place (see sql.DB.SetMaxOpenConns and friends).
-	MaxOpenConns    int           `value:"${max-open-conns:=0}"`     // Max open connections (0 = unlimited)
-	MaxIdleConns    int           `value:"${max-idle-conns:=0}"`     // Max idle connections (0 = default 2)
-	ConnMaxLifetime time.Duration `value:"${conn-max-lifetime:=0}"`  // Max lifetime of a connection (0 = unlimited)
-	ConnMaxIdleTime time.Duration `value:"${conn-max-idle-time:=0}"` // Max idle time of a connection (0 = unlimited)
-
-	// PingTimeout bounds the startup connectivity check. The client fails fast
-	// during creation if the server cannot be reached within this window.
-	PingTimeout time.Duration `value:"${ping-timeout:=5s}"`
-
-	// SlowThreshold enables GORM slow-query logging when > 0: queries slower than
-	// this are logged at warn level.
-	SlowThreshold time.Duration `value:"${slow-threshold:=0}"`
-
-	// ServiceName is the service discovery name. When set, Host/Port are ignored
-	// and the connection dials a live instance resolved from the discovery backend.
-	ServiceName string `value:"${service-name:=}"`
-	// Scheme narrows discovery to endpoints of one transport scheme (e.g. "tls",
-	// "https"). Empty (the default) returns every scheme; set it when a service
-	// exposes both plain and secure instances and this client should reach only
-	// one. Only consulted when ServiceName is set.
-	Scheme string `value:"${scheme:=}"`
-	// Discovery selects which registered discovery backend resolves ServiceName.
-	// Only consulted when ServiceName is set; defaults to "default".
-	Discovery string `value:"${discovery:=default}"`
-
-	// ObserveEnabled is the hard per-instance kill switch for the gorm observe
-	// plugin (trace span + metric + access log on every Create/Query/Update/
-	// Delete). Defaults to true. Distinct from observability.level (which only
-	// controls access-log detail, leaving span/metric on): when false the plugin
-	// is not installed at all, so no per-query callbacks run — for high-throughput
-	// instances where the instrumentation overhead is unwanted.
-	ObserveEnabled bool `value:"${observe.enabled:=true}"`
 }
 
 // DSN constructs the PostgreSQL Data Source Name based on the configuration.

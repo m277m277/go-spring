@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package health2
+package gormcore
 
 import (
 	"context"
@@ -26,9 +26,10 @@ import (
 // NewGormHealth builds an indicator for a GORM (*gorm.DB) client. It is
 // registered once per configured instance and exported as health.Indicator, so
 // an application that also imports starter-actuator gets the database folded
-// into /readiness with no extra wiring.
-func NewGormHealth(name string, db *gorm.DB) health.Indicator {
-	return health.NewIndicator("gorm:mysql:"+name, func(ctx context.Context) error {
+// into /readiness with no extra wiring. prefix is the dialect label (e.g.
+// "gorm:mysql:", "gorm:postgres:").
+func NewGormHealth(prefix, name string, db *gorm.DB) health.Indicator {
+	return health.NewIndicator(prefix+name, func(ctx context.Context) error {
 		sqlDB, err := db.DB()
 		if err != nil {
 			return err

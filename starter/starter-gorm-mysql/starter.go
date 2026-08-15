@@ -14,59 +14,49 @@
  * limitations under the License.
  */
 
+// Package StarterGormMySql is the gorm+mysql dialect starter. It registers one
+// gorm client per entry under "spring.gorm.mysql", with the shared open/pool/
+// observe/resilience scaffolding provided by go-spring.org/starter-gorm. Only
+// the MySQL-specific pieces — the Config + DSN, TLS registration and the
+// service-discovery dialer — live here.
 package StarterGormMySql
 
 import (
+	"context"
 	"fmt"
-	"sync"
+	"net"
 	"sync/atomic"
 
 	"github.com/go-sql-driver/mysql"
-	"go-spring.org/cloud/actuator/health"
+	"go-spring.org/cloud/discovery"
+	"go-spring.org/cloud/governance/resilience"
 	"go-spring.org/log"
-	"go-spring.org/spring/conf"
-	"go-spring.org/spring/gs"
-	health2 "go-spring.org/starter-gorm-mysql/health"
+	gormcore "go-spring.org/starter-gorm"
 	"go-spring.org/stdlib/errutil"
-	"go-spring.org/stdlib/flatten"
 	gormmysql "gorm.io/driver/mysql"
-	"gorm.io/gorm"
 )
 
-// tlsConfigs tracks the custom TLS config name registered with the mysql driver
-// for a client, so the wrapper's Close can deregister it on teardown.
-var tlsConfigs sync.Map // *gorm.DB -> string (tls config name)
+// DB is the bean type this starter exposes. It aliases the shared gormcore.DB
+// so the wrapper body, lifecycle and observe/resilience wiring stay in one place.
+type DB = gormcore.DB
+
+var starterTag = log.RegisterInfraTag("gorm_mysql", "")
 
 // tlsSeq makes each registered custom TLS config name unique.
 var tlsSeq atomic.Uint64
 
-var starterTag = log.RegisterInfraTag("gorm_mysql", "")
-
 func init() {
-	// Register multiple GORM clients as a group, one per entry under
-	// "${spring.gorm.mysql}". A gs.Module (rather than gs.Group) is used so each
-	// instance's *gorm.DB bean can be paired with a health.Indicator registered
-	// under the same name — and to attach the file:line of this registration to
-	// the bean for diagnostics.
-	gs.Module(gs.OnProperty("spring.gorm.mysql"), func(r gs.BeanProvider, p flatten.Storage) error {
-		return conf.BindEach(p, "${spring.gorm.mysql}", func(name string, c Config) error {
-			r.Provide(newClient, gs.IndexArg(1, gs.ValueArg(c))).Name(name).Init((*DB).Init).Destroy((*DB).Destroy).Caller(1)
-			// Contribute a health indicator for this instance, injecting the
-			// wrapper just registered above by name (the embedded *gorm.DB is
-			// passed through to the indicator).
-			r.Provide(func(w *DB) health.Indicator {
-				return health2.NewGormHealth(name, w.DB)
-			}, gs.TagArg(name)).Name("gorm:mysql:" + name).Export(gs.As[health.Indicator]()).Caller(1)
-			return nil
-		})
+	gormcore.Register(gormcore.Dialect[Config]{
+		Prefix:       "spring.gorm.mysql",
+		Engine:       "mysql",
+		HealthPrefix: "gorm:mysql:",
+		Build:        build,
 	})
 }
 
-// newClient creates a GORM database client using the MySQL driver, bridged into
-// go-spring's unified observability. The otel plugin emits client spans and
-// connection-pool metrics through the OTel globals that starter-otel installs;
-// when starter-otel is absent those globals are no-ops, so this stays a
-// zero-config, zero-overhead opt-in that needs no per-component adaptation.
+// build constructs the driver-specific dialector for a Config, handling TLS and
+// service-discovery routing, and returns the Spec gormcore.Register needs to
+// open and wrap the client.
 //
 // When c.ServiceName is set (and mesh mode is off), the address is resolved
 // through the registered discovery backend: a Resolver is bound to a unique
@@ -75,40 +65,46 @@ func init() {
 // the client. In mesh mode a sidecar owns discovery+LB, so the configured Addr
 // is used as-is. When c.ServiceName is empty this is a plain Addr dial,
 // unchanged from before.
-func newClient(ctx *gs.ContextProvider, c Config) (*DB, error) {
-
+func build(ctx context.Context, c Config) (gormcore.Spec, error) {
 	if c.Addr == "" && c.ServiceName == "" {
-		return nil, fmt.Errorf("gorm mysql: one of addr or service-name must be set")
+		return gormcore.Spec{}, fmt.Errorf("gorm mysql: one of addr or service-name must be set")
 	}
 
-	log.Debugf(ctx.Context, starterTag, "creating gorm mysql client, addr=%s service-name=%s db=%s", c.Addr, c.ServiceName, c.DB)
+	log.Debugf(ctx, starterTag, "creating gorm mysql client, addr=%s service-name=%s db=%s", c.Addr, c.ServiceName, c.DB)
+
+	var (
+		discoCloser func()
+		tlsCloser   func()
+	)
 
 	// Resolve the TLS DSN parameter. The shared TLS builder returns a fully
 	// materialized *tls.Config when TLS is enabled (empty CAFile falls back to
 	// the host's system root set; ServerName/InsecureSkipVerify honored), or
 	// (nil, nil) when disabled. Register the config with the driver under a
 	// unique name and reference it in the DSN as tls=<name>.
-	var tlsName string
 	tlsCfg, err := c.TLS.Build()
 	if err != nil {
-		log.Errorf(ctx.Context, starterTag, "gorm mysql: build TLS failed: %v", err)
-		return nil, errutil.Explain(err, "gorm-mysql: build TLS")
+		log.Errorf(ctx, starterTag, "gorm mysql: build TLS failed: %v", err)
+		return gormcore.Spec{}, errutil.Explain(err, "gorm-mysql: build TLS")
 	}
 	if tlsCfg != nil {
-		tlsName = fmt.Sprintf("gstls_%d", tlsSeq.Add(1))
+		tlsName := fmt.Sprintf("gstls_%d", tlsSeq.Add(1))
 		if err := mysql.RegisterTLSConfig(tlsName, tlsCfg); err != nil {
-			return nil, err
+			return gormcore.Spec{}, err
 		}
 		c.tlsParam = tlsName
+		tlsCloser = func() { mysql.DeregisterTLSConfig(tlsName) }
 	}
 
 	dsn := c.DSN()
 
-	conn, err := newDiscoveryConn(ctx.Context, c)
+	conn, err := newDiscoveryConn(ctx, c)
 	if err != nil {
-		log.Errorf(ctx.Context, starterTag, "gorm mysql: build discovery dialer failed: %v", err)
-		deregisterTLS(tlsName)
-		return nil, err
+		log.Errorf(ctx, starterTag, "gorm mysql: build discovery dialer failed: %v", err)
+		if tlsCloser != nil {
+			tlsCloser()
+		}
+		return gormcore.Spec{}, err
 	}
 	if conn != nil {
 		// Route the DSN through the registered dialer; Addr becomes a label the
@@ -117,55 +113,79 @@ func newClient(ctx *gs.ContextProvider, c Config) (*DB, error) {
 		dc.Network = conn.netName
 		dc.Addr = c.ServiceName
 		dsn = dc.DSN()
+		discoCloser = func() { stopDiscoveryConn(conn) }
 	}
 
-	db, err := gorm.Open(gormmysql.Open(dsn), gormConfig(c))
+	closers := []func(){}
+	if discoCloser != nil {
+		closers = append(closers, discoCloser)
+	}
+	if tlsCloser != nil {
+		closers = append(closers, tlsCloser)
+	}
+
+	return gormcore.Spec{
+		Dialector:      gormmysql.Open(dsn),
+		Pool:           c.Pool(),
+		Resource:       resilience.ResourceLabel("gorm:mysql", c.ServiceName, c.Addr),
+		ObserveEnabled: c.ObserveEnabled,
+		Closers:        closers,
+	}, nil
+}
+
+// Discovery dialer — the live-dialer + resolver lifecycle concept. A client can
+// be dialed straight from a configured Addr, or (when ServiceName is set and
+// mesh mode is off) through a discovery resolver whose background watch keeps
+// the endpoint set fresh. The resolver is registered under a unique mysql dial
+// network name, and its watch is stopped (and the dialer deregistered) via the
+// closer [build] attaches to the client.
+
+// netSeq makes each registered mysql dial network name unique, so multiple
+// instances discovering the same service never collide.
+var netSeq atomic.Uint64
+
+// discoveryConn pairs a live Resolver with the unique mysql dial network name
+// it registered, so the closer can stop the watch and deregister the dialer.
+type discoveryConn struct {
+	ld      *discovery.Resolver
+	netName string
+}
+
+// newDiscoveryConn resolves the registered discovery backend for c and registers
+// a mysql dialer that routes each new connection through a live endpoint. It
+// returns (nil, nil) when service-name is unset or mesh mode is enabled (a
+// sidecar owns discovery+LB), in which case the caller dials the configured Addr
+// directly. The caller owns the lifecycle and must release the conn via
+// stopDiscoveryConn.
+func newDiscoveryConn(ctx context.Context, c Config) (*discoveryConn, error) {
+	ld, err := c.NewResolver(ctx)
 	if err != nil {
-		log.Errorf(ctx.Context, starterTag, "gorm mysql: open failed: %v", err)
-		cleanup(conn, tlsName)
 		return nil, err
 	}
-	// Fail fast: verify connectivity and apply pool settings at creation time.
-	// The observe plugin + resilience callbacks are installed later by the
-	// wrapper's Init (InitMethod), after gs field-injects its
-	// Observability + Resilience config.
-	if err := applyPool(db, c); err != nil {
-		log.Errorf(ctx.Context, starterTag, "gorm mysql: ping failed: %v", err)
-		cleanup(conn, tlsName)
-		if sqlDB, derr := db.DB(); derr == nil {
-			_ = sqlDB.Close()
+	if ld == nil {
+		return nil, nil
+	}
+	netName := fmt.Sprintf("gsdisco_%s_%d", c.ServiceName, netSeq.Add(1))
+	nd := &net.Dialer{}
+	// mysql.DialContextFunc is 2-arg: func(ctx, addr string) (net.Conn, error).
+	// The addr is ignored; the dialer picks a live endpoint via the Resolver.
+	mysql.RegisterDialContext(netName, func(ctx context.Context, _ string) (net.Conn, error) {
+		ep, perr := ld.Pick()
+		if perr != nil {
+			return nil, perr
 		}
-		return nil, err
-	}
-	if err := applyDBCustomizers(c, db); err != nil {
-		log.Errorf(ctx.Context, starterTag, "gorm mysql: customizer failed: %v", err)
-		cleanup(conn, tlsName)
-		if sqlDB, derr := db.DB(); derr == nil {
-			_ = sqlDB.Close()
-		}
-		return nil, err
-	}
-	if conn != nil {
-		liveDialers.Store(db, conn)
-	}
-	if tlsName != "" {
-		tlsConfigs.Store(db, tlsName)
-	}
-	log.Infof(ctx.Context, starterTag, "gorm mysql client initialized, addr=%s db=%s", c.Addr, c.DB)
-	return &DB{DB: db, cfg: c}, nil
+		return nd.DialContext(ctx, "tcp", ep.Addr)
+	})
+	return &discoveryConn{ld: ld, netName: netName}, nil
 }
 
-// cleanup stops a discovery dialer and deregisters driver-scoped names created
-// during a failed newClient attempt.
-func cleanup(conn *discoveryConn, tlsName string) {
-	stopDiscoveryConn(conn)
-	deregisterTLS(tlsName)
-}
-
-// deregisterTLS removes a custom TLS config previously registered with the
-// mysql driver. It is a no-op for the empty name (built-in modes).
-func deregisterTLS(name string) {
-	if name != "" {
-		mysql.DeregisterTLSConfig(name)
+// stopDiscoveryConn stops the discovery watch and deregisters the mysql dialer
+// behind conn. It is the close-half of the discovery lifecycle, symmetric with
+// newDiscoveryConn; it is a no-op for a nil conn (a client that never had one).
+func stopDiscoveryConn(conn *discoveryConn) {
+	if conn == nil {
+		return
 	}
+	_ = conn.ld.Stop()
+	mysql.DeregisterDialContext(conn.netName)
 }

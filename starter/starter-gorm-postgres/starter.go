@@ -14,6 +14,11 @@
  * limitations under the License.
  */
 
+// Package StarterGormPostgres is the gorm+postgres dialect starter. It registers
+// one gorm client per entry under "spring.gorm.postgres", with the shared open/
+// pool/observe/resilience scaffolding provided by go-spring.org/starter-gorm.
+// Only the PostgreSQL-specific pieces — the Config + DSN and the service-
+// discovery dialer — live here.
 package StarterGormPostgres
 
 import (
@@ -22,45 +27,32 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
-	"go-spring.org/cloud/actuator/health"
-	"go-spring.org/cloud/discovery"
+	"go-spring.org/cloud/governance/resilience"
 	"go-spring.org/log"
-	"go-spring.org/spring/conf"
-	"go-spring.org/spring/gs"
-	health2 "go-spring.org/starter-gorm-postgres/health"
+	gormcore "go-spring.org/starter-gorm"
 	"go-spring.org/stdlib/errutil"
-	"go-spring.org/stdlib/flatten"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
+// DB is the bean type this starter exposes. It aliases the shared gormcore.DB
+// so the wrapper body, lifecycle and observe/resilience wiring stay in one place.
+type DB = gormcore.DB
+
 var starterTag = log.RegisterInfraTag("gorm_postgres", "")
 
 func init() {
-	// Register multiple GORM clients as a group, one per entry under
-	// "${spring.gorm.postgres}". A gs.Module (rather than gs.Group) is used so
-	// each instance's *gorm.DB bean can be paired with a health.Indicator
-	// registered under the same name — and to attach the file:line of this
-	// registration to the bean for diagnostics.
-	gs.Module(gs.OnProperty("spring.gorm.postgres"), func(r gs.BeanProvider, p flatten.Storage) error {
-		return conf.BindEach(p, "${spring.gorm.postgres}", func(name string, c Config) error {
-			r.Provide(newClient, gs.IndexArg(1, gs.ValueArg(c))).Name(name).Init((*DB).Init).Destroy((*DB).Destroy).Caller(1)
-			// Contribute a health indicator for this instance, injecting the
-			// wrapper just registered above by name (the embedded *gorm.DB is
-			// passed through to the indicator).
-			r.Provide(func(w *DB) health.Indicator {
-				return health2.NewGormHealth(name, w.DB)
-			}, gs.TagArg(name)).Name("gorm:postgres:" + name).Export(gs.As[health.Indicator]()).Caller(1)
-			return nil
-		})
+	gormcore.Register(gormcore.Dialect[Config]{
+		Prefix:       "spring.gorm.postgres",
+		Engine:       "postgresql",
+		HealthPrefix: "gorm:postgres:",
+		Build:        build,
 	})
 }
 
-// newClient creates a GORM database client using the PostgreSQL driver, bridged
-// into go-spring's unified observability. The otel plugin emits client spans and
-// connection-pool metrics through the OTel globals that starter-otel installs;
-// when starter-otel is absent those globals are no-ops, so this stays a
-// zero-config, zero-overhead opt-in that needs no per-component adaptation.
+// build constructs the driver-specific dialector for a Config, handling service
+// discovery, and returns the Spec gormcore.Register needs to open and wrap the
+// client.
 //
 // When c.ServiceName is set (and mesh mode is off), the address is resolved
 // through the registered discovery backend: a Resolver is bound to the pgx
@@ -68,30 +60,29 @@ func init() {
 // changes take effect without rebuilding the client. In mesh mode a sidecar
 // owns discovery+LB, so the configured Host is used as-is. When c.ServiceName
 // is empty this is a plain DSN dial, unchanged from before.
-func newClient(ctx *gs.ContextProvider, c Config) (*DB, error) {
+func build(ctx context.Context, c Config) (gormcore.Spec, error) {
 	if c.Host == "" && c.ServiceName == "" {
-		return nil, errutil.Explain(nil, "gorm postgres: one of host or service-name must be set")
+		return gormcore.Spec{}, errutil.Explain(nil, "gorm postgres: one of host or service-name must be set")
 	}
 
-	log.Debugf(ctx.Context, starterTag, "creating gorm postgres client, host=%s service-name=%s db=%s", c.Host, c.ServiceName, c.DB)
+	log.Debugf(ctx, starterTag, "creating gorm postgres client, host=%s service-name=%s db=%s", c.Host, c.ServiceName, c.DB)
 
 	var (
-		db  *gorm.DB
-		err error
-		ld  *discovery.Resolver
+		dialector gorm.Dialector
+		closer    func()
 	)
 
-	ld, err = newLiveResolver(ctx.Context, c)
+	ld, err := c.NewResolver(ctx)
 	if err != nil {
-		log.Errorf(ctx.Context, starterTag, "gorm postgres: build discovery resolver failed: %v", err)
-		return nil, err
+		log.Errorf(ctx, starterTag, "gorm postgres: build discovery resolver failed: %v", err)
+		return gormcore.Spec{}, err
 	}
 	if ld != nil {
 		pgxCfg, err := pgx.ParseConfig(c.DSN())
 		if err != nil {
-			log.Errorf(ctx.Context, starterTag, "gorm postgres: parse pgx config failed: %v", err)
+			log.Errorf(ctx, starterTag, "gorm postgres: parse pgx config failed: %v", err)
 			_ = ld.Stop()
-			return nil, err
+			return gormcore.Spec{}, err
 		}
 		// pgconn.DialFunc is 3-arg: func(ctx, network, addr string) (net.Conn, error).
 		// Both network and addr are ignored; the dialer picks a live endpoint via
@@ -104,50 +95,29 @@ func newClient(ctx *gs.ContextProvider, c Config) (*DB, error) {
 			}
 			return nd.DialContext(ctx, "tcp", ep.Addr)
 		}
-		sqlDB := stdlib.OpenDB(*pgxCfg)
-		db, err = gorm.Open(postgres.New(postgres.Config{Conn: sqlDB}), gormConfig(c))
-		if err != nil {
-			log.Errorf(ctx.Context, starterTag, "gorm postgres: open with discovery failed: %v", err)
-			_ = sqlDB.Close()
-			_ = ld.Stop()
-			return nil, err
-		}
+		dialector = postgres.New(postgres.Config{Conn: stdlib.OpenDB(*pgxCfg)})
+		closer = func() { _ = ld.Stop() }
 	} else {
 		// Plain DSN mode (no discovery): dial the configured host:port directly.
-		db, err = gorm.Open(postgres.New(postgres.Config{DSN: c.DSN()}), gormConfig(c))
-		if err != nil {
-			log.Errorf(ctx.Context, starterTag, "gorm postgres: open failed: %v", err)
-			return nil, err
-		}
+		dialector = postgres.New(postgres.Config{DSN: c.DSN()})
 	}
 
-	// Fail fast: verify connectivity and apply pool settings at creation time.
-	// The observe plugin + resilience callbacks are installed later by the
-	// wrapper's Init (InitMethod), after gs field-injects its
-	// Observability + Resilience config.
-	if err := applyPool(db, c); err != nil {
-		log.Errorf(ctx.Context, starterTag, "gorm postgres: ping failed: %v", err)
-		if ld != nil {
-			_ = ld.Stop()
-		}
-		if sqlDB, derr := db.DB(); derr == nil {
-			_ = sqlDB.Close()
-		}
-		return nil, err
+	closers := []func(){}
+	if closer != nil {
+		closers = append(closers, closer)
 	}
-	if ld != nil {
-		liveDialers.Store(db, ld)
-	}
-	if err := applyDBCustomizers(c, db); err != nil {
-		log.Errorf(ctx.Context, starterTag, "gorm postgres: customizer failed: %v", err)
-		if ld != nil {
-			_ = ld.Stop()
-		}
-		if sqlDB, derr := db.DB(); derr == nil {
-			_ = sqlDB.Close()
-		}
-		return nil, err
-	}
-	log.Infof(ctx.Context, starterTag, "gorm postgres client initialized, host=%s db=%s", c.Host, c.DB)
-	return &DB{DB: db, cfg: c}, nil
+
+	return gormcore.Spec{
+		Dialector:      dialector,
+		Pool:           c.Pool(),
+		Resource:       resilience.ResourceLabel("gorm:postgresql", c.ServiceName, c.Host),
+		ObserveEnabled: c.ObserveEnabled,
+		Closers:        closers,
+	}, nil
 }
+
+// Discovery dialer — a client can be dialed straight from a configured Host, or
+// (when ServiceName is set and mesh mode is off) through a discovery resolver
+// whose background watch keeps the endpoint set fresh. The resolver (built by
+// [gormcore.Common.NewResolver]) is adapted to pgx's DialFunc, and its watch is
+// stopped via the closer [build] attaches to the client.

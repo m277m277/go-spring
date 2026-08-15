@@ -77,14 +77,14 @@ use (
 	./starter/experimental/starter-go-zero/rest/example-otel
 	./starter/experimental/starter-go-zero/zrpc/example
 	./starter/experimental/starter-go-zero/zrpc/example-otel
-	./starter/experimental/starter-gorm-clickhouse
-	./starter/experimental/starter-gorm-clickhouse/example
-	./starter/experimental/starter-gorm-clickhouse/example-load
-	./starter/experimental/starter-gorm-clickhouse/example-otel
-	./starter/experimental/starter-gorm-sqlserver
-	./starter/experimental/starter-gorm-sqlserver/example
-	./starter/experimental/starter-gorm-sqlserver/example-load
-	./starter/experimental/starter-gorm-sqlserver/example-otel
+	./starter/starter-gorm-clickhouse
+	./starter/starter-gorm-clickhouse/example
+	./starter/starter-gorm-clickhouse/example-load
+	./starter/starter-gorm-clickhouse/example-otel
+	./starter/starter-gorm-sqlserver
+	./starter/starter-gorm-sqlserver/example
+	./starter/starter-gorm-sqlserver/example-load
+	./starter/starter-gorm-sqlserver/example-otel
 	./starter/experimental/starter-grpc
 	./starter/experimental/starter-grpc/example
 	./starter/experimental/starter-grpc/example-otel

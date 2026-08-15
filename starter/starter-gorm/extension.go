@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package StarterGormMySql
+package gormcore
 
 import (
 	"sync"
@@ -29,7 +29,11 @@ import (
 // a custom gorm.Logger, an extra Plugin, prepared-statement caching, etc. —
 // without copying the starter. Register via [UseDBCustomizer]; called in
 // registration order after gorm.Open + pool apply, before the bean is returned.
-type DBCustomizer func(c Config, db *gorm.DB) error
+//
+// It is a shared, dialect-agnostic seam: by the time customizers run, the DSN
+// has been built and the pool applied, so the driver Config itself is not passed
+// through.
+type DBCustomizer func(db *gorm.DB) error
 
 var (
 	customizerMu sync.RWMutex
@@ -50,13 +54,13 @@ func UseDBCustomizer(f DBCustomizer) {
 	customizers = append(customizers, f)
 }
 
-// applyDBCustomizers runs the registered customizers against db. It is a no-op
+// ApplyDBCustomizers runs the registered customizers against db. It is a no-op
 // when none are registered.
-func applyDBCustomizers(c Config, db *gorm.DB) error {
+func ApplyDBCustomizers(db *gorm.DB) error {
 	customizerMu.RLock()
 	defer customizerMu.RUnlock()
 	for _, f := range customizers {
-		if err := f(c, db); err != nil {
+		if err := f(db); err != nil {
 			return err
 		}
 	}

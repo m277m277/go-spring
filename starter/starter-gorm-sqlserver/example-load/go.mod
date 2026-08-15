@@ -1,4 +1,4 @@
-module go-spring.org/starter-gorm-clickhouse/example-load
+module go-spring.org/starter-gorm-sqlserver/example-load
 
 go 1.26.1
 
@@ -28,4 +28,4 @@ require (
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
 
-replace go-spring.org/cloud => ../../../../cloud
+replace go-spring.org/cloud => ../../../cloud

@@ -1,0 +1,177 @@
+/*
+ * Copyright 2025 The Go-Spring Authors.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+// Package gormcore is the shared scaffolding behind every go-spring gorm
+// dialect starter (mysql, postgres, clickhouse, sqlserver). Each driver starter
+// owns its dialect-specific Config + DSN + TLS/discovery dialing and hands the
+// driver-agnostic remainder — connection-pool tuning, the open/ping/customize
+// sequence, the DB wrapper + its observe/resilience lifecycle, the health
+// indicator, and the post-open extension seam — to this package, so the four
+// starters share one implementation instead of copy-pasting it each.
+package gormcore
+
+import (
+	"context"
+	"database/sql"
+	"log"
+	"os"
+	"time"
+
+	"go-spring.org/cloud/discovery"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
+)
+
+// PoolConfig carries the driver-agnostic connection-pool and logging settings
+// shared by every gorm dialect starter. Each driver Config holds these same
+// fields (via [Common]) and copies them into a PoolConfig before calling [Open].
+type PoolConfig struct {
+	MaxOpenConns    int           // Max open connections (0 = unlimited)
+	MaxIdleConns    int           // Max idle connections (0 = default 2)
+	ConnMaxLifetime time.Duration // Max lifetime of a connection (0 = unlimited)
+	ConnMaxIdleTime time.Duration // Max idle time of a connection (0 = unlimited)
+	PingTimeout     time.Duration // Startup connectivity-check bound (0 = 5s)
+	SlowThreshold   time.Duration // GORM slow-query log threshold (0 = off)
+}
+
+// Common is the config block every gorm dialect starter shares: connection-pool
+// tuning, service-discovery routing and the observe kill switch. A dialect's
+// Config embeds it (anonymously, so conf binds these fields at the same level)
+// alongside its own connection-specific fields.
+type Common struct {
+	// Connection pool tuning. A zero value leaves the database/sql default in
+	// place (see sql.DB.SetMaxOpenConns and friends).
+	MaxOpenConns    int           `value:"${max-open-conns:=0}"`     // Max open connections (0 = unlimited)
+	MaxIdleConns    int           `value:"${max-idle-conns:=0}"`     // Max idle connections (0 = default 2)
+	ConnMaxLifetime time.Duration `value:"${conn-max-lifetime:=0}"`  // Max lifetime of a connection (0 = unlimited)
+	ConnMaxIdleTime time.Duration `value:"${conn-max-idle-time:=0}"` // Max idle time of a connection (0 = unlimited)
+
+	// PingTimeout bounds the startup connectivity check. The client fails fast
+	// during creation if the server cannot be reached within this window.
+	PingTimeout time.Duration `value:"${ping-timeout:=5s}"`
+
+	// SlowThreshold enables GORM slow-query logging when > 0: queries slower than
+	// this are logged at warn level.
+	SlowThreshold time.Duration `value:"${slow-threshold:=0}"`
+
+	// ServiceName is the service discovery name. When set, the connection dials a
+	// live instance resolved from the discovery backend instead of the configured
+	// address.
+	ServiceName string `value:"${service-name:=}"`
+	// Scheme narrows discovery to endpoints of one transport scheme (e.g. "tls",
+	// "https"). Empty (the default) returns every scheme; set it when a service
+	// exposes both plain and secure instances and this client should reach only
+	// one. Only consulted when ServiceName is set.
+	Scheme string `value:"${scheme:=}"`
+	// Discovery selects which registered discovery backend resolves ServiceName.
+	// Only consulted when ServiceName is set; defaults to "default".
+	Discovery string `value:"${discovery:=default}"`
+
+	// ObserveEnabled is the hard per-instance kill switch for the gorm observe
+	// plugin (trace span + metric + access log on every Create/Query/Update/
+	// Delete). Defaults to true. Distinct from observability.level (which only
+	// controls access-log detail, leaving span/metric on): when false the plugin
+	// is not installed at all, so no per-query callbacks run — for high-throughput
+	// instances where the instrumentation overhead is unwanted.
+	ObserveEnabled bool `value:"${observe.enabled:=true}"`
+}
+
+// Pool extracts the connection-pool and logging settings into a PoolConfig.
+func (c Common) Pool() PoolConfig {
+	return PoolConfig{
+		MaxOpenConns:    c.MaxOpenConns,
+		MaxIdleConns:    c.MaxIdleConns,
+		ConnMaxLifetime: c.ConnMaxLifetime,
+		ConnMaxIdleTime: c.ConnMaxIdleTime,
+		PingTimeout:     c.PingTimeout,
+		SlowThreshold:   c.SlowThreshold,
+	}
+}
+
+// NewResolver resolves the registered discovery backend for this config into a
+// Resolver that keeps the service's endpoint set fresh via a background watch. It
+// returns (nil, nil) when ServiceName is unset or mesh mode is enabled (a sidecar
+// owns discovery+LB), in which case the caller dials the configured address
+// directly. The caller owns the lifecycle and must stop the resolver it returns.
+func (c Common) NewResolver(ctx context.Context) (*discovery.Resolver, error) {
+	return discovery.NewResolver(ctx, c.Discovery, c.ServiceName, discovery.WithScheme(c.Scheme))
+}
+
+// GormConfig builds the *gorm.Config for a client. When SlowThreshold is set,
+// GORM's logger reports queries slower than the threshold at warn level.
+func GormConfig(pool PoolConfig) *gorm.Config {
+	cfg := &gorm.Config{}
+	if pool.SlowThreshold > 0 {
+		cfg.Logger = logger.New(
+			log.New(os.Stdout, "\r\n", log.LstdFlags),
+			logger.Config{
+				SlowThreshold: pool.SlowThreshold,
+				LogLevel:      logger.Warn,
+				Colorful:      false,
+			},
+		)
+	}
+	return cfg
+}
+
+// ApplyPool applies connection-pool settings and performs a startup ping so
+// misconfigured address/credentials fail fast at creation instead of on first
+// query.
+func ApplyPool(db *gorm.DB, pool PoolConfig) error {
+	sqlDB, err := db.DB()
+	if err != nil {
+		return err
+	}
+	if pool.MaxOpenConns > 0 {
+		sqlDB.SetMaxOpenConns(pool.MaxOpenConns)
+	}
+	if pool.MaxIdleConns > 0 {
+		sqlDB.SetMaxIdleConns(pool.MaxIdleConns)
+	}
+	if pool.ConnMaxLifetime > 0 {
+		sqlDB.SetConnMaxLifetime(pool.ConnMaxLifetime)
+	}
+	if pool.ConnMaxIdleTime > 0 {
+		sqlDB.SetConnMaxIdleTime(pool.ConnMaxIdleTime)
+	}
+	timeout := pool.PingTimeout
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	return sqlDB.PingContext(ctx)
+}
+
+// Ping verifies the connection pool behind db can reach the database. It is a
+// readiness/health-check hook usable by callers or an external checker.
+func Ping(ctx context.Context, db *gorm.DB) error {
+	sqlDB, err := db.DB()
+	if err != nil {
+		return err
+	}
+	return sqlDB.PingContext(ctx)
+}
+
+// Stats exposes the runtime connection-pool statistics (InUse, Idle,
+// WaitCount, ...) behind db without requiring OpenTelemetry.
+func Stats(db *gorm.DB) (sql.DBStats, error) {
+	sqlDB, err := db.DB()
+	if err != nil {
+		return sql.DBStats{}, err
+	}
+	return sqlDB.Stats(), nil
+}

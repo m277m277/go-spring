@@ -4,10 +4,10 @@ go 1.26.1
 
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.30.0
-	go-spring.org/spring v1.3.4
+	go-spring.org/spring v1.3.4 // indirect
 	go-spring.org/stdlib v0.1.7
 	gorm.io/driver/clickhouse v0.7.0
-	gorm.io/gorm v1.31.1
+	gorm.io/gorm v1.31.1 // indirect
 )
 
 // Local, not-yet-published observe kit and gorm bridge. Removed once tagged.
@@ -56,8 +56,8 @@ require (
 
 require go-spring.org/cloud v0.0.0
 
-replace go-spring.org/cloud => ../../../cloud
+replace go-spring.org/cloud => ../../cloud
 
 require go-spring.org/starter-gorm v0.0.0
 
-replace go-spring.org/starter-gorm => ../../../starter/starter-gorm
+replace go-spring.org/starter-gorm => ../../starter/starter-gorm
