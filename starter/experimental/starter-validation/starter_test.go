@@ -20,7 +20,7 @@ import (
 	"context"
 	"testing"
 
-	"go-spring.org/spring/web/experimental/web/validation"
+	"go-spring.org/cloud/experimental/web/validation"
 	"go-spring.org/stdlib/testing/assert"
 )
 

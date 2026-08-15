@@ -1,10 +1,10 @@
 # spring 设计说明
 [English](DESIGN.md) | [中文](DESIGN_CN.md)
 
-`go-spring.org/spring` 是 Go-Spring 四层栈（stdlib → spring → starter →
-gs）中的容器/核心层，提供 IoC 容器、依赖注入接线、分层配置绑定与应用生命
-周期模型。它只依赖 `stdlib` 与 Go 标准库，绝不 import 任何三方业务 SDK
-（Redis、GORM、Kafka 等）——那类依赖归上一层的 `starter/`。
+`go-spring.org/spring` 是 Go-Spring 分层栈（stdlib → log → spring →
+cloud → starter）中的**核心层**，提供 IoC 容器、依赖注入接线、分层配置
+引擎与应用生命周期模型——仅此而已。它只依赖 `stdlib` 与 `log`，绝不
+import `cloud` 生态库、任何三方业务 SDK 或任何 starter。
 
 ## 1. 职责与边界
 
@@ -15,38 +15,29 @@ gs）中的容器/核心层，提供 IoC 容器、依赖注入接线、分层配
 - `spring/conf` 是配置引擎：分层来源（命令行、环境变量、
   `app-<profile>.<ext>`、`app.<ext>`、内存、tag 默认值）按优先级合并，
   格式读取器在 `spring/conf/reader/{yaml,toml,prop}`，可插拔解密在
-  `spring/conf/decrypt`。引擎独立于容器，容器在启动过程中驱动它。
+  `spring/conf/decrypt`。引擎独立于容器，容器在启动过程中驱动它。它也
+  是外部生态唯一直接复用的 spring 包——如 starter-governance 的规则解
+  析胶水就构建在它之上。
 - `spring/gs` 是对外表面：`Provide`、`Configure`、`Module`、`Group`、
   `OnProperty`、`OnBean`、`Dync[T]`、`Runner`、`Server`、`ReadySignal`、
   `PropertiesRefresher`。`spring/gs/internal/...` 全是实现细节，不对
   外承诺。
 
-### 子包分族
+### 能力家族去了哪里
 
-除 `gs`/`conf` 外,能力抽象按**关注层**分族(包按其*抽象本体*所属的层归类,而非按最强后端)。
-这是权威族图:
+`spring/` 本体只含 `gs/` 与 `conf/`——纯核心。所有能力抽象都按依赖方向
+迁到了该在的层：
 
-```
-spring/
-├─ gs/  conf/  aspect/         核心:容器、配置引擎、AOP 原语
-├─ cloud/     分布式协作(后端多为跨进程)
-│    discovery loadbalance resilience lock messaging transaction event scheduling batch
-├─ web/       请求处理面 + 内置 HTTP
-│    httpsvr httpclt httpx security session validation i18n
-├─ data/      持久化
-│    cache repository migration
-└─ actuator/  运维 / 探针暴露
-     endpoint health podinfo
-```
+| 家族 | 归属 | 理由 |
+|---|---|---|
+| `httpsvr`、`httpclt` | `stdlib/` | 纯 HTTP 语义，无容器依赖 |
+| `aspect` | `cloud/experimental/aspect` | 被 cloud 各家族消费的 AOP 原语 |
+| 治理（`resilience`/`fault`/`traffic`）、`discovery`、`loadbalance`、`event`、`scheduling`、`batch`、`lock`、`messaging`、`transaction`、`tlsconf`、`cache`、`repository`、`migration`、`i18n`、`validation`、`httpx`、`security`、`session` | `cloud/`（go-spring.org/cloud） | 生态抽象，容器无关——cloud 模块不 import 任何 spring 包 |
+| 具体后端（Redis、GORM、Kafka、dubbo-go…） | `starter/` | 三方 SDK + gs 接线 |
 
-归类规则:
-- **`aspect` 是根位核心原语**(零依赖,被 cache/event/security/transaction 依赖)——与 `conf`
-  同档,不是族成员。
-- **看本体而非后端。** `cache` → `data`(本体是通用 KV,Memory 是一等后端),`session` → `web`
-  (本体是 HTTP 请求态管理,分布式 store 只是一种后端),`transaction` → `cloud`(本体是跨服务协调)。
-- **`event`/`scheduling`/`batch` → `cloud`** —— 三者都依赖 `lock` 做跨副本协调。
-- 跨族 import 严格向下(如 `web/httpx → cloud/*`、`data/cache → aspect`、
-  `cloud/event → actuator/health`),依赖图无环。Go 不在编译期强制这一点——它是 review 级不变式。
+全仓遵循的口径：**抽象进 cloud，gs 接线与三方 SDK 进 starter，无生态
+依赖的纯语义进 stdlib**——starter 负责接线，cloud 负责抽象，spring 负责
+运行。
 
 ## 2. 关键抽象与接缝
 
@@ -79,8 +70,8 @@ spring/
 
 ## 3. 约束
 
-- `spring/` 内禁止出现三方业务依赖。Go 标准库与 `stdlib/` 之外的一切
-  归 `starter/`。
+- `spring/` 内禁止出现三方业务依赖。Go 标准库、`stdlib/` 与 `log/` 之外
+  的一切归 `cloud/`（生态抽象）或 `starter/`（后端 + gs 接线）。
 - 所有注册都在 `init()` 期完成。`Configure(func(app gs.App))` 是这个阶
   段的延伸；`Run` 开始后不允许再注册 bean。
 - `internal/` 子树不属于对外 API，即便通过再导出可达；下游必须走 `gs.`

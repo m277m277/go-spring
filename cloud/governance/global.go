@@ -14,10 +14,10 @@
  * limitations under the License.
  */
 
-// This file holds the governance singleton, its public facade, and its gs
-// binding. The governance authority is a process singleton, but callers never
-// hold or name a [*Center]: they call the package-level functions (Enabled,
-// PolicyFor, Register, OnReady). [*Center] is an internal implementation detail.
+// This file holds the governance singleton and its public facade. The
+// governance authority is a process singleton, but callers never hold or name a
+// [*Center]: they call the package-level functions (Enabled, PolicyFor,
+// Register, OnReady). [*Center] is an internal implementation detail.
 // This mirrors the neutral global seams the package already exposes for
 // resilience ([resilience.ExecutorFor]) and fault injection, but is the direct
 // surface for callers (like starter-dubbo) that already import governance.
@@ -26,17 +26,16 @@ package governance
 
 import (
 	"go-spring.org/cloud/governance/resilience"
-	"go-spring.org/spring/gs"
 )
 
 // global is the process-wide governance authority. It is initialized to a
 // disabled (zero-config) Center at package load, so it is never nil. In
-// production gs adopts this very instance as its bean ([init] below), field-
-// injects the ${govern} gs.Dync onto it, and runs [Center.Init] which mutates it
-// in place with the real config. Tests reassign it via [Arm]/[Reset]. Because it
-// is armed once during gs wiring (or a test) and only read after, the plain
-// pointer needs no atomic or mutex — gs establishes the happens-before edge
-// between wiring and server start.
+// production starter-governance's wiring bean drives it in place through
+// [BindDefault] and [GoLive] (this package registers no beans and imports no
+// container). Tests reassign it via [Arm]/[Reset]. Because it is armed once
+// during wiring (or a test) and only read after, the plain pointer needs no
+// atomic or mutex — the starter establishes the happens-before edge between
+// wiring and server start.
 var global = NewCenter(Config{})
 
 // live marks whether global has been armed with real config — set by
@@ -57,17 +56,6 @@ func markLive() {
 	for _, cb := range cbs {
 		cb()
 	}
-}
-
-func init() {
-	// Register the singleton itself as the gs bean: no separate holder. gs
-	// field-injects the ${govern} gs.Dync onto global, then runs [Center.Init]
-	// which arms it. Exported as a gs.Rooter so gs collects and instantiates it
-	// even though no client injects it — without a collected-type export gs would
-	// not instantiate an unreachable bean, so none of the registrations fire.
-	gs.Provide(global).
-		Init((*Center).Init).Destroy((*Center).Destroy).
-		Export(gs.As[gs.Rooter]()).Caller(1)
 }
 
 // Enabled reports whether governance is armed. Before the authority is live it
@@ -91,11 +79,53 @@ func Register(label string, cb func(resilience.Policy)) resilience.Policy {
 	return global.Register(label, cb)
 }
 
+// SetSource installs s as the governance config source, replacing the default
+// source (or any previously set source). It is the custom-source entry point
+// for push-based integrations — a governance console, a dedicated
+// config-center listener, a static injection. Call it any time:
+//
+//   - before the wiring starter binds its default: the center arms from s and
+//     the default never takes over (BindDefault is a no-op when a source is
+//     already bound);
+//   - afterwards: late-arm — s.Snapshot() applies immediately and subsequent
+//     pushes drive the center; the previous source's callbacks go stale.
+//
+// A bean route exists too: gs.Provide(newSrc).Export(gs.As[Source]()) is
+// field-injected onto starter-governance's wiring bean (a missing bean leaves
+// the default path). The Export is NOT optional for that route — without it
+// the bean is invisible to interface injection and governance silently runs
+// on the default again.
+//
+// Source priority is SetSource > injected bean > the wiring default. Exactly
+// one source is active at a time; the center does not merge — [Config.Rules]
+// is a whole-replace model, so a merge policy is a decision that belongs
+// inside a composite Source implementation, not in the center. Removing a
+// custom source is not supported; restart instead.
+func SetSource(s Source) { global.setSource(s) }
+
+// BindDefault installs src as the active source only when none is bound yet —
+// an explicit SetSource (callable at any time) always outranks it. This is the
+// one-shot hook the wiring starter calls at startup with its chosen default
+// (a bean-injected Source, else the ${govern} Dync adapter).
+func BindDefault(src Source) { global.bindDefault(src) }
+
+// GoLive completes the authority's startup: it builds the process-wide fault
+// injector from the current snapshot, registers the executor/fault seams, and
+// marks the authority live (firing any [OnReady] callbacks). Idempotent. The
+// wiring starter calls it once after BindDefault.
+func GoLive() { global.goLive() }
+
+// CloseActiveSource closes the active source when it happens to implement
+// Close (the [Source] contract keeps Close optional); otherwise it is a no-op.
+// It is the shutdown counterpart to [BindDefault]/[GoLive], called by the
+// wiring starter on app teardown.
+func CloseActiveSource() error { return global.Destroy() }
+
 // OnReady registers cb to fire exactly once when the authority goes live. If it
 // is already live, cb fires immediately. gs wires Rooters before Runners, so a
-// push-based caller (starter-dubbo, a Rooter) may initialize before this
-// package's Rooter has run [Center.Init]; OnReady guarantees the caller re-runs
-// its work once governance is live, without depending on bean init order.
+// push-based caller (starter-dubbo, a Rooter) may initialize before the wiring
+// starter (also a Rooter) has armed governance; OnReady guarantees the caller
+// re-runs its work once governance is live, without depending on bean order.
 func OnReady(cb func()) {
 	if live {
 		cb()

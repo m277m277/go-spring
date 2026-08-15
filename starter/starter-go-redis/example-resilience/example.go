@@ -35,8 +35,8 @@ import (
 	"go-spring.org/cloud/governance/resilience"
 	"go-spring.org/spring/gs"
 
-	_ "go-spring.org/cloud/governance" // registers the centralized governance center
 	StarterGoRedis "go-spring.org/starter-go-redis"
+	_ "go-spring.org/starter-governance" // registers the centralized governance center
 )
 
 // Service autowires the named "cache" redis instance. Its ops are protected by

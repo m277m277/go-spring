@@ -48,6 +48,12 @@ func init() {
 // against the last snapshot and pushes the dynamically-applicable fields into
 // the in-memory config center as flat dubbo URL params.
 //
+// Note the two dynamic mechanisms at play here: this Dync binds ORDINARY app
+// config (dubbo's own consumer settings), NOT the governance Source contract —
+// governance policy (timeout/retries from the center) flows in through the
+// governance facade (Enabled/PolicyFor/Register/OnReady) and is merged into
+// the same override push in consumerToOverrideRules.
+//
 // Dynamic fields are those dubbo-go reads from URL params at call time:
 // timeout, retries, loadbalance, cluster, group, version, serialization,
 // sticky, force.tag, weight, and per-method tps/execute tuning.

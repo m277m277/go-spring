@@ -22,12 +22,12 @@ govern 把这 11 份 Dync 收敛成 **全进程唯一一个**。
 ## 2. 整体拓扑
 
 ```
-                    ${govern}   ← 唯一一个配置源
+                    ${govern}   ← 默认配置源
                         │
-              gs.Dync[governance.Config]   （centerHolder.Gov，由 cloud/governance 持有）
-                        │  OnChanged   ← 唯一一个订阅
+              gs.Dync[governance.Config]   （Center.Gov，由 cloud/governance 持有）
+                        │  dyncSource 适配为 Source 契约
                         ▼
-                governance.Center.Refresh(cfg)
+                governance.Center.adopt(cfg) → Refresh(cfg) + fault SetConfig
                         │
             ┌───────────┼────────────┬───────────┬───────────┐
             ▼           ▼            ▼           ▼           ▼
@@ -39,9 +39,19 @@ govern 把这 11 份 Dync 收敛成 **全进程唯一一个**。
         时回调         时回调
 ```
 
-- **根**：`cloud/governance` 里的 `centerHolder`，持有唯一的 `gs.Dync[governance.Config]`，绑定 `${govern}`。
+- **根**：`cloud/governance` 里的 Center 单例，持有唯一的 `gs.Dync[governance.Config]`，绑定 `${govern}`。
 - **叶**：每个 client starter 在自己的 setup 阶段调一次 `Center.Register(label, cb)`，把自己登记为某个资源 label 的订阅者。
 - **分发**：配置变化时 `Center.Refresh` 重算每个订阅者所属 label 的 policy，**只在变化时**回调。
+
+### 2.1 感知层：Source 契约（2026-08-15 起）
+
+治理规则的**生效链**（快照原子替换 → label diff → executor 原地 Refresh）从第一天起就是治理中心自己的设计；感知层原先直接消费核心类型 `gs.Dync[Config]`，现已收敛为治理自己的 `Source` 接口（[source.go](source.go)）——`Snapshot() Config` + `Subscribe(cb)`，两个方法。对照业界（Sentinel-Golang 的 ext/datasource、dubbo-go 的 DynamicConfiguration）：治理规则的模型与生效链自建、传输层做成可插拔适配，是主流共识；Spring Cloud 把治理深耦合进通用刷新机制（@RefreshScope）恰是被验证的弯路。
+
+- **默认源**：薄适配 `dyncSource` 包住 `${govern}` Dync。不配置任何自定义 Source 时行为与历史完全一致，所有 conf provider 的 watch 照常生效。
+- **自定义源**：`governance.SetSource(任意实现)` 或 bean 注入（必须 `Export(gs.As[governance.Source]())`，否则静默回落默认源）。优先级 SetSource > bean > 默认源。
+- **单源替换、不内置 merge**：`Rules` 是整体替换语义（0 = disabled），合并策略属于组合 Source 实现的职责。
+- **换源安全**：`Dync.OnChanged` 单 listener 且无法退订，换源靠活跃源守卫（handle 指针比较，规避接口值 `==` 的 panic 风险），旧源回调自动失效。
+- **边界**：普通业务配置（如 `spring.dubbo.consumer`）继续用 `gs.Dync` 字段绑定——数据性质决定刷新机制：实例列表是高频运行态（discovery 的 watch），治理规则是低频配置态（Source 快照替换），普通开关是散配置（dync 字段绑定）。
 
 > ⚠️ 看到代码里"到处都是 Register"是正常现象——这不是重复配置，而是 fan-out 拓扑的叶子节点。Dync 数从 11 → 1，Register 数多恰恰是"精确分发"的实现方式。
 

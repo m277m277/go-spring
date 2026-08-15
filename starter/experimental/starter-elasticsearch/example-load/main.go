@@ -36,8 +36,8 @@ import (
 	"go-spring.org/cloud/loadtest"
 	"go-spring.org/spring/gs"
 
-	_ "go-spring.org/cloud/governance"
 	StarterElasticsearch "go-spring.org/starter-elasticsearch"
+	_ "go-spring.org/starter-governance"
 )
 
 const indexName = "starter-es-load"

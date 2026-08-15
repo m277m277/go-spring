@@ -1,0 +1,13 @@
+# Governance rules, standalone. Same keys an app.properties entry would use;
+# watched live — edit while the app runs and the policy changes without a
+# restart (and without an app-wide property re-bind). The fault section rides
+# the same file: flip fault.enabled to arm chaos engineering live.
+govern:
+  enabled: true
+  default:
+    enabled: true
+    attempt-timeout: 100ms
+    max-retries: 2
+  fault:
+    enabled: false
+    rate: 0.5

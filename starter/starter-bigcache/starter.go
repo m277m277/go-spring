@@ -21,12 +21,13 @@ import (
 
 	"github.com/allegro/bigcache/v3"
 	"go-spring.org/cloud/actuator/health"
+	"go-spring.org/cloud/data/cache"
 	"go-spring.org/log"
 	"go-spring.org/spring/conf"
-	"go-spring.org/spring/data/cache"
 	"go-spring.org/spring/gs"
 	"go-spring.org/starter-bigcache/bytecache"
 	health2 "go-spring.org/starter-bigcache/health"
+	StarterCache "go-spring.org/starter-cache"
 	"go-spring.org/stdlib/errutil"
 	"go-spring.org/stdlib/flatten"
 	"go.opentelemetry.io/otel"
@@ -67,7 +68,7 @@ func init() {
 	//
 	// The beanID selects which BigCache bean to wrap; the implementation lives in
 	// starter-bigcache/bytecache.
-	cache.RegisterDriver("bigcache", func(beanID string) gs.ModuleFunc {
+	StarterCache.RegisterDriver("bigcache", func(beanID string) gs.ModuleFunc {
 		return func(r gs.BeanProvider, p flatten.Storage) error {
 			r.Provide(func(c *Cache) *cache.Cache {
 				return &cache.Cache{ByteCache: bytecache.NewByteCache(c.BigCache)}

@@ -33,6 +33,7 @@ require (
 	github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78 // indirect
 	go-spring.org/gs-mock v0.0.9 // indirect
 	go-spring.org/log v0.1.4 // indirect
+	go-spring.org/starter-governance v0.0.0
 	go-spring.org/stdlib v0.1.7 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel v1.45.0 // indirect
@@ -54,3 +55,5 @@ replace (
 	go-spring.org/starter-mongodb => ..
 	go-spring.org/stdlib => ../../../../stdlib
 )
+
+replace go-spring.org/starter-governance => ../../../starter-governance

@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"go-spring.org/spring/web/httpclt"
+	"go-spring.org/stdlib/httpclt"
 )
 
 // Client represents an HTTP client bound to a specific service endpoint.

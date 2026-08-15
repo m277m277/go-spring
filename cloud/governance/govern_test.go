@@ -213,3 +213,198 @@ func TestDriver(t *testing.T) {
 		t.Fatalf("Driver default: want default, got %s", d)
 	}
 }
+
+// TestSource_PushSourceDrivesCenter covers the custom-source end-to-end path:
+// a PushSource installed via the SetSource facade arms the center from its
+// snapshot and later pushes fan out to registered subscribers — the same
+// fan-out the default source drives on the plain-${govern} path.
+func TestSource_PushSourceDrivesCenter(t *testing.T) {
+	defer Reset()
+
+	src := NewPushSource(enabledTimeout(100))
+	SetSource(src)
+	if !Enabled() {
+		t.Fatal("PushSource snapshot should arm the center")
+	}
+	if p := PolicyFor("redis:cache"); p.Timeout != dur(100) {
+		t.Fatalf("snapshot policy: want 100ms, got %v", p.Timeout)
+	}
+
+	var got resilience.Policy
+	Register("redis:cache", func(p resilience.Policy) { got = p })
+	src.Push(enabledTimeout(200))
+	if got.Timeout != dur(200) {
+		t.Fatalf("push should fan out: want 200ms, got %v", got.Timeout)
+	}
+	if p := PolicyFor("redis:cache"); p.Timeout != dur(200) {
+		t.Fatalf("post-push policy: want 200ms, got %v", p.Timeout)
+	}
+}
+
+// TestSource_AdoptSwapsFaultConfig guards the single-sink property of adopt:
+// a config pushed from ANY source swaps both the resilience snapshot and the
+// fault injector's config (the injector pointer itself is never rebuilt).
+func TestSource_AdoptSwapsFaultConfig(t *testing.T) {
+	c := NewCenter(Config{})
+	c.injector = fault.NewInjector(fault.Config{})
+	if c.injector.Config().Enabled {
+		t.Fatal("precondition: injector should start disabled")
+	}
+
+	cfg := enabledTimeout(100)
+	cfg.Fault = fault.Config{Enabled: true, Rate: 0.5}
+	c.adopt(cfg)
+
+	if p := c.PolicyFor("x"); p.Timeout != dur(100) {
+		t.Fatalf("adopt resilience side: want 100ms, got %v", p.Timeout)
+	}
+	if !c.injector.Config().Enabled || c.injector.Config().Rate != 0.5 {
+		t.Fatalf("adopt fault side: injector config not swapped: %+v", c.injector.Config())
+	}
+
+	// adopt with a nil injector (pre-Init center) must not panic.
+	c2 := NewCenter(Config{})
+	c2.adopt(enabledTimeout(50))
+	if p := c2.PolicyFor("x"); p.Timeout != dur(50) {
+		t.Fatalf("adopt without injector: want 50ms, got %v", p.Timeout)
+	}
+}
+
+// TestSetSource_LateArm_StaleGuard covers source replacement after one is
+// already bound: the new source's snapshot applies immediately, and callbacks
+// from the replaced source are dropped (gs.Dync.OnChanged cannot unsubscribe,
+// so stale callbacks must no-op instead of being retracted).
+func TestSetSource_LateArm_StaleGuard(t *testing.T) {
+	pushA := NewPushSource(enabledTimeout(100))
+	c := NewCenter(Config{})
+	c.setSource(pushA)
+	if p := c.PolicyFor("x"); p.Timeout != dur(100) {
+		t.Fatalf("source A snapshot: want 100ms, got %v", p.Timeout)
+	}
+
+	pushB := NewPushSource(enabledTimeout(200))
+	c.setSource(pushB)
+	if p := c.PolicyFor("x"); p.Timeout != dur(200) {
+		t.Fatalf("source B snapshot should replace A: want 200ms, got %v", p.Timeout)
+	}
+
+	// A's pushes are stale now; B's still drive the center.
+	pushA.Push(enabledTimeout(999))
+	if p := c.PolicyFor("x"); p.Timeout != dur(200) {
+		t.Fatalf("stale source A push must be dropped: want 200ms, got %v", p.Timeout)
+	}
+	pushB.Push(enabledTimeout(300))
+	if p := c.PolicyFor("x"); p.Timeout != dur(300) {
+		t.Fatalf("source B push should apply: want 300ms, got %v", p.Timeout)
+	}
+}
+
+// TestSetSource_NilPanics pins the contract: there is no "remove the source"
+// operation, only replacement (removal would resurrect the wiring default
+// half-armed, which the guard machinery deliberately cannot do).
+func TestSetSource_NilPanics(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("SetSource(nil) should panic")
+		}
+	}()
+	SetSource(nil)
+}
+
+// TestBindDefault_RespectsExplicitSource pins the priority rule: BindDefault
+// installs its source only when none is bound — an earlier explicit SetSource
+// always wins, which is what lets a pre-wiring SetSource take over the default.
+func TestBindDefault_RespectsExplicitSource(t *testing.T) {
+	c := NewCenter(Config{})
+	explicit := NewPushSource(enabledTimeout(100))
+	c.setSource(explicit)
+
+	c.bindDefault(NewPushSource(enabledTimeout(999))) // must be ignored
+	if p := c.PolicyFor("x"); p.Timeout != dur(100) {
+		t.Fatalf("BindDefault must not override an explicit source: want 100ms, got %v", p.Timeout)
+	}
+
+	// With nothing bound, BindDefault takes effect.
+	c2 := NewCenter(Config{})
+	c2.bindDefault(NewPushSource(enabledTimeout(200)))
+	if p := c2.PolicyFor("x"); p.Timeout != dur(200) {
+		t.Fatalf("BindDefault should bind when nothing is bound: want 200ms, got %v", p.Timeout)
+	}
+}
+
+// TestGoLive_BuildsInjectorFromSnapshot covers the starter-facing completion
+// hook: GoLive builds the fault injector from the CURRENT snapshot, registers
+// the seams, and fires OnReady. (The seams are replace-safe atomics; Reset()
+// restores the live flag afterwards.)
+func TestGoLive_BuildsInjectorFromSnapshot(t *testing.T) {
+	defer Reset()
+
+	SetSource(NewPushSource(Config{Enabled: true, Fault: fault.Config{Enabled: true, Rate: 0.25}}))
+	GoLive()
+
+	ready := false
+	OnReady(func() { ready = true })
+	if !ready {
+		t.Fatal("GoLive should mark the authority live")
+	}
+	if !Enabled() {
+		t.Fatal("GoLive should keep the bound source armed")
+	}
+	if in := fault.InjectorFor(); in == nil || !in.Config().Enabled || in.Config().Rate != 0.25 {
+		t.Fatal("GoLive should register the injector built from the snapshot's Fault")
+	}
+
+	// Idempotent: a second GoLive does not rebuild the injector.
+	GoLive()
+}
+
+// TestPushSource_Concurrent runs Push/Snapshot/Subscribe concurrently; run
+// with -race, this guards the lock discipline of the ready-made source.
+func TestPushSource_Concurrent(t *testing.T) {
+	p := NewPushSource(Config{})
+	done := make(chan struct{})
+	go func() { defer close(done); p.Subscribe(func(Config) {}) }()
+	for i := range 100 {
+		p.Push(enabledTimeout(i))
+		_ = p.Snapshot()
+	}
+	<-done
+	p.Push(enabledTimeout(1))
+}
+
+// TestDestroy_ClosesCloseableSource pins Destroy's optional-close contract:
+// a source implementing Close is closed; one without Close is left alone.
+func TestDestroy_ClosesCloseableSource(t *testing.T) {
+	// With a closeable source.
+	c := NewCenter(Config{})
+	src := newCloseableSource(Config{})
+	c.setSource(src)
+	if err := c.Destroy(); err != nil {
+		t.Fatal(err)
+	}
+	if !src.closed {
+		t.Fatal("Destroy should close a closeable source")
+	}
+
+	// With a plain PushSource (no Close method): Destroy is a no-op.
+	c2 := NewCenter(Config{})
+	c2.setSource(NewPushSource(Config{}))
+	if err := c2.Destroy(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// closeableSource is a Source that also implements Close, to exercise
+// Destroy's type assertion.
+type closeableSource struct {
+	Push   *PushSource
+	closed bool
+}
+
+func newCloseableSource(cfg Config) *closeableSource {
+	return &closeableSource{Push: NewPushSource(cfg)}
+}
+
+func (s *closeableSource) Snapshot() Config          { return s.Push.Snapshot() }
+func (s *closeableSource) Subscribe(cb func(Config)) { s.Push.Subscribe(cb) }
+func (s *closeableSource) Close() error              { s.closed = true; return nil }

@@ -25,11 +25,12 @@ package StarterRedigo
 
 import (
 	"go-spring.org/cloud/actuator/health"
+	"go-spring.org/cloud/data/cache"
 	observe "go-spring.org/cloud/observe"
 	"go-spring.org/log"
 	"go-spring.org/spring/conf"
-	"go-spring.org/spring/data/cache"
 	"go-spring.org/spring/gs"
+	StarterCache "go-spring.org/starter-cache"
 	"go-spring.org/starter-redigo/bytecache"
 	poolhealth "go-spring.org/starter-redigo/health"
 	"go-spring.org/stdlib/errutil"
@@ -81,7 +82,7 @@ func init() {
 	//
 	// The beanID selects which pool bean to wrap; the implementation lives in
 	// starter-redigo/bytecache.
-	cache.RegisterDriver("redigo", func(beanID string) gs.ModuleFunc {
+	StarterCache.RegisterDriver("redigo", func(beanID string) gs.ModuleFunc {
 		return func(r gs.BeanProvider, p flatten.Storage) error {
 			r.Provide(func(w *Pool) *cache.Cache {
 				return &cache.Cache{ByteCache: bytecache.NewByteCache(w.Pool)}

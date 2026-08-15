@@ -1,12 +1,12 @@
 # spring Design
 [English](DESIGN.md) | [中文](DESIGN_CN.md)
 
-`go-spring.org/spring` is the container/core layer of the four-layer
-Go-Spring stack (stdlib → spring → starter → gs). It provides the IoC
-container, dependency-injection wiring, layered configuration binding, and
-the application lifecycle model. It depends on `stdlib` and the Go standard
-library only; it never imports a third-party business SDK (Redis, GORM,
-Kafka, etc.) — those live one layer up in `starter/`.
+`go-spring.org/spring` is the **core layer** of the Go-Spring stack
+(stdlib → log → spring → cloud → starter). It provides the IoC container,
+dependency-injection wiring, the layered configuration engine, and the
+application lifecycle model — and nothing else. It depends on `stdlib` and
+`log` only; it never imports the `cloud` ecosystem library, a third-party
+business SDK, or any starter.
 
 ## 1. Responsibilities & Boundaries
 
@@ -19,44 +19,30 @@ Kafka, etc.) — those live one layer up in `starter/`.
   env, `app-<profile>.<ext>`, `app.<ext>`, in-memory, tag defaults) merged
   by priority, format readers under `spring/conf/reader/{yaml,toml,prop}`,
   and pluggable decryption under `spring/conf/decrypt`. The engine is
-  independent of the container; the container drives it during boot.
+  independent of the container; the container drives it during boot. It is
+  also the only spring package the outside ecosystem reuses directly —
+  binding glue such as starter-governance's rules parser builds on it.
 - `spring/gs` is the public surface: `Provide`, `Configure`, `Module`,
   `Group`, `OnProperty`, `OnBean`, `Dync[T]`, `Runner`, `Server`,
   `ReadySignal`, `PropertiesRefresher`. Everything else in
   `spring/gs/internal/...` is implementation detail and off-limits to users.
 
-### Subpackage families
+### Where the capability families live
 
-Beyond `gs`/`conf`, the capability abstractions are grouped by **concern layer**
-(a package is filed by the layer its *abstraction body* belongs to, not by its
-strongest backend). This is the authoritative family map:
+`spring/` itself contains only `gs/` and `conf/` — the pure core. Every
+capability abstraction moved out to the layer its dependency direction
+demands:
 
-```
-spring/
-├─ gs/  conf/  aspect/         core: container, config engine, AOP primitive
-├─ cloud/     distributed coordination (backends usually cross-process)
-│    discovery loadbalance resilience lock messaging transaction event scheduling batch
-│    tlsconf   (shared TLS-config builder consumed by cloud-facing starters)
-├─ web/       request-handling plane + built-in HTTP
-│    httpsvr httpclt httpx security session validation i18n
-├─ data/      persistence
-│    cache repository migration
-└─ actuator/  ops / probe exposure
-     endpoint health podinfo
-```
+| Family | Home | Why |
+|---|---|---|
+| `httpsvr`, `httpclt` | `stdlib/` | pure HTTP semantics, no container dependency |
+| `aspect` | `cloud/experimental/aspect` | AOP primitive consumed by ecosystem families |
+| governance (`resilience`, `fault`, `traffic`), `discovery`, `loadbalance`, `event`, `scheduling`, `batch`, `lock`, `messaging`, `transaction`, `tlsconf`, `cache`, `repository`, `migration`, `i18n`, `validation`, `httpx`, `security`, `session` | `cloud/` (go-spring.org/cloud) | ecosystem abstractions, container-free — the cloud module imports no spring package |
+| concrete backends (Redis, GORM, Kafka, dubbo-go, …) | `starter/` | third-party SDKs + gs wiring |
 
-Filing rules:
-- **`aspect` is a root core primitive** (zero deps, depended on by cache/event/
-  security/transaction) — same tier as `conf`, not a family member.
-- **Body, not backend, decides the family.** `cache` → `data` (its body is a
-  generic KV store; Memory is a first-class backend), `session` → `web` (its body
-  is HTTP request-state management; a distributed store is just one backend),
-  `transaction` → `cloud` (its body is cross-service coordination).
-- **`event`/`scheduling`/`batch` → `cloud`** — all depend on `lock` for
-  cross-replica coordination.
-- Cross-family imports flow strictly downward (e.g. `web/httpx → cloud/*`,
-  `data/cache → aspect`, `cloud/event → actuator/health`); the graph is acyclic.
-  Go does not enforce this at compile time — it is a review-level invariant.
+The rule the whole repo follows: **abstractions go in `cloud`, gs wiring and
+third-party SDKs go in a starter, pure semantics with no ecosystem dependency
+go in `stdlib`** — so a starter wires, cloud abstracts, spring runs.
 
 ## 2. Key Abstractions & Seams
 
@@ -95,7 +81,8 @@ Filing rules:
 ## 3. Constraints
 
 - No third-party business dependency in `spring/`. Anything past the Go
-  standard library and `stdlib/` belongs in `starter/`.
+  standard library, `stdlib/`, and `log/` belongs in `cloud/` (ecosystem
+  abstractions) or `starter/` (backends + gs wiring).
 - All registration happens at `init()` time. `Configure(func(app gs.App))`
   extends that phase; nothing may register beans after `Run` starts.
 - The `internal/` subtree is not part of the public API surface, even

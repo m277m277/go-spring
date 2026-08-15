@@ -18,13 +18,13 @@ and dependency graph. Modules are organized into layers, and **dependencies flow
 one way only — never in reverse**:
 
 ```
-  foundation        core            integration            tooling
- ┌──────────┐   ┌──────────┐   ┌──────────────┐   ┌──────────────┐
- │ stdlib/  │──▶│          │──▶│ starter/     │   │ gs/          │
- │ log/     │   │ spring/  │   │  starter-*   │   │  gs-*        │
- └──────────┘   └──────────┘   └──────────────┘   └──────────────┘
-       │              │                │                  │
-       └──────────────┴────────────────┴──────────────────┘
+  foundation        core          ecosystem        integration       tooling
+ ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌──────────────┐   ┌─────────┐
+ │ stdlib/  │──▶│          │──▶│  cloud/  │──▶│   starter/   │   │   gs/   │
+ │ log/     │   │ spring/  │   │          │   │  starter-*   │   │  gs-*   │
+ └──────────┘   └──────────┘   └──────────┘   └──────────────┘   └─────────┘
+       │              │                │                │
+       └──────────────┴────────────────┴────────────────┘
                             ▲
               consumed by demos & template (never depended on in reverse)
         contrib/   examples/   layout/            (+ website/ docs/ scripts/ skills/)
@@ -34,23 +34,25 @@ Verified dependency facts (do not violate):
 
 - `stdlib/` has **zero third-party dependencies** — standard library only. It is a
   general-purpose utility library (a completion of the Go standard library:
-  types, encoding, collections, ...); it holds **no capability abstractions**.
+  types, encoding, collections, ...); beyond utilities it also hosts **pure
+  semantic pieces with no ecosystem dependency** (`httpsvr`, `httpclt`).
 - `log/` depends on `stdlib/` (plus an ANTLR parser for its config grammar); it is
   a foundation module, not part of `spring`.
-- `spring/` depends on `log/` and `stdlib/`, and on **no third-party business
-  package** (no Redis, GORM, Kafka, ...). Beyond the IoC container it hosts the
-  framework's **capability abstractions** (interface + driver registry) as
-  subpackages, grouped by concern into families — `spring/cloud/*`
-  (discovery, loadbalance, resilience, lock, messaging, transaction, event,
-  scheduling, batch), `spring/web/*` (httpsvr, httpclt, httpx, security,
-  session, validation, i18n), `spring/data/*` (cache, repository, migration),
-  `spring/actuator/*` (endpoint, health, podinfo) — whose concrete backends
-  live in `starter-*`. `spring/aspect` sits at the root as a core primitive
-  (zero deps, widely depended on, alongside `gs`/`conf`). The authoritative
-  family map lives in [spring/DESIGN.md](spring/DESIGN.md).
+- `spring/` depends on `log/` and `stdlib/` only, and contains **only the pure
+  core**: `gs` (IoC container, lifecycle) and `conf` (layered configuration
+  engine). No third-party business package, no capability families.
+- `cloud/` (module `go-spring.org/cloud`) is the **ecosystem abstraction
+  library**: governance (resilience/fault/traffic), discovery, loadbalance,
+  cache, repository, migration, i18n, validation, event/scheduling/batch,
+  lock, messaging, transaction, actuator, ... It depends on `stdlib`/`log`
+  only and **imports no spring package** — the whole library is usable
+  without the container. gs wiring that used to live beside those
+  abstractions moved into starters (e.g. `starter-cache`, `starter-governance`).
 - `starter-*` and `gs-*` sit on top and may pull third-party packages.
 - Nothing in a lower layer may import a higher layer. A `starter` importing
-  another `starter`, or `spring` importing a `starter`, is a layering violation.
+  another `starter`, or `spring`/`cloud` importing a `starter`, is a layering
+  violation. The rule of thumb: **abstractions go in `cloud`, third-party SDKs
+  and gs wiring go in a starter, pure semantics go in `stdlib`**.
 
 **Internal deps resolve through `go.work`, never `require`.** Adding a `require`
 on an in-workspace module sends `go mod tidy` to the proxy and 404s. See the
@@ -62,7 +64,8 @@ on an in-workspace module sends `go mod tidy` to the proxy and 404s. See the
 |---|---|---|---|---|---|
 | `stdlib/` | foundation | Zero-dependency general-purpose utilities (a completion of the Go standard library) | Pure Go helpers — types, encoding, collections, hashing, text, ... | Any third-party import; capability abstractions / driver registries (those live in `spring/`); container/DI logic | [stdlib/README.md](stdlib/README.md) |
 | `log/` | foundation | Structured logging model, config grammar, adapters | The logging model, appenders, field encoding, log config parser | Business logging; hard deps on `spring` | [log/DESIGN.md](log/DESIGN.md) |
-| `spring/` | core | IoC container, dependency injection, app lifecycle, built-in HTTP server, conf, and the framework's capability abstractions | Bean model, injection, start/stop state machine, config binding/refresh, minimal HTTP server; capability interfaces + driver registries (cache, lock, discovery, resilience, ...) | Third-party business packages; integration code that wires a real backend; a full web framework (see §4) | [spring/DESIGN.md](spring/DESIGN.md) |
+| `spring/` | core | IoC container, dependency injection, app lifecycle, layered config engine — the pure core (`gs` + `conf`) | Bean model, injection, start/stop state machine, config binding/refresh | Third-party business packages; capability abstractions (those live in `cloud/`); integration code that wires a real backend | [spring/DESIGN.md](spring/DESIGN.md) |
+| `cloud/` | ecosystem | Container-free capability abstractions: governance, discovery, cache, repository, i18n/validation, ... | Ecosystem interfaces + driver seams usable with or without the container | Any spring import; third-party SDKs; gs wiring (that belongs in a starter) | [cloud/](cloud/) per-family docs |
 | `starter/` | integration | One module per third-party service/framework, wired into the IoC container | `starter-*` modules following the five archetypes; the family design guide | Business logic; deployment scaffolding; a *new* shared-helper package living only to serve starters (use an existing natural home instead - see trap below) | [starter/DESIGN.md](starter/DESIGN.md) |
 | `gs/` | tooling | Dev tools: scaffolding (`gs`), GUI, code generation (`gs-http-gen`), mocking (`gs-mock`) | CLI/codegen/tooling that operates *on* projects | Runtime framework code; anything imported by a running app | [gs/README.md](gs/README.md) |
 | `contrib/` | demo | Runnable examples showing how third-party frameworks are wired the Go-Spring way | Per-framework runnable variants; smoke tests | Reusable modules (those become `starter-*`); deployment scaffolding | [contrib/DIRECTORY_CONVENTIONS.md](contrib/DIRECTORY_CONVENTIONS.md) |
@@ -87,11 +90,12 @@ Answer top-down; the first match wins.
    config-prefix behavior.
 3. **Is it a dev-time tool** (scaffolding, codegen, mocking, GUI) that operates
    *on* projects rather than running inside them? → `gs/gs-*`.
-4. **Is it container / DI / lifecycle / config / built-in-HTTP logic, or a
-   capability abstraction** (interface + driver registry, e.g. cache, lock,
-   discovery, resilience) with no third-party business dependency? → `spring/`
-   (a subpackage). If it needs a third-party import, the abstraction stays in
-   `spring/` but the concrete backend belongs in a `starter`.
+4. **Is it container / DI / lifecycle / config logic?** → `spring/` (a
+   subpackage of `gs`/`conf`). **Is it a capability abstraction** (interface +
+   driver seam, e.g. cache, governance, discovery) with no third-party business
+   dependency? → `cloud/`. If it needs a third-party import, the abstraction
+   stays in `cloud` but the concrete backend — and the gs wiring — belong in a
+   `starter`.
 5. **Is it a reusable general-purpose utility** (types, encoding, collections,
    ...) with **zero third-party dependencies** and no framework/capability
    concern? → `stdlib/` (or `log/` if it is logging).
@@ -102,8 +106,8 @@ Two recurring traps:
 - *"I'll just add a small helper shared by two starters."* No — cross-starter
   shared helper packages are disallowed when no natural home exists
   ([starter/DESIGN.md §3](starter/DESIGN.md)). First check whether one of the
-  existing natural homes covers it - `spring/cloud/tlsconf` (TLS config),
-  `spring/actuator/health.NewIndicator` (health indicator factory),
+  existing natural homes covers it - `cloud/tlsconf` (TLS config),
+  `cloud/actuator/health.NewIndicator` (health indicator factory),
   `stdlib/errutil.RequireField`/`RequireAny` (fail-fast validation). If yes,
   import it. If no, inline per-starter; a shared package materializes only
   when its nature points at a real home, not when two starters happen to
@@ -113,7 +117,7 @@ Two recurring traps:
   its home is `spring/`, not `stdlib/`), and the moment a third-party import is
   required it cannot live in either foundation layer. The pattern is:
   **abstraction + driver registry in `spring/`, concrete backend in a `starter`**
-  (see `spring/data/cache`, `spring/cloud/lock`, `spring/cloud/discovery`).
+  (see `cloud/data/cache`, `cloud/lock`, `cloud/discovery`).
 
 ## 4. Scope Red Lines (non-goals)
 
@@ -152,8 +156,8 @@ fixed feature set and hope it fits. So in the framework layers — `stdlib/`,
   architecture fails by omission, not by a visible bug.
 - **Built-ins ride the same seams they expose.** Go-Spring's own built-in
   implementations must go through the very extension points offered to users,
-  never a privileged private path — `spring/data/cache`'s Memory backend,
-  `spring/cloud/resilience`'s built-in strategies, and the starter archetypes all
+  never a privileged private path — `cloud/data/cache`'s Memory backend,
+  `cloud/resilience`'s built-in strategies, and the starter archetypes all
   consume their own registries/interfaces. If a built-in can't be expressed
   through the public seam, the seam is wrong, not the built-in.
 - **This is a framework-layer duty, not a universal one.** Downstream business

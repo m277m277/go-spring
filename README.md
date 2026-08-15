@@ -6,25 +6,63 @@
 
 > **If you think this is just another Go framework, keep reading.**
 >
-> Go-Spring takes the battle-tested paradigms from two decades of Java Spring—dependency injection, auto-configuration, the Starter mechanism—and reimagines them in idiomatic Go. Spring rescued Java from EJB hell, turning heavyweight applications into composable, reusable, modular engineering. Go-Spring aims to give Go developers that same superpower.
+> Go-Spring's mission is **building a complete, vendor-neutral application ecosystem for Go** — the assembly layer the Go ecosystem is missing: DI libraries ship parts, framework ecosystems orbit their own transport, component libraries don't know each other. Go-Spring assembles them all.
+>
+> It takes the battle-tested paradigms from two decades of Java Spring—dependency injection, auto-configuration, the Starter mechanism—and reimagines them in idiomatic Go. Spring rescued Java from EJB hell, turning heavyweight applications into composable, reusable, modular engineering. Go-Spring aims to give Go developers that same superpower.
 >
 > **But that's not the whole story.** Go-Spring is attempting something bigger: [Process as Code](MANIFESTO.md)—treating the software development process itself as an assemblable, reusable, versionable "application." Application assembly and development workflows share the same IoC philosophy; only the assembly target shifts from runtime components to development actions. It's a bold direction, and a hypothesis worth testing.
 
 ## The Ecosystem
 
-Go-Spring is not a single repository—it's a complete R&D ecosystem composed of a **core framework, 70+ Starters, developer tooling, example applications, and project templates**. Each layer has a clear role; use what you need.
+Go-Spring is not a single repository—it's a complete R&D ecosystem composed of a **core framework, an ecosystem abstraction library, 70+ Starters, developer tooling, example applications, and project templates**. The layers are strictly ordered — dependencies flow one way, downward — and each layer has a clear role; use what you need.
 
 | Layer | Role | Key Projects |
 |---|---|---|
-| **Foundation** | Zero-dependency utilities + structured logging engine | [`stdlib`](stdlib/), [`log`](log/) |
-| **Core** | IoC container, DI, config engine, application lifecycle, capability abstractions | [`spring`](spring/) (with `cloud/`, `web/`, `data/`, `actuator/` capability families) |
-| **Integration** | 70+ pluggable Starters for third-party services and frameworks | [`starter/`](starter/) — Gin, gRPC, Redis, MySQL, Kafka, Dubbo, Kitex… |
+| **Foundation** | Zero-dependency utilities + pure semantic pieces (HTTP client/server, …) + structured logging engine | [`stdlib`](stdlib/), [`log`](log/) |
+| **Core** | IoC container, DI, layered config engine, application lifecycle — nothing else | [`spring`](spring/) (`gs` + `conf`) |
+| **Ecosystem Library** | Container-free capability abstractions: governance center, discovery, cache, repository, i18n/validation, … — imports **no** spring package | [`cloud`](cloud/) |
+| **Integration** | 70+ pluggable Starters: third-party SDKs + gs wiring | [`starter/`](starter/) — Gin, gRPC, Redis, MySQL, Kafka, Dubbo, Kitex… |
 | **Tooling** | CLI, code generation, mocking | [`gs`](gs/gs), [`gs-http-gen`](gs/gs-http-gen), [`gs-mock`](gs/gs-mock) |
 | **Examples & Templates** | End-to-end example apps + project scaffolds | [`examples/`](examples/), [`contrib/`](contrib/), [`layout/`](layout/) |
+
+The rule of thumb that keeps the stack clean: **abstractions go in `cloud`, third-party SDKs and gs wiring go in a starter, pure semantics with no ecosystem dependency go in `stdlib`** — a starter wires, cloud abstracts, spring runs.
 
 Full module inventory and architecture constraints: [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Why Go-Spring
+
+### The Mission: Completing the Go Ecosystem
+
+Go's standard library is famously complete for a language runtime — and deliberately minimal at the application level: no dependency-injection model, no layered-configuration convention, no starter-style auto-configuration, no unified application lifecycle or governance layer. Java fills that gap with Spring; **Go has nobody filling it** — DI libraries ship parts, framework ecosystems orbit their own transport, component libraries don't know each other.
+
+Go-Spring exists to fill exactly that gap: **building a complete, vendor-neutral application ecosystem for Go** — not another RPC framework, not another web framework, and not a rewrite of anything you already use. It competes with nothing in your stack; it assembles your stack.
+
+Who else plays this seat? Honest landscape:
+
+| Adjacent players | Examples | Why they're not this |
+|---|---|---|
+| DI libraries | Wire, fx, dig | Solve injection only — no config engine, no starter model, no lifecycle or governance. Parts, not an ecosystem. |
+| Framework-centric ecosystems | Kratos, go-zero, CloudWeGo | Excellent, but the ecosystem orbits **their own** framework: transport, layout, codegen, tooling. Adopting one is a commitment. |
+| Component libraries | dubbo-go, Kitex, Hertz, GORM, Gin… | **Peers, not competitors** — Go-Spring integrates them all symmetrically as Starters. |
+
+The neutral Spring-Boot-shaped application platform for Go is an essentially empty niche. That is the seat Go-Spring takes.
+
+### Not Another RPC Framework — an Application Platform
+
+This is the sharpest day-to-day difference from projects like **dubbo-go, Kitex, Kratos, or go-zero**: those are (primarily) **RPC / microservice frameworks** — they own the transport layer, the service model, and often a code-generation pipeline. Your application *is* a dubbo application or a Kitex application; adopting one means adopting its programming model.
+
+Go-Spring owns **no protocol and no transport**. It is the **assembly and runtime layer beneath and beside them**: dependency injection, layered configuration with hot reload, lifecycle management, and centralized service governance. Proof by construction — in this very repository, dubbo-go, Kitex, Kratos, go-zero, GoFrame, gRPC, tRPC, and Thrift each appear as **one Starter among 70**, integrated by the same `gs.Module` mechanism as Redis or MySQL:
+
+| | dubbo-go / Kitex / go-zero / Kratos | Go-Spring |
+|---|---|---|
+| **Category** | RPC / microservice framework (owns transport, service model, codegen) | Application assembly & runtime platform (IoC + config + lifecycle + governance) |
+| **Relationship** | *Integrated by Go-Spring* — `starter-dubbo` wraps dubbo-go; `starter-kitex`, `starter-kratos`, `starter-go-zero`… wrap the rest | Integrates them all symmetrically; picks no winner |
+| **Configuration** | Each ships its own config model | One layered engine (CLI → env → files → Nacos/etcd/Consul/Vault/K8s) driving every component, with `gs.Dync[T]` hot reload |
+| **Governance** | Scoped to its own RPC calls (dubbo-go: URL-param overrides) | **One centralized governance center** — timeout/retry/breaker/rate-limit + fault injection applied uniformly across Redis, GORM, HTTP, gRPC, gin, dubbo… from a single `${govern}` config, with pluggable rule sources (file/HTTP console/nacos/etcd direct listeners) |
+| **Programming model** | Framework-defined interfaces and structure required | Zero intrusion: standard `net/http`, plain structs, your layout |
+| **Use alone** | Yes | Yes — the core (`spring`) and ecosystem library (`cloud`) are usable without any RPC framework at all |
+
+In short: **they answer "how do services call each other"; Go-Spring answers "how an application is assembled, configured, governed, and kept maintainable"**. A production service typically needs both — which is why Go-Spring integrates them rather than competing with them. (For the DI-framework axis — Wire/fx/dig — see the comparison in [spring/README.md](spring/README.md#11--comparison-with-other-frameworks).)
 
 ### Out-of-the-Box, Zero Intrusion
 
@@ -56,6 +94,7 @@ No manual signal handling, no goroutine lifecycle management—the framework has
 | Domain | Capability | Coverage |
 |---|---|---|
 | **Configuration** | Multi-source layered merging (CLI → env vars → config files → remote config centers), type-safe binding, dynamic refresh | Nacos, Consul, Etcd, K8s ConfigMap, Vault |
+| **Service Governance** | Centralized governance center: timeout/retry/breaker/rate-limit/bulkhead + fault injection, one `${govern}` config for every client, hot-reloaded | default & sentinel backends; rule sources: `${govern}` properties, file, HTTP console, nacos, etcd |
 | **Logging** | Structured logging model, concise config DSL, pluggable Appenders | Console, File, custom |
 | **Service Discovery** | Unified `Discovery` abstraction, multiple registry backends | Consul, Etcd, Nacos, Zookeeper, Polaris, K8s |
 | **Distributed Coordination** | Distributed locks, messaging, transactions, events, scheduling, batch processing | Lock (4 backends), Kafka, Pulsar, RabbitMQ, NATS, MQTT, Saga, TCC, AT |

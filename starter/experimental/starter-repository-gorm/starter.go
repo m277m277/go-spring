@@ -47,7 +47,7 @@
 package StarterRepositoryGorm
 
 import (
-	"go-spring.org/spring/data/experimental/data/repository"
+	"go-spring.org/cloud/data/experimental/data/repository"
 	"gorm.io/gorm"
 )
 

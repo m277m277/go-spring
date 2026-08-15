@@ -52,9 +52,9 @@ import (
 	"go-spring.org/spring/gs"
 	StarterBigCache "go-spring.org/starter-bigcache"
 
-	_ "go-spring.org/cloud/governance"    // provides the centralized *governance.Center bean
 	_ "go-spring.org/starter-actuator"    // aggregates the bigcache health.Indicator
 	_ "go-spring.org/starter-config-file" // registers the file-watch config provider
+	_ "go-spring.org/starter-governance"  // provides the centralized *governance.Center bean
 )
 
 const mountDir = "./mount"

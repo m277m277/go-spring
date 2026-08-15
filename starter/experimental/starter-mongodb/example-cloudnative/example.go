@@ -50,9 +50,9 @@ import (
 	"go-spring.org/spring/gs"
 	"go.mongodb.org/mongo-driver/v2/bson"
 
-	_ "go-spring.org/cloud/governance"
 	_ "go-spring.org/starter-actuator"    // aggregates the mongodb health.Indicator
 	_ "go-spring.org/starter-config-file" // registers the file-watch config provider
+	_ "go-spring.org/starter-governance"
 	StarterMongoDB "go-spring.org/starter-mongodb"
 )
 

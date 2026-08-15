@@ -22,7 +22,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
-	"go-spring.org/spring/data/cache"
+	"go-spring.org/cloud/data/cache"
 )
 
 // NewByteCache wraps a redis.UniversalClient as a [cache.ByteCache] - the raw

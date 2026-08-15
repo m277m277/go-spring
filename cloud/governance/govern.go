@@ -28,12 +28,15 @@
 // obtains one. This mirrors the neutral global seams the package already exposes
 // for resilience ([resilience.ExecutorFor]) and fault injection, but is the
 // direct surface for callers (like starter-dubbo) that already import governance.
-// The single gs.Dync that feeds the authority lives on [Center] itself
-// (govern.go); importing cloud/governance is all an app needs to turn ${govern}
-// config into live policy. cloud/governance is NOT gs-free — govern.go and
-// global.go both import spring/gs. The pure-logic methods (PolicyFor, Refresh,
-// Register) stay container-agnostic: [NewCenter] builds a Center usable without
-// gs, which is how [Arm] and the package tests drive it.
+//
+// Config awareness is contract-first: the center consumes its own [Source]
+// interface (source.go) — a snapshot plus a change subscription — and nothing
+// else. This package is container-free: it imports no IoC concepts at all, so
+// the whole governance family is usable from any runtime. The gs wiring that
+// turns ${govern} properties into the default source (a gs.Dync adapted to
+// [Source], the bean registration, the seam arming) lives in the
+// starter-governance module — importing that starter is what makes
+// cloud/governance live in a gs app, exactly like any other starter/core pair.
 //
 // Governance scope: govern covers every client that goes through the
 // resilience Executor seam. dubbo, which has its own URL-param governance
@@ -50,7 +53,6 @@ import (
 
 	"go-spring.org/cloud/governance/fault"
 	"go-spring.org/cloud/governance/resilience"
-	"go-spring.org/spring/gs"
 )
 
 // Config is the single source of truth for governance. starter-govern binds it
@@ -128,35 +130,30 @@ type Rule struct {
 // subscriber whose resolved policy changed — so a single config push fans out
 // to all clients through one OnChanged handler, not one per starter bean.
 // Safe for concurrent use.
-// Center is the runtime governance authority. It holds an atomic snapshot of
-// the current [Config] and, on [Center.Refresh], notifies every registered
-// subscriber whose resolved policy changed — so a single config push fans out
-// to all clients through one OnChanged handler, not one per starter bean.
-// Safe for concurrent use.
 //
-// Center is also the gs-managed singleton (global.go registers the package
-// instance [global] as the bean): the ${govern} gs.Dync is a field, and
-// [Center.Init] builds the fault injector, arms the OnChanged subscription,
-// registers the executor/fault seams, and marks the authority live. [NewCenter]
-// is the direct construction path used by tests and [Arm].
+// The center is container-free: it knows sources only through the [Source]
+// contract. The gs wiring (binding ${govern} into the default source, arming
+// the seams, marking the authority live) lives in starter-governance's wiring
+// bean, which drives this package's facade ([BindDefault], [GoLive]).
+// [NewCenter] is the direct construction path used by tests and [Arm].
 type Center struct {
 	cfg atomic.Pointer[Config]
 
 	mu   sync.Mutex
 	subs map[string][]*subscriber // label -> subscribers
 
-	// The fields below are used only on the gs-managed path. They are left zero
-	// by [NewCenter] (tests drive the pure-logic methods directly).
+	// srcMu guards src; the handle indirection is what makes source
+	// replacement safe: callbacks from a REPLACED source are dropped by
+	// comparing handle pointers (never interface values, which can panic on
+	// non-comparable dynamic types), because a replaced source cannot always
+	// be unsubscribed — so stale callbacks must no-op instead of retracted.
+	srcMu sync.Mutex
+	src   *sourceHandle // active source; nil until BindDefault or SetSource binds one
 
-	// Gov is the single source of truth for governance. Field-injected and
-	// hot-reloaded: every client's resilience policy AND fault config flow from
-	// this one binding (resilience via PolicyFor, fault via injector).
-	Gov gs.Dync[Config] `value:"${govern:=}"`
-
-	// injector is the ONE process-wide fault injector, built from Gov's Fault
-	// config. It is always built (a disabled injector is a no-op), so fault can
-	// be toggled on at runtime via hot-reload; its config is swapped in place
-	// from the OnChanged handler.
+	// injector is the ONE process-wide fault injector, built by [Center.goLive]
+	// from the bound source's Fault config. It is always built (a disabled
+	// injector is a no-op), so fault can be toggled on at runtime via
+	// hot-reload; its config is swapped in place from the adopt sink.
 	injector *fault.Injector
 
 	// labelExecs memoizes the executor built per resource label so the
@@ -175,34 +172,106 @@ type subscriber struct {
 	cb   func(resilience.Policy)
 }
 
+// sourceHandle tokens the active [Source] so callbacks from a REPLACED source
+// can be identified and dropped without comparing interface values (which can
+// panic on non-comparable dynamic types).
+type sourceHandle struct{ src Source }
+
 // NewCenter snapshots cfg and returns a Center that resolves policies from it.
 // The cfg is adopted atomically; callers mutate it only via Refresh. This is the
-// direct construction path (tests, [Arm]); the gs-managed path uses the package
-// singleton in global.go plus [Center.Init].
+// direct construction path (tests, [Arm]); the starter-managed path uses the
+// package singleton in global.go plus [BindDefault] and [GoLive].
 func NewCenter(cfg Config) *Center {
 	c := &Center{subs: map[string][]*subscriber{}}
 	c.cfg.Store(&cfg)
 	return c
 }
 
-// Init is the gs lifecycle hook (global.go registers it). It snapshots the
-// bound ${govern} config into this singleton, builds the process-wide fault
-// injector, arms the ONE OnChanged subscription that fans both resilience and
-// fault hot-reloads, registers the executor/fault seams, and marks the authority
-// live (firing any [OnReady] callbacks). Registering the seams here (rather than
-// in a Runner.Run) is safe: both resolve lazily at call time.
-func (c *Center) Init() error {
-	cfg := c.Gov.Value()
-	c.cfg.Store(&cfg)
+// goLive completes the center's startup on the package singleton: it builds the
+// process-wide fault injector from the CURRENT snapshot, registers the
+// executor/fault seams, and marks the authority live (firing any [OnReady]
+// callbacks). Idempotent. The wiring starter calls it once after binding the
+// default source; registering the seams here (rather than in a Runner.Run) is
+// safe: both resolve lazily at call time.
+func (c *Center) goLive() {
+	if c.injector != nil {
+		return
+	}
+	cfg := *c.cfg.Load()
 	c.injector = fault.NewInjector(cfg.Fault)
-	c.Gov.OnChanged(func(new, _ Config) {
-		c.Refresh(new)
-		c.injector.SetConfig(new.Fault)
-	})
 	resilience.RegisterExecutorProvider(c.executorFor)
 	fault.RegisterInjector(c.injector)
 	markLive()
-	return nil
+}
+
+// adopt applies one config from whatever source: it fans resilience out via
+// [Center.Refresh] AND swaps the fault injector's config. It is the single sink
+// for ALL source pushes, which is what keeps the fault chain source-agnostic —
+// fault.Config always rides inside [Config], so any Source drives it for free.
+func (c *Center) adopt(cfg Config) {
+	c.Refresh(cfg)
+	if c.injector != nil {
+		c.injector.SetConfig(cfg.Fault)
+	}
+}
+
+// bindSource makes s the active source: install its handle, subscribe with a
+// stale guard (callbacks from a previously bound source no-op), then adopt s's
+// snapshot. The explicit snapshot adopt mirrors gs.Dync's contract that
+// OnChanged does not fire on the init bind — Subscribe delivers changes only,
+// Snapshot seeds the present.
+func (c *Center) bindSource(s Source) {
+	h := &sourceHandle{src: s}
+	c.srcMu.Lock()
+	c.src = h
+	c.srcMu.Unlock()
+	s.Subscribe(func(cfg Config) {
+		if !c.isActive(h) {
+			return // replaced source: drop
+		}
+		c.adopt(cfg)
+	})
+	c.adopt(s.Snapshot())
+}
+
+// isActive reports whether h is still the bound source handle.
+func (c *Center) isActive(h *sourceHandle) bool {
+	c.srcMu.Lock()
+	defer c.srcMu.Unlock()
+	return c.src == h
+}
+
+// setSource eagerly binds s as the active source. Before the wiring starter's
+// [BindDefault] it pre-empts the default source; afterwards it late-arms —
+// s.Snapshot() applies immediately and later pushes drive the center, while the
+// previous source's callbacks go stale via the handle guard. Eager binding
+// avoids a pending-registration state entirely, and works on the standalone
+// path (Arm-built centers, tests) where nothing would ever consume a pending
+// value.
+func (c *Center) setSource(s Source) {
+	if s == nil {
+		panic("governance: SetSource(nil)")
+	}
+	c.bindSource(s)
+}
+
+// bindDefault installs s as the active source only when none is bound yet, so
+// an explicit [SetSource] (callable at any time) always outranks the wiring
+// default. The wiring starter calls it once at startup with its chosen default
+// (a bean-injected Source, else the ${govern} adapter). The check-then-bind is
+// not atomic with concurrent SetSource, but wiring runs single-threaded before
+// the app serves; the guard machinery makes a lost race harmless anyway (the
+// loser's callbacks go stale).
+func (c *Center) bindDefault(s Source) {
+	if s == nil {
+		return
+	}
+	c.srcMu.Lock()
+	bound := c.src != nil
+	c.srcMu.Unlock()
+	if !bound {
+		c.bindSource(s)
+	}
 }
 
 // executorFor is the governance-backed provider registered with
@@ -223,10 +292,20 @@ func (c *Center) executorFor(label string) resilience.Executor {
 	return actual.(resilience.Executor)
 }
 
-// Destroy is a no-op today: the center holds only in-memory subscribers and an
-// atomic snapshot, with no background goroutines or closeable resources. It
-// exists so the gs lifecycle is symmetric and a future background pump can hook it.
-func (c *Center) Destroy() error { return nil }
+// Destroy closes the active source when it happens to be closeable (the
+// [Source] contract keeps Close optional — see source.go), else it is a no-op:
+// the center itself holds only in-memory subscribers and an atomic snapshot.
+func (c *Center) Destroy() error {
+	c.srcMu.Lock()
+	h := c.src
+	c.srcMu.Unlock()
+	if h != nil {
+		if cl, ok := h.src.(interface{ Close() error }); ok {
+			return cl.Close()
+		}
+	}
+	return nil
+}
 
 // Enabled reports whether the center is armed. When false, PolicyFor returns a
 // transparent pass-through policy and Register arms clients with a zero Policy.

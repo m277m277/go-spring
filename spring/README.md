@@ -346,9 +346,9 @@ Inject configuration items or beans into struct fields through tags,
 
 ```go
 type App struct {
-	Logger    *Logger      `autowire:""`           // Auto-inject Bean by type
-	Filters   []*Filter    `autowire:"access,*?"  // Inject multiple Beans, allowed to not exist
-	StartTime time.Time    `value:"${start-time}" // Bind configuration value
+	Logger    *Logger      `autowire:""`            // Auto-inject Bean by type
+	Filters   []*Filter    `autowire:"access,*?"`   // Inject multiple Beans, allowed to not exist
+	StartTime time.Time    `value:"${start-time}"`  // Bind configuration value
 }
 ```
 
@@ -563,13 +563,15 @@ go run main.go -Dserver.port=9090 -Dapp.env=production
 #### 2. Environment Variables
 Directly read from OS environment variables, best practice for containerized deployment:
 ```bash
-export SERVER_PORT=9090
-export APP_ENV=production
-export SPRING_PROFILES_ACTIVE=dev
+export GS_SERVER_PORT=9090              # maps to the "server.port" property key
+export GS_SPRING_PROFILES_ACTIVE=dev    # maps to "spring.profiles.active"
 ```
 
-> 💡 Go-Spring automatically converts underscores in environment variables to dots,
-> for example `SERVER_PORT` maps to `server.port`.
+> 💡 Environment variables with the `GS_` prefix are mapped into the property
+> namespace: the prefix is stripped, underscores become dots, and the key is
+> lowercased — `GS_SERVER_PORT` maps to `server.port`. Variables without the
+> prefix are exposed under their original names verbatim. A `.env` file, when
+> present, seeds the same layer for variables not already set in the environment.
 
 #### 3. profile configuration (multi-environment isolation)
 Achieves environment isolation by activating different profiles,
@@ -1100,7 +1102,23 @@ Below is a feature comparison between Go-Spring and other mainstream Go dependen
 Go-Spring **does not intend to replace any existing Go framework**,
 but acts as a "glue" to help you integrate the entire Go ecosystem.
 
-### 1️⃣ Design Philosophy
+### 1️⃣ The Layered Module Stack
+
+The whole ecosystem is organized as strictly layered modules —
+dependencies flow one way, downward:
+
+| Layer | Module | Role |
+|:---:|---|---|
+| 1 | `stdlib` | Zero-dependency utilities + pure semantic pieces (HTTP client/server, …) |
+| 2 | `log` | Structured logging engine |
+| 3 | `spring` | **This module**: IoC container (`gs`) + configuration engine (`conf`) — nothing else |
+| 4 | `cloud` | Ecosystem abstractions (governance, discovery, cache, …) — **container-free**, imports no spring package |
+| 5 | `starter` | 70+ integration modules: third-party SDKs + gs wiring |
+
+The rule of thumb: **abstractions go in `cloud`, wiring and third-party SDKs go
+in a starter** — so the core stays minimal and the ecosystem stays pluggable.
+
+### 2️⃣ Design Philosophy
 
 Go-Spring deeply respects Go's native ecosystem,
 the framework is fully compatible with the standard library and various third-party frameworks:
@@ -1108,21 +1126,25 @@ the framework is fully compatible with the standard library and various third-pa
 - ✅ **Can be used with any web framework like Gin/Echo/Chi**,
   the framework doesn't force you to replace your routing syntax
 - ✅ **Can be used with gRPC/protobuf ecosystem**, auto-wire services
+- ✅ **Can be used with RPC frameworks like dubbo-go/Kitex/tRPC** via starters,
+  including centralized timeout/retry governance
 - ✅ **Can be used with sql/database or ORM frameworks**, configuration-driven multiple data sources
 - ✅ **Fully compatible with Go standard library `net/http`, `context`, etc.**, no intrusive modifications
 
-### 2️⃣ Positioning and Division of Labor
+### 3️⃣ Positioning and Division of Labor
 
 | Component | What Go-Spring does | You can choose |
 |:---:|----------|---------|
 | **Dependency Injection** | ✅ Full responsibility | - |
 | **Configuration Management** | ✅ Full responsibility (multi-source, hot reloading) | - |
+| **Service Governance** | ✅ Centralized governance center (timeout/retry/breaker/rate-limit + fault injection) | backend-neutral |
 | **Web Routing** | Optional integration | Gin, Echo, Chi, standard library `net/http` |
+| **RPC Frameworks** | Optional integration | dubbo-go, Kitex, gRPC, tRPC, Thrift |
 | **ORM/Database** | Optional integration | GORM, XORM, sqlx, standard library `database/sql` |
 | **Logging** | Provides unified interface | Zap, Logrus, slog, etc. |
 | **Service Discovery/Registration** | Integratable via Starter | etcd, Consul, Nacos |
 
-In one sentence: **Go-Spring helps you manage dependencies and configuration well,
+In one sentence: **Go-Spring helps you manage dependencies, configuration and governance well,
 leaving the rest to the tools you're familiar with**.
 
 ## 13. 📖 Further Learning

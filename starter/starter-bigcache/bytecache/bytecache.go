@@ -22,7 +22,7 @@ import (
 	"time"
 
 	"github.com/allegro/bigcache/v3"
-	"go-spring.org/spring/data/cache"
+	"go-spring.org/cloud/data/cache"
 )
 
 // NewByteCache wraps a *bigcache.BigCache as a [cache.ByteCache] - the raw

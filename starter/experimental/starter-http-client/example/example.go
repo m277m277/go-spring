@@ -57,7 +57,7 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 
-	_ "go-spring.org/cloud/governance"
+	_ "go-spring.org/starter-governance"
 	_ "go-spring.org/starter-http-client"
 	"go-spring.org/starter-http-client/example/proto"
 )

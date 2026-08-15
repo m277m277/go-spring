@@ -30,10 +30,10 @@ import (
 	"syscall"
 	"time"
 
-	_ "go-spring.org/cloud/governance"
 	"go-spring.org/cloud/loadtest"
 	"go-spring.org/spring/gs"
 	StarterGormClickhouse "go-spring.org/starter-gorm-clickhouse"
+	_ "go-spring.org/starter-governance"
 )
 
 // Service is the root bean holding the autowired client instance "load".

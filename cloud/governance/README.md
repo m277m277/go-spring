@@ -9,6 +9,50 @@
 | `fault/` | **混沌面** | 故障注入（fault injection），借用 `Executor` 接缝注入失败。与 resilience 互为攻防。 |
 | `traffic/` | **流量识别面** | 压测/灰度流量标识的识别与传播。 |
 
+## 配置感知：Source 契约
+
+治理中心自成体系：它消费自己的 `Source` 接口（[source.go](source.go)）——一个配置快照加一个变更订阅，两个方法。整条生效链（label diff → executor 原地 Refresh → client 无感）只依赖这个契约，不感知配置从哪来。
+
+```
+${govern} gs.Dync ──dyncSource 适配──┐
+governance.Source bean ──────────────┼──→ Center（单一活跃源）→ adopt → Refresh + fault.SetConfig
+governance.SetSource(任意实现) ───────┘
+```
+
+文档格式由 `rules.Parse(name, data, format)`（starter-governance 的 `rules` 子包，spring/conf 与容器无关治理核心之间的共享解析胶水）统一：任何后端送来的规则文档（文件字节 / HTTP body / 配置中心 value）都用同一套解析与键语义（与 app.properties 的 `${govern}` 键完全相同），规则文件跨后端逐字节可移植。解析成功但没有任何 `govern.*` 键的文档一律报错（防截断静默关治理）。
+
+优先级：`SetSource` > bean 注入 > `${govern}` Dync 默认源。**不配置任何自定义 Source 时，行为与历史版本完全一致**——`${govern}` 经 dync 绑定驱动，所有 conf provider（file/nacos/k8s/consul/vault/bus）的 watch 照常生效。
+
+自定义 Source 的三种接入方式：
+
+```go
+// ① 推送式（治理控制台 / 定时拉取 / 测试）：PushSource 开箱即用
+src := governance.NewPushSource(governance.Config{})
+governance.SetSource(src)
+// 每次上游事件：
+src.Push(newCfg) // resilience 策略与 fault 演练配置一起热更
+
+// ② bean 注入（Source 需要自己的依赖与生命周期时）——Export 不可省略，
+//    否则接口注入找不到它，治理静默回落 ${govern} 默认源
+gs.Provide(newConsoleSource).Export(gs.As[governance.Source]())
+
+// ③ 直接实现 Source 接口（如监听配置中心专用 key）
+type nacosRuleSource struct{ ... }
+func (s *nacosRuleSource) Snapshot() governance.Config          { ... }
+func (s *nacosRuleSource) Subscribe(cb func(governance.Config)) { ... }
+```
+
+设计要点：单源替换、不内置 merge（`Rules` 是整体替换语义，合并策略属于组合 Source 实现的职责）；换源靠活跃源守卫（stale guard），旧源回调自动失效；`SetSource` 在 Init 前后调用均安全（后者为 late-arm，新源快照立即生效）。普通业务配置（如 `spring.dubbo.consumer`）与治理规则的动态化是两套机制：前者继续用 `gs.Dync` 字段绑定，后者走 Source 契约。
+
+开箱即用的自建链路适配器已覆盖多种后端：
+
+| 后端 | 所在 starter | 一行接线 |
+|---|---|---|
+| 独立规则文件（fsnotify） | starter-governance | `govern.source.file.path=...` |
+| 治理控制台 / 规则 API（轮询拉取） | starter-governance | `govern.source.http.url=...` |
+| Nacos 直连（专用 dataId，ListenConfig 推送） | starter-config-nacos | `govern.source.nacos.server=...` + `data-id=...` |
+| etcd 直连（专用 key，Watch 推送） | starter-config-etcd | `govern.source.etcd.endpoint=...` + `key=...` |
+
 ## 为什么是平级伞包，而非挂到 resilience 下
 
 `resilience` 是叶子原语，`governance`（控制面）、`fault`（混沌面）、`traffic`（识别面）都**依赖** resilience，是它的消费方。依赖方向为：
@@ -31,8 +75,12 @@ traffic      ← 纯叶子
 
 ## 配置
 
-治理中心绑定在 `${govern}` 配置前缀下（如 `govern.enabled`、`govern.rules`）。该前缀是配置命名空间，与 Go 包名 `governance` 独立。导入本包即生效：
+治理中心绑定在 `${govern}` 配置前缀下（如 `govern.enabled`、`govern.rules`）。该前缀是配置命名空间，与 Go 包名 `governance` 独立。
+
+本包**容器无关**（不 import spring/gs）：gs 接线（`${govern}` Dync 绑定为默认源、seam 注册、OnReady）在 **starter-governance** 的常驻 wiring bean 里。应用侧：
 
 ```go
-import _ "go-spring.org/cloud/governance" // 注册集中治理中心
+import _ "go-spring.org/starter-governance" // 默认 ${govern} 接线 + 可选动态源
 ```
+
+非 gs 运行时直接用门面：`governance.Arm(cfg)` 或 `governance.SetSource(src)` + `governance.GoLive()`。

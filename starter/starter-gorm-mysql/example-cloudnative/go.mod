@@ -29,9 +29,10 @@ require (
 	github.com/smarty/assertions v1.16.0 // indirect
 	github.com/smartystreets/goconvey v1.8.1 // indirect
 	github.com/spf13/cast v1.10.0 // indirect
-	go-spring.org/starter-gorm v0.0.0 // indirect
 	go-spring.org/gs-mock v0.0.9 // indirect
 	go-spring.org/log v0.1.4 // indirect
+	go-spring.org/starter-gorm v0.0.0 // indirect
+	go-spring.org/starter-governance v0.0.0
 	go-spring.org/stdlib v0.1.7 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel v1.45.0 // indirect
@@ -48,9 +49,11 @@ require (
 
 replace (
 	go-spring.org/cloud => ../../../cloud
-	go-spring.org/starter-gorm => ../../../starter/starter-gorm
 	go-spring.org/starter-actuator => ../../experimental/starter-actuator
 	go-spring.org/starter-config-file => ../../starter-config-file
+	go-spring.org/starter-gorm => ../../../starter/starter-gorm
 	go-spring.org/starter-gorm-mysql => ..
 	go-spring.org/stdlib => ../../../stdlib
 )
+
+replace go-spring.org/starter-governance => ../../starter-governance

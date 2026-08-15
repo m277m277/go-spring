@@ -59,7 +59,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"go-spring.org/spring/web/httpclt"
+	"go-spring.org/stdlib/httpclt"
 )
 {{- end}}
 

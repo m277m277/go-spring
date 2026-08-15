@@ -190,6 +190,7 @@ use (
 	./starter/starter-bigcache/example-cloudnative
 	./starter/starter-bigcache/example-load
 	./starter/starter-bigcache/example-otel
+	./starter/starter-cache
 	./starter/starter-config-etcd
 	./starter/starter-config-etcd/example
 	./starter/starter-config-file
@@ -211,6 +212,8 @@ use (
 	./starter/starter-go-redis/example-load
 	./starter/starter-go-redis/example-otel
 	./starter/starter-go-redis/example-resilience
+	./starter/starter-governance
+	./starter/starter-governance/example
 	./starter/starter-gorm
 	./starter/starter-gorm-mysql
 	./starter/starter-gorm-mysql/example

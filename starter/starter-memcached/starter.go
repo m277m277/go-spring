@@ -18,10 +18,11 @@ package StarterMemcached
 
 import (
 	"go-spring.org/cloud/actuator/health"
+	"go-spring.org/cloud/data/cache"
 	"go-spring.org/log"
 	"go-spring.org/spring/conf"
-	"go-spring.org/spring/data/cache"
 	"go-spring.org/spring/gs"
+	StarterCache "go-spring.org/starter-cache"
 	"go-spring.org/starter-memcached/bytecache"
 	health2 "go-spring.org/starter-memcached/health"
 	"go-spring.org/stdlib/errutil"
@@ -65,7 +66,7 @@ func init() {
 // The beanID selects which memcache client bean to wrap; the implementation
 // lives in starter-memcached/bytecache.
 func init() {
-	cache.RegisterDriver("memcached", func(beanID string) gs.ModuleFunc {
+	StarterCache.RegisterDriver("memcached", func(beanID string) gs.ModuleFunc {
 		return func(r gs.BeanProvider, p flatten.Storage) error {
 			r.Provide(func(c *Client) *cache.Cache {
 				return &cache.Cache{ByteCache: bytecache.NewByteCache(c.Client)}

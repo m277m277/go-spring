@@ -464,12 +464,14 @@ go run main.go -Dserver.port=9090 -Dapp.env=production
 #### 2. 环境变量
 直接读取操作系统环境变量，容器化部署的最佳实践：
 ```bash
-export SERVER_PORT=9090
-export APP_ENV=production
-export SPRING_PROFILES_ACTIVE=dev
+export GS_SERVER_PORT=9090              # 映射到属性键 "server.port"
+export GS_SPRING_PROFILES_ACTIVE=dev    # 映射到 "spring.profiles.active"
 ```
 
-> 💡 Go-Spring 会自动将环境变量中的下划线转为点号，例如 `SERVER_PORT` 映射到 `server.port`。
+> 💡 带 `GS_` 前缀的环境变量会映射进属性命名空间：去掉前缀、下划线转点号、
+> 键转小写——`GS_SERVER_PORT` 映射到 `server.port`。不带前缀的变量按原始
+> 键名原样暴露。存在 `.env` 文件时，其中尚未在环境里设置的变量会补充进同
+> 一配置层。
 
 #### 3. profile 配置（多环境隔离）
 通过激活不同的 profile 实现环境隔离，文件命名格式为 `app-{profile}.{ext}`：
@@ -948,27 +950,44 @@ func TestExample(t *testing.T) {
 
 Go-Spring **并不打算替代任何现有的 Go 框架**，而是扮演"粘合剂"的角色，帮你整合整个 Go 生态。
 
-### 1️⃣ 设计理念
+### 1️⃣ 分层模块栈
+
+整个生态按严格的分层模块组织——依赖单向向下：
+
+| 层 | 模块 | 职责 |
+|:---:|---|---|
+| 1 | `stdlib` | 零依赖工具 + 纯语义件（HTTP client/server 等） |
+| 2 | `log` | 结构化日志引擎 |
+| 3 | `spring` | **本模块**：IoC 容器（`gs`）+ 配置引擎（`conf`），仅此而已 |
+| 4 | `cloud` | 生态抽象（治理、服务发现、缓存等）——**容器无关**，不 import 任何 spring 包 |
+| 5 | `starter` | 70+ 集成模块：三方 SDK + gs 接线 |
+
+全仓口径：**抽象进 cloud，接线与三方 SDK 进 starter**——核心保持极小，生态保持可插拔。
+
+### 2️⃣ 设计理念
 
 Go-Spring 深度尊重 Go 原生生态，框架本身完全兼容标准库和各类第三方框架：
 
 - ✅ **可以配合 Gin/Echo/Chi 等任何 Web 框架使用**，框架不强制替换你的路由写法
 - ✅ **可以配合 gRPC/protobuf 生态使用**，自动装配服务
+- ✅ **可以通过 starter 配合 dubbo-go/Kitex/tRPC 等 RPC 框架使用**，含集中式超时/重试治理
 - ✅ **可以配合 sql/database 或 ORM 框架使用**，配置驱动多数据源
 - ✅ **完全兼容 Go 标准库 `net/http`、`context` 等**，无任何侵入改造
 
-### 2️⃣ 定位与分工
+### 3️⃣ 定位与分工
 
 | 组件 | Go-Spring 做什么 | 你可以选择 |
 |:---:|----------|---------|
 | **依赖注入** | ✅ 全权负责 | - |
 | **配置管理** | ✅ 全权负责（多来源、热更新） | - |
+| **服务治理** | ✅ 集中治理中心（超时/重试/熔断/限流 + 放火演练） | 后端中立 |
 | **Web 路由** | 可选择集成 | Gin、Echo、Chi、标准库 `net/http` |
+| **RPC 框架** | 可选择集成 | dubbo-go、Kitex、gRPC、tRPC、Thrift |
 | **ORM/数据库** | 可选择集成 | GORM、XORM、sqlx、标准库 `database/sql` |
 | **日志** | 提供统一接口 | Zap、Logrus、slog 等 |
 | **服务发现/注册** | 可通过 Starter 集成 | etcd、Consul、Nacos |
 
-一句话总结：**Go-Spring 帮你管好依赖和配置，其他的交给你熟悉的工具**。
+一句话总结：**Go-Spring 帮你管好依赖、配置和治理，其他的交给你熟悉的工具**。
 
 ## 13. 📖 进一步学习
 

@@ -22,7 +22,7 @@ import (
 	"time"
 
 	"github.com/bradfitz/gomemcache/memcache"
-	"go-spring.org/spring/data/cache"
+	"go-spring.org/cloud/data/cache"
 )
 
 // NewByteCache wraps a *memcache.Client as a [cache.ByteCache] - the raw
