@@ -14,6 +14,9 @@
  * limitations under the License.
  */
 
+// Package fileutil provides small file-system helpers over the os package.
+// [PathExists] reports whether a path exists without surfacing os.ErrNotExist,
+// and [ReadDirNames] lists a directory's entry names.
 package fileutil
 
 import (

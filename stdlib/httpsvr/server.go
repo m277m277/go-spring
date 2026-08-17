@@ -14,6 +14,11 @@
  * limitations under the License.
  */
 
+// Package httpsvr is a thin HTTP server toolkit: a Go 1.22+ ServeMux-based
+// [Server] seam, a [RequestContext] abstraction, and generic handler wrappers
+// for JSON ([HandleJSON]) and Server-Sent Events ([HandleStream]). It refuses
+// to become a full web framework - no middleware chain, no binding-tag magic,
+// no dependency injection.
 package httpsvr
 
 import (

@@ -50,7 +50,7 @@ README covering its positioning, usage and key design decisions.
 | [goutil](./goutil/) | Generic Go utilities, context cancellation control and more |
 | [iterutil](./iterutil/) | Iterator and loop processing utilities |
 | [listutil](./listutil/) | Generic, type-safe skin over `container/list` plus slice helpers |
-| [ordered](./ordered/) | Ordered map and set data structures |
+| [ordered](./ordered/) | Sorted map-key iteration helper |
 
 ### Errors, Context & Files
 

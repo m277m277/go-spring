@@ -14,6 +14,9 @@
  * limitations under the License.
  */
 
+// Package md5util provides a convenience wrapper over crypto/md5. [MD5]
+// returns the lowercase hexadecimal MD5 checksum of a string; use it for
+// checksums and non-cryptographic fingerprints only.
 package md5util
 
 import (

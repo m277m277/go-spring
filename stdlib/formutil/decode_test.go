@@ -34,8 +34,8 @@ func (x *Request) DecodeForm(data string) error {
 	}
 
 	var (
-		seenBool bool
-		seenInt  bool
+		hasBool bool
+		hasInt  bool
 	)
 
 	for key, values := range m {
@@ -44,7 +44,7 @@ func (x *Request) DecodeForm(data string) error {
 		}
 		switch key {
 		case "Bool":
-			seenBool = true
+			hasBool = true
 			if x.Bool, err = formutil.DecodeBool(key, values); err != nil {
 				return errutil.Explain(err, "decode form field %s error", key)
 			}
@@ -53,7 +53,7 @@ func (x *Request) DecodeForm(data string) error {
 				return errutil.Explain(err, "decode form field %s error", key)
 			}
 		case "Int":
-			seenInt = true
+			hasInt = true
 			if x.Int, err = formutil.DecodeInt[int](key, values); err != nil {
 				return errutil.Explain(err, "decode form field %s error", key)
 			}
@@ -137,10 +137,10 @@ func (x *Request) DecodeForm(data string) error {
 		}
 	}
 
-	if !seenBool {
+	if !hasBool {
 		return errutil.Explain(nil, "missing required field Bool")
 	}
-	if !seenInt {
+	if !hasInt {
 		return errutil.Explain(nil, "missing required field Int")
 	}
 

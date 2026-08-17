@@ -14,6 +14,10 @@
  * limitations under the License.
  */
 
+// Package jsonv2 adapts encoding/json/v2's jsontext encoder/decoder to the
+// vendor-neutral json interfaces (see go-spring.org/stdlib/jsonflow/internal/json).
+// It is the only implementation of that seam, so jsonflow's streaming helpers
+// work against Go 1.26's encoding/json/v2 without leaking it to callers.
 package jsonv2
 
 import (

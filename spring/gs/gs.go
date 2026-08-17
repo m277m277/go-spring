@@ -410,8 +410,8 @@ type (
 	// updating every gs.Dync[T] value in place.
 	PropertiesRefresher = gs_app.PropertiesRefresher
 
-	// EnvProvider exposes a read-only snapshot of the merged configuration
-	// properties for operational introspection.
+	// EnvProvider exposes a read-only snapshot of the configuration sources for
+	// operational introspection.
 	EnvProvider = gs_app.EnvProvider
 )
 

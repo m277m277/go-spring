@@ -514,7 +514,14 @@ func TestApp(t *testing.T) {
 		err := app.Start()
 		assert.That(t, err).Nil()
 
-		snapshot := provider.Snapshot()
-		assert.That(t, snapshot["app.name"]).Equal("test-app")
+		// The property lands in the default source (name ""), unmerged with the
+		// higher-priority command-line/environment sources.
+		var appName string
+		for _, src := range provider.Snapshot() {
+			if src.Name == "" {
+				appName = src.Data["app.name"]
+			}
+		}
+		assert.String(t, appName).Equal("test-app")
 	})
 }

@@ -14,6 +14,11 @@
  * limitations under the License.
  */
 
+// Package typeutil provides reflect-based predicates over Go types: function,
+// error, and constructor classification ([IsFuncType], [IsErrorType],
+// [IsConstructor]), primitive and bean-type checks, and binding/injection
+// target validation. It is the shared type-introspection vocabulary used by
+// the container and binding code.
 package typeutil
 
 import (

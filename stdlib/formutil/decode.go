@@ -14,6 +14,10 @@
  * limitations under the License.
  */
 
+// Package formutil provides generic encode/decode helpers between Go values
+// and form-style key-value maps (url.Values, []string). It is a set of
+// symmetric per-field primitives, not a struct binder and not a validator -
+// overflow range-checking is the only cross-cutting rule here.
 package formutil
 
 import (

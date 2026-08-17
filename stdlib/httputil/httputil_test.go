@@ -19,7 +19,6 @@ package httputil
 import (
 	"crypto/tls"
 	"net/http"
-	"strings"
 	"testing"
 
 	"go-spring.org/stdlib/testing/assert"
@@ -85,6 +84,12 @@ func TestServerAddrPort(t *testing.T) {
 		assert.String(t, addr).Equal("::1")
 		assert.Number(t, port).Equal(9000)
 	})
+
+	t.Run("ipv6 host without port strips brackets", func(t *testing.T) {
+		addr, port := ServerAddrPort("[::1]", "http")
+		assert.String(t, addr).Equal("::1")
+		assert.Number(t, port).Zero()
+	})
 }
 
 func TestFlattenHeader(t *testing.T) {
@@ -97,18 +102,13 @@ func TestFlattenHeader(t *testing.T) {
 		assert.String(t, FlattenHeader(h)).Equal("X-Request-Id: abc")
 	})
 
-	// Map iteration order is non-deterministic, so assert on the set of
-	// "Key: Value" pieces rather than the exact joined string.
+	// Keys are emitted in sorted order, so the exact string is deterministic.
 	t.Run("multiple headers and multi-value", func(t *testing.T) {
 		h := http.Header{
 			"Accept": []string{"text/plain", "application/json"},
 			"Host":   []string{"example.com"},
 		}
-		got := FlattenHeader(h)
-		assert.That(t, strings.Contains(got, "Accept: text/plain")).True()
-		assert.That(t, strings.Contains(got, "Accept: application/json")).True()
-		assert.That(t, strings.Contains(got, "Host: example.com")).True()
-		// Three pieces (two Accept values + one Host) joined by "; " -> two separators.
-		assert.Number(t, strings.Count(got, "; ")).Equal(2)
+		assert.String(t, FlattenHeader(h)).
+			Equal("Accept: text/plain; Accept: application/json; Host: example.com")
 	})
 }

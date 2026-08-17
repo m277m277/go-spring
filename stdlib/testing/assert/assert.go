@@ -14,8 +14,7 @@
  * limitations under the License.
  */
 
-// Package assert provides assertion helpers for testing,
-// offering both functional and fluent assertion styles.
+// Package assert provides fluent, type-specific assertion helpers for testing.
 // When an assertion fails, the test will continue running.
 // For assertions that should stop the test on failure, use the `require` package.
 package assert

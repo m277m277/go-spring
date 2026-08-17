@@ -32,6 +32,9 @@ import (
 // capturing the current stack (the panicking frames are still on it when
 // called from a deferred recover). It is a no-op for a nil recovered value.
 func ReportPanic(ctx context.Context, recovered any) {
+	if recovered == nil {
+		return
+	}
 	if OnPanic != nil {
 		OnPanic(ctx, PanicInfo{Panic: recovered, Stack: debug.Stack()})
 	}

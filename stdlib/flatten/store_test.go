@@ -740,7 +740,7 @@ func TestStorageIntegration(t *testing.T) {
 	})
 }
 
-func TestLayeredStorage_Data(t *testing.T) {
+func TestLayeredStorage_Sources(t *testing.T) {
 	var s LayeredStorage
 	s.AddStorage(StorageCommandLine, NewPropertiesStorage(NewProperties(map[string]string{
 		"app.name":  "override",
@@ -751,18 +751,26 @@ func TestLayeredStorage_Data(t *testing.T) {
 		"app.port": "8080",
 	})), "appFile")
 
-	// The higher-priority layer wins for shared keys, and keys from both
-	// layers appear in the snapshot.
-	data := s.Data()
-	assert.That(t, data).Equal(map[string]string{
+	// Sources are reported in priority order (highest first), each keeping its
+	// own raw data — no merge across layers.
+	sources := s.Sources()
+	assert.That(t, len(sources)).Equal(2)
+
+	assert.String(t, sources[0].Name).Equal("commandLine")
+	assert.That(t, sources[0].Data).Equal(map[string]string{
 		"app.name":  "override",
 		"app.debug": "true",
-		"app.port":  "8080",
 	})
 
-	// The snapshot is a mutable copy: writing to it must not leak into the
-	// underlying sources.
-	data["app.name"] = "mutated"
+	assert.String(t, sources[1].Name).Equal("appFile")
+	assert.That(t, sources[1].Data).Equal(map[string]string{
+		"app.name": "original",
+		"app.port": "8080",
+	})
+
+	// Each source's data is a fresh copy: writing to it must not leak into the
+	// underlying storage.
+	sources[0].Data["app.name"] = "mutated"
 	assert.String(t, "override").Equal(mustValue(t, &s, "app.name"))
 }
 

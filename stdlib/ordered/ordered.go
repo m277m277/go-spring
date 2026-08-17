@@ -14,6 +14,10 @@
  * limitations under the License.
  */
 
+// Package ordered provides helpers for deterministic iteration order over
+// maps. [MapKeys] returns the sorted keys of a map whose key type is ordered.
+// It is a named location for future "deterministic order" helpers, not an
+// ordered-map data structure.
 package ordered
 
 import (

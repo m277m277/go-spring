@@ -282,6 +282,15 @@ type ConfigSource struct {
 	Name string
 }
 
+// Source is a read-only snapshot of a single configuration source: its name and
+// a copy of its flattened key-value pairs. LayeredStorage.Sources returns these
+// in priority order (highest first) without merging them, so callers can see the
+// raw per-source data and decide for themselves how it aggregates.
+type Source struct {
+	Name string
+	Data map[string]string
+}
+
 // LayeredStorage aggregates multiple configuration sources with
 // deterministic precedence rules.
 //
@@ -445,22 +454,23 @@ func (s *LayeredStorage) SliceEntries(key string, result map[string]string) bool
 	return false
 }
 
-// Data returns a flattened snapshot of every leaf key across all layers, with
-// values resolved by the normal override rule (higher-priority layers win).
-// It is intended for introspection (e.g. an actuator "env" endpoint), not for
-// binding. The returned map is a fresh copy the caller may mutate freely.
-func (s *LayeredStorage) Data() map[string]string {
-	out := make(map[string]string)
+// Sources returns a read-only snapshot of every configuration source in
+// priority order (highest first). Unlike Value, MapKeys, and SliceEntries, it
+// performs no merge: each source keeps its own flattened key-value pairs. This
+// reflects the layered model faithfully, since leaf, map, and slice properties
+// aggregate differently across layers and no single merged map can represent
+// all three at once. Each entry's Data map is a fresh copy the caller may
+// mutate freely.
+func (s *LayeredStorage) Sources() []Source {
+	out := make([]Source, 0)
 	for _, arr := range s.layers {
 		for _, source := range arr {
-			for k := range source.Data() {
-				if _, seen := out[k]; seen {
-					continue
-				}
-				if v, ok := s.Value(k); ok {
-					out[k] = v
-				}
+			raw := source.Data()
+			data := make(map[string]string, len(raw))
+			for k, v := range raw {
+				data[k] = v
 			}
+			out = append(out, Source{Name: source.Name, Data: data})
 		}
 	}
 	return out

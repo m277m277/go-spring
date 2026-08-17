@@ -28,14 +28,14 @@ import (
 	"go-spring.org/cloud/observe/resilience"
 )
 
-// Config binds one declarative-HTTP-client instance under
-// "${spring.http-client}". Each entry yields a named *http.Client whose
-// transport is assembled by stdlib/httpx: service discovery + load balancing
-// when ServiceName is set, or a fixed address otherwise, optionally protected
-// by resilience and always traced through the OTel globals. A generated client
-// (gs-http-gen) is wired by injecting this *http.Client into its HTTPClient
-// field, so switching a call between a direct address and a discovered service
-// is a pure-config change.
+// Config binds one declarative-HTTP-client entry under
+// "${spring.http-client}". Each entry contributes a route whose transport is
+// assembled by stdlib/httpx: service discovery + load balancing when
+// ServiceName is set, or a fixed address otherwise, optionally protected by
+// resilience and always traced through the OTel globals. All entries share one
+// process-wide client (installed by replacing httpclt.DoRequest); a generated
+// client routes by its Target (addr or service-name), so switching a call
+// between a direct address and a discovered service is a pure-config change.
 type Config struct {
 	// Addr is the direct "host:port" to call. Used when ServiceName is empty;
 	// mutually exclusive with it.

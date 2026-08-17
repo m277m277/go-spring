@@ -14,6 +14,9 @@
  * limitations under the License.
  */
 
+// Package netutil provides small network helpers. [LocalIPv4] returns the
+// first non-loopback IPv4 address of the local machine, cached after the
+// first call.
 package netutil
 
 import (

@@ -14,6 +14,11 @@
  * limitations under the License.
  */
 
+// Package jsonflow is the framework's streaming JSON layer, built on Go 1.26's
+// encoding/json/v2 + encoding/json/jsontext. It is the single JSON boundary
+// for the codebase: drop-in Marshal/Unmarshal helpers, generic Encode/Decode
+// streaming helpers for hand-written or generated encoders/decoders, and a
+// JSONEncoder/JSONDecoder seam for values that own their wire format.
 package jsonflow
 
 import (
@@ -76,7 +81,7 @@ func toJSONv2Options(opts []MarshalOptions) []jsontext.Options {
 			options = append(options, stdjsonv2.FormatNilMapAsNull(bool(x)))
 		case Deterministic:
 			options = append(options, stdjsonv2.Deterministic(bool(x)))
-		default: // foreign MarshalOptions implementations carry no jsonv2 meaning, so they are ignored
+		default: // for linter
 		}
 	}
 	return options

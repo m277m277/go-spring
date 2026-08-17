@@ -209,3 +209,37 @@ func TestEncodeFormBody(t *testing.T) {
 	assert.Error(t, err).Nil()
 	assert.That(t, gotBody).Equal("message=world")
 }
+
+// TestDoRequestReplacement pins that DoRequest is the single dispatch seam:
+// replacing the whole var redirects every declarative call through it.
+func TestDoRequestReplacement(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"message":"replaced"}`))
+	}))
+	defer server.Close()
+
+	old := httpclt.DoRequest
+	httpclt.DoRequest = func(req *http.Request, meta httpclt.Metadata, fn func(io.Reader) error) (*http.Response, error) {
+		resp, err := server.Client().Do(req)
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = resp.Body.Close() }()
+		if err = fn(resp.Body); err != nil {
+			return nil, err
+		}
+		return resp, nil
+	}
+	t.Cleanup(func() { httpclt.DoRequest = old })
+
+	meta := httpclt.Metadata{
+		Target:  server.Listener.Addr().String(),
+		Schema:  "http",
+		Method:  http.MethodGet,
+		RawPath: "/hello",
+	}
+
+	_, out, err := httpclt.JSONResponse[map[string]any](context.Background(), meta)
+	assert.Error(t, err).Nil()
+	assert.That(t, out["message"]).Equal("replaced")
+}

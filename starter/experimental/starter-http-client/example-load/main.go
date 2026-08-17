@@ -23,6 +23,7 @@ package main
 import (
 	"context"
 	"flag"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -32,18 +33,10 @@ import (
 
 	"go-spring.org/cloud/loadtest"
 	"go-spring.org/spring/gs"
+	"go-spring.org/stdlib/httpclt"
 
-	// Blank-import the starter so its gs.OnProperty group registers the named
-	// *http.Client beans. Unlike redis/db starters there is no starter-specific
-	// type to autowire (the bean is a stdlib *http.Client), so the import must
-	// be explicit.
 	_ "go-spring.org/starter-http-client"
 )
-
-// Service is the root bean holding the autowired *http.Client instance "load".
-type Service struct {
-	Client *http.Client `autowire:"load"`
-}
 
 var (
 	concurrency = flag.Int("concurrency", 8, "concurrent workers")
@@ -63,11 +56,10 @@ func main() {
 	srv := &http.Server{Addr: backendAddr, Handler: mux}
 	go func() { _ = srv.ListenAndServe() }()
 
-	bean := gs.Provide(&Service{}).Export(gs.As[gs.Rooter]())
 	if !*manual {
 		go func() {
 			time.Sleep(500 * time.Millisecond) // let gs wire + the client build
-			runLoad(bean.Interface().(*Service))
+			runLoad()
 		}()
 	} else {
 		println("=== Manual mode: load runs once on startup; Ctrl+C to stop ===")
@@ -75,7 +67,7 @@ func main() {
 	gs.Run()
 }
 
-func runLoad(s *Service) {
+func runLoad() {
 	ctx := context.Background()
 	url := "http://" + backendAddr + "/ping"
 	op := func(ctx context.Context) error {
@@ -83,12 +75,12 @@ func runLoad(s *Service) {
 		if err != nil {
 			return err
 		}
-		resp, err := s.Client.Do(req)
-		if err != nil {
-			return err
-		}
-		_ = resp.Body.Close()
-		return nil
+		req.Host = backendAddr // dispatch routes by req.Host
+		_, err = httpclt.DoRequest(req, httpclt.Metadata{}, func(r io.Reader) error {
+			_, _ = io.Copy(io.Discard, r)
+			return nil
+		})
+		return err
 	}
 	loadtest.Run(ctx, loadtest.Config{Concurrency: *concurrency, Duration: *duration}, op).Print(os.Stdout)
 	if !*manual {

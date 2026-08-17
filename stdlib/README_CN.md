@@ -46,7 +46,7 @@
 | [goutil](./goutil/) | Go 泛型通用工具，上下文取消控制等功能 |
 | [iterutil](./iterutil/) | 迭代器和循环处理工具 |
 | [listutil](./listutil/) | 给 `container/list` 加泛型类型安全外壳，附切片工具 |
-| [ordered](./ordered/) | 有序 Map 和有序 Set 数据结构 |
+| [ordered](./ordered/) | map key 排序遍历工具 |
 
 ### 错误、上下文与文件
 

@@ -76,17 +76,6 @@ const (
 	serviceName = "greet-svc"
 )
 
-// Service consumes three declarative clients, each backed by a differently
-// assembled *http.Client the starter registered under a group key (see
-// conf/app.properties). The generated proto.Client only holds an *http.Client,
-// so switching a call between a direct address and a discovered service is a
-// pure-config change — the call site never changes.
-type Service struct {
-	Direct     *http.Client `autowire:"direct"`
-	Discovered *http.Client `autowire:"discovered"`
-	Guarded    *http.Client `autowire:"guarded"`
-}
-
 // greetHandler answers /greet with a small JSON body. servedBy identifies which
 // instance replied (so load balancing is observable) and traceParent echoes the
 // inbound W3C trace-context header (so trace propagation is observable).
@@ -141,12 +130,10 @@ func main() {
 	go startBackend(addrBackendB, "backend-B")
 	go startFlakyBackend(addrFlaky)
 
-	svrBean := gs.Provide(&Service{}).Export(gs.As[gs.Rooter]())
-
 	if !*manual {
 		go func() {
 			time.Sleep(500 * time.Millisecond)
-			runTest(svrBean.Interface().(*Service))
+			runTest()
 		}()
 	} else {
 
@@ -157,11 +144,11 @@ func main() {
 	gs.Run()
 }
 
-func runTest(s *Service) {
+func runTest() {
 	ctx := context.Background()
 
 	// (1) Direct address: the "direct" client is pinned to backend-A.
-	directClient := &proto.Client{Target: serviceName, HTTPClient: s.Direct}
+	directClient := &proto.Client{Target: addrBackendA}
 	_, out, err := directClient.Greet(ctx, &proto.GreetReq{Name: "Ada"})
 	if err != nil {
 		fail("direct call failed: %v", err)
@@ -173,7 +160,7 @@ func runTest(s *Service) {
 
 	// (2) Discovery + load balancing: the "discovered" client routes by service
 	// name and round-robins, so servedBy flips between the two instances.
-	lbClient := &proto.Client{Target: serviceName, HTTPClient: s.Discovered}
+	lbClient := &proto.Client{Target: serviceName}
 	seen := map[string]int{}
 	for range 4 {
 		_, out, err := lbClient.Greet(ctx, &proto.GreetReq{Name: "Grace"})
@@ -204,7 +191,7 @@ func runTest(s *Service) {
 	// (4) Resilience: the "guarded" client hits a backend that always 500s. The
 	// first calls fail against the network; once the breaker opens, later calls
 	// fast-fail with ErrCircuitOpen without a round-trip.
-	guardedClient := &proto.Client{Target: serviceName, HTTPClient: s.Guarded}
+	guardedClient := &proto.Client{Target: addrFlaky}
 	var breakerOpened bool
 	for i := range 6 {
 		start := time.Now()

@@ -14,6 +14,10 @@
  * limitations under the License.
  */
 
+// Package patchutil provides [PatchValue], an unsafe helper that clears the
+// internal read-only flags on a reflect.Value so an unexported struct field
+// can be assigned. It is version-dependent and intended only for controlled
+// internal tooling, never production code.
 package patchutil
 
 import (

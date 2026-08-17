@@ -30,6 +30,7 @@ package httputil
 import (
 	"net"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -72,6 +73,11 @@ func ServerAddrPort(host, scheme string) (addr string, port int) {
 	if h, p, err := net.SplitHostPort(host); err == nil {
 		addr = h
 		port, _ = strconv.Atoi(p)
+	} else if strings.HasPrefix(host, "[") && strings.HasSuffix(host, "]") {
+		// A bare bracketed IPv6 literal without a port (e.g. "[::1]"):
+		// SplitHostPort requires a port, so strip the brackets to match the
+		// with-port case.
+		addr = host[1 : len(host)-1]
 	}
 	if (scheme == "https" && port == 443) || (scheme == "http" && port == 80) {
 		port = 0
@@ -82,11 +88,18 @@ func ServerAddrPort(host, scheme string) (addr string, port int) {
 // FlattenHeader renders a header map as a single "Key: Value; Key: Value" string,
 // joining multi-value headers with repeated keys. It is a convenience for log
 // fields and similar single-string summaries where a structured header map is
-// not wanted; the iteration order is non-deterministic (map over http.Header).
+// not wanted. Keys are emitted in sorted order so the output is deterministic
+// across calls; values within a key keep their original order.
 func FlattenHeader(h http.Header) string {
+	keys := make([]string, 0, len(h))
+	for k := range h {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
 	var b strings.Builder
-	for k, vs := range h {
-		for _, v := range vs {
+	for _, k := range keys {
+		for _, v := range h[k] {
 			if b.Len() > 0 {
 				b.WriteString("; ")
 			}

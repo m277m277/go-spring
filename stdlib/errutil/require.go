@@ -14,16 +14,11 @@
  * limitations under the License.
  */
 
-// require.go holds the precondition helpers of errutil. Each returns a
-// structured error (built via Explain) when a constructor's required input is
-// missing, so a misconfigured component fails fast with a clear message instead
-// of slipping through to a cryptic downstream error.
-//
-// These are imperative, runtime checks — the natural fit for cross-field rules
-// (e.g. "addr OR service-name") that spring/conf's declarative, per-field
-// `expr:` tag cannot express. They are intentionally general: pure string
-// checks with no dependency on the config engine, so they apply to any struct
-// field, not only bound configuration.
+// require.go holds errutil's precondition helpers, RequireField and RequireAny.
+// See the package doc for how they complement spring/conf's declarative `expr:`
+// tag. They are intentionally general — pure string checks with no dependency
+// on the config engine — so they apply to any string field, not only bound
+// configuration.
 
 package errutil
 
@@ -61,6 +56,11 @@ func RequireField(component, field, value string) error {
 // TrimSpace) value is found; only when all are empty does it build an error
 // reading "<component>: one of <a> or <b> [or <c>...] is required", where the
 // field names are joined with " or " in the order given.
+//
+// Callers should pass at least two fields: a single-field "required" check is
+// RequireField's job, and a one-field RequireAny would read "one of <a> is
+// required" — grammatical nonsense. A zero-field call produces an empty name
+// list and is a caller bug.
 //
 //	if err := errutil.RequireAny("http-client",
 //	    errutil.Field{Name: "addr", Value: cfg.Addr},

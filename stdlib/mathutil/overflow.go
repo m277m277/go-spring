@@ -14,6 +14,10 @@
  * limitations under the License.
  */
 
+// Package mathutil provides overflow checking for integer, unsigned, and
+// float conversions ([OverflowInt], [OverflowUint], [OverflowFloat]). The
+// target type is a type parameter, so a defined type (e.g. `type ID int32`)
+// is checked against its underlying size.
 package mathutil
 
 import (

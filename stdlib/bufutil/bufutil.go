@@ -43,9 +43,7 @@ type LimitedBuffer struct {
 }
 
 // NewLimitedBuffer returns a LimitedBuffer that keeps at most max bytes; further
-// writes are discarded (and still reported as written). Panics if max < 0, since
-// a negative cap is a programmer error, not a runtime condition to silently
-// paper over.
+// writes are discarded (and still reported as written). Panics if max < 0.
 func NewLimitedBuffer(max int) *LimitedBuffer {
 	if max < 0 {
 		panic("bufutil: negative cap")
@@ -54,23 +52,22 @@ func NewLimitedBuffer(max int) *LimitedBuffer {
 }
 
 // Write appends p to the buffer up to the cap, discarding any overflow. It always
-// returns len(p) and a nil error, so it satisfies io.Writer without ever
-// backpressuring or erroring its caller - the property an io.TeeReader relies on.
+// returns len(p) and a nil error, so it satisfies io.Writer without ever blocking
+// or erroring its caller - the property an io.TeeReader relies on.
 func (b *LimitedBuffer) Write(p []byte) (int, error) {
-	if b.buf.Len() < b.max {
-		n := b.max - b.buf.Len()
-		if n > len(p) {
-			n = len(p)
-		}
+	if n := min(b.max-b.buf.Len(), len(p)); n > 0 {
 		b.buf.Write(p[:n])
 	}
 	return len(p), nil
 }
 
-// WriteString appends s up to the cap. It is a convenience wrapper around Write
-// that avoids a []byte conversion at the call site.
+// WriteString appends s up to the cap. It mirrors Write but avoids a []byte
+// conversion, dropping any overflow while still reporting len(s), nil.
 func (b *LimitedBuffer) WriteString(s string) (int, error) {
-	return b.Write([]byte(s))
+	if n := min(b.max-b.buf.Len(), len(s)); n > 0 {
+		b.buf.WriteString(s[:n])
+	}
+	return len(s), nil
 }
 
 // Bytes returns the buffered bytes (at most max). The slice aliases the buffer's

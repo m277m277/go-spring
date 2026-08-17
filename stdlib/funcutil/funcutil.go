@@ -14,6 +14,9 @@
  * limitations under the License.
  */
 
+// Package funcutil provides small helpers over function values. [FuncName] and
+// [FileLine] recover a function's source location and name via reflection,
+// useful for keeping call-site debug info on dynamically registered functions.
 package funcutil
 
 import (

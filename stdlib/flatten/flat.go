@@ -14,6 +14,11 @@
  * limitations under the License.
  */
 
+// Package flatten turns hierarchical JSON-shaped data into flat "key ->
+// string" maps and provides the storage abstraction the Go-Spring
+// configuration binder reads against. It never reads files, env, or CLI
+// flags: callers build a [Properties] / [LayeredStorage] and slot it into a
+// configuration layer.
 package flatten
 
 import (

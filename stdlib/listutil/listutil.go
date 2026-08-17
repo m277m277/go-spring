@@ -14,6 +14,9 @@
  * limitations under the License.
  */
 
+// Package listutil provides a generic, type-safe skin over container/list
+// ([List], [Element]) plus small slice and iteration helpers ([SliceOf],
+// [ListOf], [AllOfList], [WriteStrings]).
 package listutil
 
 import (

@@ -23,6 +23,7 @@ import (
 	"strings"
 
 	"go-spring.org/log"
+	"go-spring.org/stdlib/flatten"
 )
 
 // secretKeyRe matches configuration keys whose values are sensitive and must be
@@ -61,26 +62,42 @@ func (s *Server) handleLoggers(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleEnv reports the merged configuration as a flat, masked property source.
+// handleEnv reports every configuration source with its raw, masked flat
+// properties. Sources are listed in priority order (highest first), unmerged, so
+// operators see the original data and judge for themselves how it aggregates.
 // Values whose keys name secrets or that are ENC(...) placeholders are redacted.
 func (s *Server) handleEnv(w http.ResponseWriter, r *http.Request) {
-	snapshot := s.snapshot()
-	properties := make(map[string]any, len(snapshot))
-	for k, v := range snapshot {
-		properties[k] = map[string]string{"value": maskValue(k, v)}
+	sources := s.snapshot()
+	propertySources := make([]map[string]any, 0, len(sources))
+	for _, src := range sources {
+		properties := make(map[string]any, len(src.Data))
+		for k, v := range src.Data {
+			properties[k] = map[string]string{"value": maskValue(k, v)}
+		}
+		propertySources = append(propertySources, map[string]any{
+			"name":       src.Name,
+			"properties": properties,
+		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"propertySources": []map[string]any{
-			{"name": "application", "properties": properties},
-		},
+		"propertySources": propertySources,
 	})
 }
 
-// handleConfigProps reports the merged configuration as a nested tree, the Go
-// analogue of Spring Boot's /actuator/configprops structured view. Values are
-// masked with the same policy as /env.
+// handleConfigProps reports every configuration source as a nested tree, the Go
+// analogue of Spring Boot's /actuator/configprops structured view. Sources are
+// listed in priority order (highest first), unmerged, and values are masked with
+// the same policy as /env.
 func (s *Server) handleConfigProps(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, buildTree(s.snapshot()))
+	sources := s.snapshot()
+	trees := make([]map[string]any, 0, len(sources))
+	for _, src := range sources {
+		trees = append(trees, map[string]any{
+			"name":   src.Name,
+			"config": buildTree(src.Data),
+		})
+	}
+	writeJSON(w, http.StatusOK, trees)
 }
 
 // handleThreadDump writes a goroutine stack dump as text/plain — the Go analogue
@@ -91,11 +108,11 @@ func (s *Server) handleThreadDump(w http.ResponseWriter, r *http.Request) {
 	_ = pprof.Lookup("goroutine").WriteTo(w, 2)
 }
 
-// snapshot returns the current merged property snapshot, or an empty map when no
+// snapshot returns the current configuration sources, or an empty slice when no
 // EnvProvider was injected.
-func (s *Server) snapshot() map[string]string {
+func (s *Server) snapshot() []flatten.Source {
 	if s.Env == nil {
-		return map[string]string{}
+		return []flatten.Source{}
 	}
 	return s.Env.Snapshot()
 }

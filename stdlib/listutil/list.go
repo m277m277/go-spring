@@ -59,12 +59,14 @@ func New[T any]() *List[T] {
 // The complexity is O(1).
 func (l *List[T]) Len() int { return l.List.Len() }
 
-// Front returns the first element of list l or nil if the list is empty.
+// Front returns the first element of list l, or the zero Element if the list
+// is empty.
 func (l *List[T]) Front() Element[T] {
 	return Element[T]{l.List.Front()}
 }
 
-// Back returns the last element of list l or nil if the list is empty.
+// Back returns the last element of list l, or the zero Element if the list
+// is empty.
 func (l *List[T]) Back() Element[T] {
 	return Element[T]{l.List.Back()}
 }

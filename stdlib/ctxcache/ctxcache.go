@@ -53,10 +53,20 @@ import (
 )
 
 var (
+	// ErrCacheNotInitialized is returned when no [Cache] is attached to the
+	// context, i.e. [Init] was never called on it.
 	ErrCacheNotInitialized = errutil.Explain(nil, "cache not initialized")
+
+	// ErrCacheAlreadyCleared is returned when the cache has been cleared (its
+	// cancel function was called) and is permanently unusable.
 	ErrCacheAlreadyCleared = errutil.Explain(nil, "cache already cleared")
-	ErrKeyNotSet           = errutil.Explain(nil, "key not set")
-	ErrKeyAlreadySet       = errutil.Explain(nil, "key already set")
+
+	// ErrKeyNotSet is returned by [Get] when no value has been set for the key.
+	ErrKeyNotSet = errutil.Explain(nil, "key not set")
+
+	// ErrKeyAlreadySet is returned by [Set] when the key already holds a value
+	// (write-once semantics).
+	ErrKeyAlreadySet = errutil.Explain(nil, "key already set")
 )
 
 type cacheKeyType struct{}

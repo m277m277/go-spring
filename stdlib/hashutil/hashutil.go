@@ -14,6 +14,9 @@
  * limitations under the License.
  */
 
+// Package hashutil provides hashing helpers. [FNV1a64] computes the 64-bit
+// FNV-1a hash of a string via the standard library hash/fnv, favouring
+// readability and stdlib consistency over raw performance.
 package hashutil
 
 import (

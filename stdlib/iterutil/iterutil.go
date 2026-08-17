@@ -14,6 +14,10 @@
  * limitations under the License.
  */
 
+// Package iterutil provides callback-style loop helpers ([Times], [Ranges],
+// [StepRanges]) that run a body function once per iteration. Because the body
+// runs inside a callback, a defer inside it fires at the end of each iteration
+// rather than when the enclosing function returns.
 package iterutil
 
 // Times executes the function 'fn' exactly 'count' times. The loop body runs

@@ -14,6 +14,11 @@
  * limitations under the License.
  */
 
+// Package json is a vendor-neutral seam of streaming token interfaces
+// ([Encoder], [Decoder], [Kind]) that jsonflow's public streaming helpers
+// program against. It keeps those helpers independent of a concrete JSON
+// implementation; jsonv2 (see go-spring.org/stdlib/jsonflow/internal/jsonv2)
+// is its sole adapter, built on encoding/json/v2.
 package json
 
 // Kind represents each possible JSON token kind with a single byte,

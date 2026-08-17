@@ -129,10 +129,10 @@ func (c *PropertiesRefresher) RefreshProperties() error {
 	return c.app.RefreshProperties()
 }
 
-// EnvProvider exposes a read-only snapshot of the application's merged
-// configuration properties for operational introspection (e.g. an actuator
-// "env" endpoint). Components inject this bean instead of reaching into the
-// container, and the snapshot stays current across hot property refreshes.
+// EnvProvider exposes a read-only snapshot of the application's configuration
+// sources for operational introspection (e.g. an actuator "env" endpoint).
+// Components inject this bean instead of reaching into the container, and the
+// snapshot stays current across hot property refreshes.
 //
 // It carries no secret-masking policy of its own: callers that surface values
 // to operators are responsible for masking sensitive keys/values.
@@ -140,13 +140,15 @@ type EnvProvider struct {
 	app *App
 }
 
-// Snapshot returns a fresh copy of every resolved leaf property, keyed by its
-// flattened dot-path. Returns an empty map before properties are loaded.
-func (c *EnvProvider) Snapshot() map[string]string {
+// Snapshot returns the raw configuration sources in priority order (highest
+// first), without merging them. Each source keeps its own flattened key-value
+// pairs, so callers can see the original data and decide for themselves how it
+// aggregates. Returns an empty slice before properties are loaded.
+func (c *EnvProvider) Snapshot() []flatten.Source {
 	if ls := c.app.env.Load(); ls != nil {
-		return (*ls).Data()
+		return (*ls).Sources()
 	}
-	return map[string]string{}
+	return []flatten.Source{}
 }
 
 // App represents the core application, managing its lifecycle,
