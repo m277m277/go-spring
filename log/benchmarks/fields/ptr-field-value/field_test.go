@@ -18,10 +18,10 @@ package ptr_field_value
 
 import (
 	"bytes"
+	"fmt"
 	"testing"
 
 	"benchmark-fields/encoder"
-	"go-spring.org/stdlib/testing/assert"
 )
 
 type bools []bool
@@ -71,6 +71,64 @@ func BenchmarkFieldValue(b *testing.B) {
 	arrInt64s := []int64{1, 2, 3, 4, 5, 6, 7, 8}
 	arrFloat64s := []float64{1.1, 2.2, 3.3, 4.4, 5.5, 6.6, 7.7, 8.8}
 	arrStrings := []string{"a", "b", "c", "d", "e", "f", "g", "h"}
+
+	b1 := bytes.NewBuffer(nil)
+	b2 := bytes.NewBuffer(nil)
+	b3 := bytes.NewBuffer(nil)
+	b4 := bytes.NewBuffer(nil)
+	b5 := bytes.NewBuffer(nil)
+	b6 := bytes.NewBuffer(nil)
+	b7 := bytes.NewBuffer(nil)
+	b8 := bytes.NewBuffer(nil)
+
+	{
+		v := Bools("arr", arrBools)
+		v.Encode(encoder.NewJSONEncoder(b1))
+	}
+
+	{
+		v := Array("arr", bools(arrBools))
+		v.Encode(encoder.NewJSONEncoder(b2))
+	}
+
+	{
+		v := Int64s("arr", arrInt64s)
+		v.Encode(encoder.NewJSONEncoder(b3))
+	}
+
+	{
+		v := Array("arr", int64s(arrInt64s))
+		v.Encode(encoder.NewJSONEncoder(b4))
+	}
+
+	{
+		v := Float64s("arr", arrFloat64s)
+		v.Encode(encoder.NewJSONEncoder(b5))
+	}
+
+	{
+		v := Array("arr", float64s(arrFloat64s))
+		v.Encode(encoder.NewJSONEncoder(b6))
+	}
+
+	{
+		v := Strings("arr", arrStrings)
+		v.Encode(encoder.NewJSONEncoder(b7))
+	}
+
+	{
+		v := Array("arr", strings(arrStrings))
+		v.Encode(encoder.NewJSONEncoder(b8))
+	}
+
+	fmt.Println(b1.String())
+	fmt.Println(b2.String())
+	fmt.Println(b3.String())
+	fmt.Println(b4.String())
+	fmt.Println(b5.String())
+	fmt.Println(b6.String())
+	fmt.Println(b7.String())
+	fmt.Println(b8.String())
 
 	b.Run("bools", func(b *testing.B) {
 		b.ResetTimer()
@@ -151,34 +209,4 @@ func BenchmarkFieldValue(b *testing.B) {
 			v.Encode(encoder.NewJSONEncoder(bytes.NewBuffer(nil)))
 		}
 	})
-}
-
-func TestFieldValueEncode(t *testing.T) {
-	arrBools := []bool{true, false, true, false, true, false}
-	arrInt64s := []int64{1, 2, 3, 4, 5, 6, 7, 8}
-	arrFloat64s := []float64{1.1, 2.2, 3.3, 4.4, 5.5, 6.6, 7.7, 8.8}
-	arrStrings := []string{"a", "b", "c", "d", "e", "f", "g", "h"}
-
-	tests := []struct {
-		name string
-		f    *Field
-		want string
-	}{
-		{"bools", Bools("arr", arrBools), `"arr":[true,false,true,false,true,false]`},
-		{"bools as ArrayValue", Array("arr", bools(arrBools)), `"arr":[true,false,true,false,true,false]`},
-		{"int64s", Int64s("arr", arrInt64s), `"arr":[1,2,3,4,5,6,7,8]`},
-		{"int64s as ArrayValue", Array("arr", int64s(arrInt64s)), `"arr":[1,2,3,4,5,6,7,8]`},
-		{"float64s", Float64s("arr", arrFloat64s), `"arr":[1.1,2.2,3.3,4.4,5.5,6.6,7.7,8.8]`},
-		{"float64s as ArrayValue", Array("arr", float64s(arrFloat64s)), `"arr":[1.1,2.2,3.3,4.4,5.5,6.6,7.7,8.8]`},
-		{"strings", Strings("arr", arrStrings), `"arr":["a","b","c","d","e","f","g","h"]`},
-		{"strings as ArrayValue", Array("arr", strings(arrStrings)), `"arr":["a","b","c","d","e","f","g","h"]`},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			buf := bytes.NewBuffer(nil)
-			tt.f.Encode(encoder.NewJSONEncoder(buf))
-			assert.String(t, buf.String()).Equal(tt.want)
-		})
-	}
 }

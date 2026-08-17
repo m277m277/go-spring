@@ -22,15 +22,10 @@ import (
 	"go-spring.org/log"
 )
 
-// refreshGSLog refreshes the global go-spring/log configuration so that the
-// root logger (used by every tag, including log.TagAppDef) discards events
-// at or above the given level. Like the zap arms' Discarder sink, this keeps
-// I/O out of the measurement while the level gate stays on the hot path:
-// pass "info" to measure the enabled path and "warn" to disable log.Info.
-func refreshGSLog(level string) {
+func fakeGSAppenders() {
 	err := log.RefreshConfig(map[string]string{
 		"logger.root.type":  "DiscardLogger",
-		"logger.root.level": level,
+		"logger.root.level": "warn",
 	})
 
 	if err != nil {
@@ -41,9 +36,9 @@ func refreshGSLog(level string) {
 func fakeGSlogFields() []log.Field {
 	return []log.Field{
 		log.Int("int", _tenInts[0]),
-		log.Ints("ints", _tenInts),
+		log.Any("ints", _tenInts),
 		log.String("string", _tenStrings[0]),
-		log.Strings("strings", _tenStrings),
+		log.Any("strings", _tenStrings),
 		log.String("time", _tenTimes[0].Format(time.RFC3339)),
 		log.Any("times", _tenTimes),
 		log.Any("user1", _oneUser),

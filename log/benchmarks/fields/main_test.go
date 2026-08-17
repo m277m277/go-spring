@@ -22,7 +22,6 @@ import (
 
 	"benchmark-fields/encoder"
 	"benchmark-fields/field-value"
-	"benchmark-fields/ptr-field-value"
 	"benchmark-fields/value-interface"
 	"benchmark-fields/value-struct"
 )
@@ -39,22 +38,18 @@ func BenchmarkFields(b *testing.B) {
 	// value_interface/bools-8      10864762	109.4 ns/op	  152 B/op	  4 allocs/op
 	// value_struct/bools-8         11207328	107.6 ns/op	  152 B/op	  4 allocs/op
 	// field_value/bools-8          11133696	108.8 ns/op	  152 B/op	  4 allocs/op
-	// ptr_field_value/bools-8      10279502	115.1 ns/op	  216 B/op	  5 allocs/op
 
 	// value_interface/int64s-8      8831475	138.4 ns/op	  152 B/op	  4 allocs/op
 	// value_struct/int64s-8         8929010	134.1 ns/op	  152 B/op	  4 allocs/op
 	// field_value/int64s-8          8978941	132.0 ns/op	  152 B/op	  4 allocs/op
-	// ptr_field_value/int64s-8      8677076	136.6 ns/op	  216 B/op	  5 allocs/op
 
 	// value_interface/float64s-8    1927635	614.1 ns/op	  344 B/op	 12 allocs/op
 	// value_struct/float64s-8       1980488	604.1 ns/op	  344 B/op	 12 allocs/op
 	// field_value/float64s-8        1992417	601.2 ns/op	  344 B/op	 12 allocs/op
-	// ptr_field_value/float64s-8    2018670	593.8 ns/op	  408 B/op	 13 allocs/op
 
 	// value_interface/strings-8     8276900	144.9 ns/op	  152 B/op	  4 allocs/op
 	// value_struct/strings-8        8107906	148.5 ns/op	  152 B/op	  4 allocs/op
 	// field_value/strings-8         8212352	149.6 ns/op	  152 B/op	  4 allocs/op
-	// ptr_field_value/strings-8     8143918	147.1 ns/op	  216 B/op	  5 allocs/op
 
 	b.Run("value_interface", func(b *testing.B) {
 		b.Run("bools", func(b *testing.B) {
@@ -168,45 +163,6 @@ func BenchmarkFields(b *testing.B) {
 
 			for b.Loop() {
 				v := field_value.Strings("arr", arrStrings)
-				v.Encode(encoder.NewJSONEncoder(bytes.NewBuffer(nil)))
-			}
-		})
-	})
-
-	b.Run("ptr_field_value", func(b *testing.B) {
-		b.Run("bools", func(b *testing.B) {
-			b.ResetTimer()
-			b.ReportAllocs()
-
-			for b.Loop() {
-				v := ptr_field_value.Bools("arr", arrBools)
-				v.Encode(encoder.NewJSONEncoder(bytes.NewBuffer(nil)))
-			}
-		})
-		b.Run("int64s", func(b *testing.B) {
-			b.ResetTimer()
-			b.ReportAllocs()
-
-			for b.Loop() {
-				v := ptr_field_value.Int64s("arr", arrInt64s)
-				v.Encode(encoder.NewJSONEncoder(bytes.NewBuffer(nil)))
-			}
-		})
-		b.Run("float64s", func(b *testing.B) {
-			b.ResetTimer()
-			b.ReportAllocs()
-
-			for b.Loop() {
-				v := ptr_field_value.Float64s("arr", arrFloat64s)
-				v.Encode(encoder.NewJSONEncoder(bytes.NewBuffer(nil)))
-			}
-		})
-		b.Run("strings", func(b *testing.B) {
-			b.ResetTimer()
-			b.ReportAllocs()
-
-			for b.Loop() {
-				v := ptr_field_value.Strings("arr", arrStrings)
 				v.Encode(encoder.NewJSONEncoder(bytes.NewBuffer(nil)))
 			}
 		})

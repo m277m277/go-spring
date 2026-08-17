@@ -246,11 +246,10 @@ type RollingFileAppender struct {
 // Start opens the initial log file and prepares for rotation.
 func (c *RollingFileAppender) Start() error {
 	c.writer = &RollingFileWriter{
-		fileDir:    c.FileDir,
-		fileName:   c.FileName,
-		interval:   c.Interval,
-		maxAge:     c.MaxAge,
-		closeDelay: defaultCloseFileDelay,
+		fileDir:  c.FileDir,
+		fileName: c.FileName,
+		interval: c.Interval,
+		maxAge:   c.MaxAge,
 	}
 	_, err := c.writer.Rotate()
 	return err
@@ -286,10 +285,6 @@ func (c *RollingFileAppender) Append(e *Event) {
 // otherwise the appender must be driven by a single goroutine.
 func (c *RollingFileAppender) ConcurrentSafe() bool { return c.SyncLock }
 
-// defaultCloseFileDelay is how long a rotated file stays open after rotation
-// before it is closed and becomes eligible for MaxAge cleanup.
-const defaultCloseFileDelay = 5 * time.Minute
-
 // RollingFileWriter is the low-level sequential writer.
 // It is NOT safe for concurrent use;
 // synchronization is the responsibility of the caller/appender.
@@ -300,23 +295,11 @@ type RollingFileWriter struct {
 	currFile *File
 	currTime int64
 	maxAge   time.Duration
-
-	// closeDelay is how long a rotated file stays open after Rotate switches
-	// to a new file. RollingFileAppender.Start sets it to defaultCloseFileDelay;
-	// a zero value (direct construction) also falls back to that default.
-	// Tests may shorten it to make rotation cleanup observable.
-	closeDelay time.Duration
 }
 
 // Rotate creates a new log file if the current time exceeds the rotation interval.
 // It returns the active file for writing.
-//
-// The previous file is closed asynchronously after closeDelay, and expired-file
-// cleanup (MaxAge) runs right after that close. The delay is a tradeoff: keeping
-// the old file briefly open lets writes that raced with the rotation still land,
-// but those late events go to the already-rotated file and may be lost once it
-// is closed or cleaned up.
-//
+// The previous file is closed asynchronously after a delay.
 // This method is not concurrency-safe.
 func (w *RollingFileWriter) Rotate() (*File, error) {
 	now := time.Now()
@@ -336,12 +319,9 @@ func (w *RollingFileWriter) Rotate() (*File, error) {
 
 	if w.currFile != nil {
 		oldFile := w.currFile
-		delay := w.closeDelay
-		if delay <= 0 {
-			delay = defaultCloseFileDelay
-		}
 		go func() {
-			time.Sleep(delay)
+			// Delay closing old file. Some logs may be lost.
+			time.Sleep(5 * time.Minute)
 			CloseFile(oldFile)
 			w.clearExpiredFiles()
 		}()

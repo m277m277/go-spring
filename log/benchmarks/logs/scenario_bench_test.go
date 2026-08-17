@@ -114,15 +114,6 @@ func BenchmarkDisabledWithoutFields(b *testing.B) {
 			}
 		})
 	})
-	b.Run("go-spring/log", func(b *testing.B) {
-		refreshGSLog("warn")
-		b.ResetTimer()
-		b.RunParallel(func(pb *testing.PB) {
-			for pb.Next() {
-				log.Info(context.Background(), log.TagAppDef, log.Msg(getMessage(0)))
-			}
-		})
-	})
 }
 
 func BenchmarkDisabledAccumulatedContext(b *testing.B) {
@@ -210,17 +201,6 @@ func BenchmarkDisabledAccumulatedContext(b *testing.B) {
 			}
 		})
 	})
-	b.Run("go-spring/log", func(b *testing.B) {
-		refreshGSLog("warn")
-		log.FieldsFromContext = func(context.Context) []log.Field { return fakeGSlogFields() }
-		b.Cleanup(func() { log.FieldsFromContext = nil })
-		b.ResetTimer()
-		b.RunParallel(func(pb *testing.PB) {
-			for pb.Next() {
-				log.Info(context.Background(), log.TagAppDef, log.Msg(getMessage(0)))
-			}
-		})
-	})
 }
 
 func BenchmarkDisabledAddingFields(b *testing.B) {
@@ -296,15 +276,6 @@ func BenchmarkDisabledAddingFields(b *testing.B) {
 		b.RunParallel(func(pb *testing.PB) {
 			for pb.Next() {
 				logger.LogAttrs(context.Background(), slog.LevelInfo, getMessage(0), fakeSlogFields()...)
-			}
-		})
-	})
-	b.Run("go-spring/log", func(b *testing.B) {
-		refreshGSLog("warn")
-		b.ResetTimer()
-		b.RunParallel(func(pb *testing.PB) {
-			for pb.Next() {
-				log.Info(context.Background(), log.TagAppDef, fakeGSlogFields()...)
 			}
 		})
 	})
@@ -401,6 +372,24 @@ func BenchmarkWithoutFields(b *testing.B) {
 			}
 		})
 	})
+	//b.Run("stdlib.Println", func(b *testing.B) {
+	//	logger := log.New(&Discarder{}, "", log.LstdFlags)
+	//	b.ResetTimer()
+	//	b.RunParallel(func(pb *testing.PB) {
+	//		for pb.Next() {
+	//			logger.Println(getMessage(0))
+	//		}
+	//	})
+	//})
+	//b.Run("stdlib.Printf", func(b *testing.B) {
+	//	logger := log.New(&Discarder{}, "", log.LstdFlags)
+	//	b.ResetTimer()
+	//	b.RunParallel(func(pb *testing.PB) {
+	//		for pb.Next() {
+	//			logger.Printf("%v %v %v %s %v %v %v %v %v %s\n", fakeFmtArgs()...)
+	//		}
+	//	})
+	//})
 	b.Run("rs/zerolog", func(b *testing.B) {
 		logger := newZerolog()
 		b.ResetTimer()
@@ -445,15 +434,6 @@ func BenchmarkWithoutFields(b *testing.B) {
 		b.RunParallel(func(pb *testing.PB) {
 			for pb.Next() {
 				logger.LogAttrs(context.Background(), slog.LevelInfo, getMessage(0))
-			}
-		})
-	})
-	b.Run("go-spring/log", func(b *testing.B) {
-		refreshGSLog("info")
-		b.ResetTimer()
-		b.RunParallel(func(pb *testing.PB) {
-			for pb.Next() {
-				log.Info(context.Background(), log.TagAppDef, log.Msg(getMessage(0)))
 			}
 		})
 	})
@@ -597,17 +577,6 @@ func BenchmarkAccumulatedContext(b *testing.B) {
 			}
 		})
 	})
-	b.Run("go-spring/log", func(b *testing.B) {
-		refreshGSLog("info")
-		log.FieldsFromContext = func(context.Context) []log.Field { return fakeGSlogFields() }
-		b.Cleanup(func() { log.FieldsFromContext = nil })
-		b.ResetTimer()
-		b.RunParallel(func(pb *testing.PB) {
-			for pb.Next() {
-				log.Info(context.Background(), log.TagAppDef, log.Msg(getMessage(0)))
-			}
-		})
-	})
 }
 
 func BenchmarkAddingFields(b *testing.B) {
@@ -730,8 +699,8 @@ func BenchmarkAddingFields(b *testing.B) {
 			}
 		})
 	})
+	fakeGSAppenders()
 	b.Run("go-spring/log", func(b *testing.B) {
-		refreshGSLog("info")
 		b.ResetTimer()
 		b.RunParallel(func(pb *testing.PB) {
 			for pb.Next() {

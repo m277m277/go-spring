@@ -49,15 +49,14 @@ type loggerEntry struct {
 	ConfiguredLevel string `json:"configuredLevel"`
 }
 
-// handleLoggers lists the configured loggers with their effective levels and the
-// selectable level names, the Go analogue of Spring Boot's /actuator/loggers.
+// handleLoggers lists the configured loggers with their effective levels, the
+// Go analogue of Spring Boot's /actuator/loggers (read-only).
 func (s *Server) handleLoggers(w http.ResponseWriter, r *http.Request) {
 	loggers := make(map[string]loggerEntry)
 	for _, l := range log.Loggers() {
 		loggers[l.Name] = loggerEntry{ConfiguredLevel: l.Level}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"levels":  log.AvailableLevels(),
 		"loggers": loggers,
 	})
 }

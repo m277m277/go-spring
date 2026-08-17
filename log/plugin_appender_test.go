@@ -169,56 +169,6 @@ func TestRollingFileAppender(t *testing.T) {
 		assert.That(t, filepath.Base(file.Name())).Equal(want)
 	})
 
-	t.Run("Rotate closes the old file after closeDelay and clears expired files", func(t *testing.T) {
-		dir := t.TempDir()
-		prefix := filepath.Join(dir, "app.log.")
-		t.Cleanup(func() {
-			closeOpenFilesWithPrefix(prefix)
-		})
-
-		// A file older than MaxAge must be removed by the cleanup that
-		// runs after the rotated file is closed.
-		expiredPath := filepath.Join(dir, "app.log.20200101000000")
-		err := os.WriteFile(expiredPath, nil, 0644)
-		assert.Error(t, err).Nil()
-		expiredTime := time.Now().Add(-2 * time.Hour)
-		err = os.Chtimes(expiredPath, expiredTime, expiredTime)
-		assert.Error(t, err).Nil()
-
-		w := &RollingFileWriter{
-			fileDir:    dir,
-			fileName:   "app.log",
-			interval:   time.Second,
-			maxAge:     time.Hour,
-			closeDelay: 10 * time.Millisecond,
-		}
-		file1, err := w.Rotate()
-		assert.Error(t, err).Nil()
-
-		// File names use second resolution, so wait for the next second
-		// to force a rotation onto a distinct file.
-		now := time.Now()
-		time.Sleep(time.Until(now.Truncate(time.Second).Add(1050 * time.Millisecond)))
-
-		file2, err := w.Rotate()
-		assert.Error(t, err).Nil()
-		assert.That(t, file2.Name() == file1.Name()).False()
-
-		// The rotated file is closed after closeDelay; only the current
-		// file stays open. The cleanup removes the expired file but keeps
-		// the fresh (not expired) rotated one.
-		time.Sleep(100 * time.Millisecond)
-		assert.That(t, countOpenFilesWithPrefix(prefix)).Equal(1)
-
-		_, err = os.Stat(file1.Name())
-		assert.Error(t, err).Nil()
-
-		_, err = os.Stat(expiredPath)
-		assert.That(t, os.IsNotExist(err)).True()
-
-		w.Close()
-	})
-
 	t.Run("clearExpiredFiles removes only expired matching files", func(t *testing.T) {
 		dir := t.TempDir()
 

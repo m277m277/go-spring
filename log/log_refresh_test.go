@@ -27,6 +27,22 @@ import (
 	"go-spring.org/stdlib/testing/assert"
 )
 
+func TestLoggers(t *testing.T) {
+	defer Destroy()
+
+	// Before the first refresh no loggers are configured.
+	assert.Slice(t, Loggers()).Empty()
+
+	// After a successful refresh the configured loggers are reported with
+	// their effective minimum level, sorted by name.
+	err := RefreshConfig(ReadTestConfig())
+	assert.Error(t, err).Nil()
+	assert.Slice(t, Loggers()).Equal([]LoggerInfo{
+		{Name: "myLogger", Level: "TRACE"},
+		{Name: RootLoggerName, Level: "WARN"},
+	})
+}
+
 func TestParseExprDuplicateExpandedKey(t *testing.T) {
 	for range 100 {
 		_, err := parseExpr(map[string]string{
