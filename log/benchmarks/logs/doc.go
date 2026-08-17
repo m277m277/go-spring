@@ -18,6 +18,9 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-// Package benchmarks contains only benchmarks comparing zap to other
-// structured logging libraries.
+// Package benchmarks contains only benchmarks comparing go-spring.org/log
+// against other structured logging libraries in Go — zap, zerolog, logrus,
+// apex/log, log15, go-kit/log, and the standard library's log/slog — across
+// a shared set of scenarios (fields added per log site, accumulated logger
+// context, and level-disabled call sites).
 package benchmarks

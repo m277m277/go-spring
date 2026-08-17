@@ -27,6 +27,9 @@ import (
 // If an error other than os.ErrNotExist occurs (for example, a permission
 // error), it returns (false, err).
 //
+// Symlinks are followed: a dangling link reports (false, nil), the same as
+// any other missing path.
+//
 // A return value of true indicates that the path exists and was successfully
 // stat-ed, but does not distinguish between files and directories.
 func PathExists(path string) (bool, error) {

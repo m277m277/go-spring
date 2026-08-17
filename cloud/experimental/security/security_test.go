@@ -21,7 +21,6 @@ import (
 	"errors"
 	"testing"
 
-	"go-spring.org/cloud/experimental/aspect"
 	"go-spring.org/stdlib/testing/assert"
 )
 
@@ -89,7 +88,8 @@ func TestRegistry(t *testing.T) {
 }
 
 func TestRequire_Interceptor(t *testing.T) {
-	target := func(context.Context) (any, error) { return "ok", nil }
+	got := ""
+	target := func(context.Context) error { got = "ok"; return nil }
 
 	tests := []struct {
 		name    string
@@ -125,8 +125,7 @@ func TestRequire_Interceptor(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			chain := aspect.NewChain(Require(tt.require...))
-			got, err := chain.Run(tt.ctx, "Target", target)
+			err := Require(tt.require...)(tt.ctx, target)
 			if tt.wantErr != nil {
 				assert.That(t, errors.Is(err, tt.wantErr)).True()
 				return

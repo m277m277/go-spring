@@ -198,6 +198,11 @@ func (s *SimpleGrpcServer) buildOptions() ([]grpc.ServerOption, error) {
 	// at runtime without a restart.
 	unary = append(unary, FaultUnaryInterceptor())
 	stream = append(stream, FaultStreamInterceptor())
+	// Recovery (always installed), innermost so a converted panic flows back
+	// through tracing/metrics/resilience as a codes.Internal error and is
+	// observed — grpc-go recovers handler panics nowhere by itself.
+	unary = append(unary, RecoverUnaryInterceptor())
+	stream = append(stream, RecoverStreamInterceptor())
 	if len(unary) > 0 {
 		opts = append(opts, grpc.ChainUnaryInterceptor(unary...))
 	}

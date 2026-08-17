@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "spring.s3",
+  "type": "object",
+  "properties": {
+    "endpoint": {
+      "type": "string",
+      "description": "host:port without scheme, e.g. '127.0.0.1:9000' or 's3.amazonaws.com'"
+    },
+    "access-key-id": {
+      "type": "string",
+      "description": "access key of the static credential pair"
+    },
+    "secret-access-key": {
+      "type": "string",
+      "description": "secret key of the static credential pair"
+    },
+    "session-token": {
+      "type": "string",
+      "default": "",
+      "description": "optional session token (temporary credentials)"
+    },
+    "region": {
+      "type": "string",
+      "default": "us-east-1"
+    },
+    "use-ssl": {
+      "type": "boolean",
+      "default": false
+    },
+    "bucket-lookup": {
+      "type": "string",
+      "default": "auto",
+      "enum": ["auto", "virtual-host", "path", "dns"],
+      "description": "how bucket names are addressed in URLs; some S3-compatible clouds only support path"
+    },
+    "observability": {
+      "type": "object",
+      "description": "Per-request span/metric/access-log config (off/brief/detailed), see observe.ObserveConfig"
+    },
+    "driver": {
+      "type": "string",
+      "default": "DefaultDriver"
+    }
+  }
+}

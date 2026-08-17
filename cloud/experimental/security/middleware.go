@@ -62,7 +62,7 @@ func BearerToken(r *http.Request) string {
 // Authenticate returns the authentication filter: it reads the bearer token,
 // verifies it with v, and on success attaches the resulting Authentication to
 // the request context so downstream handlers and the Authorize filter (or the
-// method-level Require aspect) can read it via FromContext.
+// method-level Require decorator) can read it via FromContext.
 //
 // When the request carries no token: required=true rejects with 401;
 // required=false passes the request through with no Authentication attached,
@@ -94,7 +94,7 @@ func Authenticate(v TokenValidator, required bool) Middleware {
 // Authorize returns the authorization filter: it requires that the request
 // already carries a verified Authentication (see Authenticate) holding at least
 // one of authorities. With no authorities it degrades to "authenticated caller
-// required". It is the HTTP-layer counterpart of the Require aspect: use this to
+// required". It is the HTTP-layer counterpart of the Require decorator: use this to
 // gate a route, Require to gate a service method.
 //
 // A missing/anonymous identity yields 401; an authenticated caller lacking the

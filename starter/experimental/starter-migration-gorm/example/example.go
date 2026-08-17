@@ -27,8 +27,8 @@ import (
 	"syscall"
 	"time"
 
-	"go-spring.org/log"
 	"go-spring.org/cloud/data/experimental/data/migration"
+	"go-spring.org/log"
 	"go-spring.org/spring/gs"
 	migrationgorm "go-spring.org/starter-migration-gorm"
 	sqlite "gorm.io/driver/sqlite"

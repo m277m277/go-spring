@@ -31,13 +31,13 @@ func TestCaller(t *testing.T) {
 		assert.That(t, line).Equal(0)
 	})
 
-	t.Run("fast false", func(t *testing.T) {
+	t.Run("runtime.Caller baseline", func(t *testing.T) {
 		_, file, line, _ := runtime.Caller(0)
 		assert.String(t, file).Matches(".*/caller_test.go")
 		assert.That(t, line).Equal(35)
 	})
 
-	t.Run("fast true", func(t *testing.T) {
+	t.Run("FastCaller (uncached then cached)", func(t *testing.T) {
 		for range 2 {
 			file, line := FastCaller(0)
 			assert.String(t, file).Matches(".*/caller_test.go")
@@ -101,4 +101,23 @@ func BenchmarkCaller(b *testing.B) {
 			FastCaller(0)
 		}
 	})
+}
+
+func TestParseCallerType(t *testing.T) {
+	for _, tt := range []struct {
+		str  string
+		want CallerType
+	}{
+		{"default", CallerTypeDefault},
+		{"fast", CallerTypeFast},
+		{"none", CallerTypeNone},
+		{" none ", CallerTypeNone}, // surrounding spaces are trimmed
+	} {
+		got, err := ParseCallerType(tt.str)
+		assert.Error(t, err).Nil()
+		assert.That(t, got).Equal(tt.want)
+	}
+
+	_, err := ParseCallerType("bogus")
+	assert.Error(t, err).Matches(`invalid caller type "bogus"`)
 }

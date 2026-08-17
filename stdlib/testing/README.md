@@ -2,39 +2,27 @@
 
 [English](README.md) | [中文](README_CN.md)
 
-Go-Spring Testing is an elegant test assertion library designed for Go, providing a Fluent API style that
-makes your test code clearer and more readable.
+Go-Spring Testing is the zero-dependency assertion library every Go-Spring module uses for its own tests. It provides a fluent, type-specific assertion API (`That`, `Error`, `Number`, `String`, `Slice`, `Map`, `Panic`) as an alternative to `stretchr/testify` and `gomega`, with generics for compile-time type safety and no dependency beyond the Go standard library.
 
-## Features Overview
+## Usage
 
-- 📝 **Dual-mode support**: Provides both `assert` and `require` modes to meet different scenario requirements
-- 💧 **Fluent API**: Method chaining makes code more readable, close to natural language
-- 🏷️ **Type safety**: Generics guarantee type safety with compile-time error checking
-- 🔧 **Type-specific**: Provides dedicated assertion methods for different data types
-- 🧩 **Feature-rich**: Covers the vast majority of assertion needs in daily testing, supporting generic values,
-  errors, numbers, strings, slices, maps, panic detection, and more
-- ✅ **Zero dependencies**: Only depends on the Go standard library
+Both entry points expose the same functions — pick the failure behaviour by the import:
 
-## assert vs require
+```go
+import (
+	"go-spring.org/stdlib/testing/assert"  // fail-continue
+	"go-spring.org/stdlib/testing/require" // fail-fast
+)
+```
 
-Go-Spring Testing provides two packages to meet different testing needs:
+The module holds four packages: `assert` and `require` (the two public entry points), `internal` (the shared engine), and `testcase` (the shared suite that keeps both entry points in check). The former `testing/container` package was removed on 2026-08-16 — repo convention runs docker-dependent integration tests out-of-process via `check.sh`, and in-process container scenarios can use `testcontainers-go` directly; `testing/contract` has moved to `cloud/contract`.
 
-### `assert` package
+### assert vs require
 
-The `assert` package provides assertion functions that **do not terminate test execution when an assertion fails**.
+- **`assert`** does not stop the test when an assertion fails: later assertions are still checked, which is useful when you want one run to report every failure at once.
+- **`require`** stops the test immediately on the first failure — for critical preconditions whose absence would make later assertions panic or misbehave, e.g. verifying an object is non-nil before touching it.
 
-When an assertion fails, the test continues running and subsequent assertions will still be checked.
-This is very useful when you want to report multiple failures in a single test run and see all issues at once.
-
-### `require` package
-
-The `require` package provides assertion functions that **immediately stop test execution when an assertion fails**.
-
-When an assertion fails, the test terminates immediately and no further assertions are checked.
-This is suitable for scenarios where critical conditions are not met and subsequent assertions may cause panics or other issues.
-For example, when you need to verify that an object is non-nil before you can proceed with subsequent operations.
-
-## Basic Example
+### Basic Example
 
 ```go
 package main
@@ -52,7 +40,7 @@ func TestExample(t *testing.T) {
 	// Generic assertions - works with any type
 	assert.That(t, "hello").Equal("hello")        // Equality assertion
 	assert.That(t, user).NotNil()                 // Non-nil assertion
-	assert.That(t, 42).True()                     // Boolean is true
+	assert.That(t, len("hello") > 0).True()       // Boolean expression is true
 
 	// Using require - test stops immediately on failure
 	require.That(t, user).NotNil()
@@ -60,7 +48,7 @@ func TestExample(t *testing.T) {
 	// Error assertions
 	err := someFunc()
 	assert.Error(t, err).NotNil()                 // Expect an error to occur
-	assert.Error(t, err).Is(os.IsNotExist)         // Check error type using errors.Is
+	assert.Error(t, err).Is(os.ErrNotExist)        // Check error type using errors.Is
 
 	// Number assertions
 	assert.Number(t, 42).GreaterThan(40)          // Greater than
@@ -89,16 +77,17 @@ func TestExample(t *testing.T) {
 	// Panic assertion
 	assert.Panic(t, func() {
 		panic("something wrong happened")
-	}, "wrong")  // Assert that panic occurs and message contains "wrong"
+	}, "wrong")  // Assert that fn panics and the message matches the pattern "wrong"
 }
 ```
 
-## Assertion Method Reference
+### Assertion Method Reference
 
-### Generic Assertions (That)
+Every family below supports a trailing `msg ...string` on every method for custom error messages.
 
-These generic assertion methods can be used with any type.
-**All methods support adding `msg ...string` at the end for custom error messages**.
+#### Generic Assertions (That)
+
+Usable with any type.
 
 | Method | Description |
 |--------|-------------|
@@ -108,17 +97,16 @@ These generic assertion methods can be used with any type.
 | `NotNil(...msg)` | Verify that the value is not `nil` |
 | `Equal(expected, ...msg)` | Deep comparison using `reflect.DeepEqual` |
 | `NotEqual(expected, ...msg)` | Verify not deeply equal |
-| `Same(expected, ...msg)` | Exact comparison using `==` (same pointer address) |
+| `Same(expected, ...msg)` | Exact comparison using `==` (identical per Go `==`) |
 | `NotSame(expected, ...msg)` | Comparison using `!=` |
 | `TypeOf(interface, ...msg)` | Verify that the type is assignable to the target type |
 | `Implements(interface, ...msg)` | Verify that the type implements the specified interface |
 | `Has(expected, ...msg)` | Call the value's `Has` method, verify it returns `true` |
 | `Contains(expected, ...msg)` | Call the value's `Contains` method, verify it returns `true` |
 
-### Error Assertions (Error)
+#### Error Assertions (Error)
 
-Dedicated assertions for `error` type.
-**All methods support adding `msg ...string` at the end for custom error messages**.
+Dedicated to the `error` type.
 
 | Method | Description |
 |--------|-------------|
@@ -129,10 +117,9 @@ Dedicated assertions for `error` type.
 | `String(expect, ...msg)` | Verify error message string equality |
 | `Matches(pattern, ...msg)` | Verify error message matches regular expression |
 
-### Number Assertions (Number)
+#### Number Assertions (Number)
 
 Supports all numeric types (`int`/`uint`/`float`, etc.).
-**All methods support adding `msg ...string` at the end for custom error messages**.
 
 | Method | Description |
 |--------|-------------|
@@ -155,10 +142,9 @@ Supports all numeric types (`int`/`uint`/`float`, etc.).
 | `IsInf(sign, ...msg)` | Is infinity (sign ≥ 0 for +Inf, < 0 for -Inf) |
 | `IsFinite(...msg)` | Is a finite number (not NaN and not Inf) |
 
-### String Assertions (String)
+#### String Assertions (String)
 
-Dedicated assertions for `string` type.
-**All methods support adding `msg ...string` at the end for custom error messages**.
+Dedicated to the `string` type.
 
 | Method | Description |
 |--------|-------------|
@@ -184,10 +170,9 @@ Dedicated assertions for `string` type.
 | `IsHex(...msg)` | Verify is a valid hexadecimal string |
 | `IsBase64(...msg)` | Verify is a valid Base64 encoding |
 
-### Slice Assertions (Slice)
+#### Slice Assertions (Slice)
 
-Dedicated assertions for slice type `[]T`.
-**All methods support adding `msg ...string` at the end for custom error messages**.
+Dedicated to slice type `[]T`.
 
 | Method | Description |
 |--------|-------------|
@@ -209,10 +194,9 @@ Dedicated assertions for slice type `[]T`.
 | `AnyMatches(fn, ...msg)` | At least one element satisfies the predicate function |
 | `NoneMatches(fn, ...msg)` | No element satisfies the predicate function |
 
-### Map Assertions (Map)
+#### Map Assertions (Map)
 
-Dedicated assertions for map type `map[K]V`.
-**All methods support adding `msg ...string` at the end for custom error messages**.
+Dedicated to map type `map[K]V`.
 
 | Method | Description |
 |--------|-------------|
@@ -237,23 +221,23 @@ Dedicated assertions for map type `map[K]V`.
 | `HasSameKeys(expect, ...msg)` | Has exactly the same set of keys as expect |
 | `HasSameValues(expect, ...msg)` | Has exactly the same multiset of values as expect (order doesn't matter) |
 
-### Panic Assertion
+#### Panic Assertion
 
-Used to detect whether a function will panic. This is a top-level function.
-**Supports adding `msg ...string` at the end for custom error messages**.
+Top-level function used to detect whether a function panics.
 
 | Method | Description |
 |--------|-------------|
 | `Panic(t, fn, pattern, ...msg)` | Assert that `fn` panics, and the panic message matches the regex `pattern` |
 
-## Custom Error Messages
+## Design
 
-All assertion methods support adding custom error messages at the end:
+**One engine, two thin wrappers.** The fluent API and every check live in `internal`; `assert` and `require` only set the `fatalOnFailure` flag and delegate — that bool is the only behavioural difference between the two modes. `internal` is unexported on purpose: every callable API goes through a mode wrapper, so the fail-fast / fail-continue choice stays explicit at call sites.
 
-```go
-assert.That(t, result).Equal(expected, "result should match expected")
-assert.Number(t, age).GreaterThan(18, "user should be an adult")
-```
+**`internal.TestingT` seam.** Every assertion function accepts this minimal `*testing.T` surface (`Helper` / `Error` / `Fatal`), so the same library works with a real `*testing.T`, a subtest, and an outer harness that fakes it — the `testcase` suite itself drives assertions through `internal.MockTestingT` to record and verify failure messages.
+
+**Standard library only.** `stdlib/testing` and its subpackages import nothing but the Go standard library (plus each other); any other dependency would leak into every module's test binary. `stdlib/errutil` appears only in the `testcase` suite's test files, never in the engine.
+
+**Rebuilt instead of depending on testify.** Two-mode fluent assertion is simple enough that owning it removes a mandatory third-party dependency for every stdlib consumer; the API stays intentionally close to testify for muscle memory, but the implementation is ours. Likewise, one shared `testcase` suite beats duplicating tests per package — separate copies would drift as the two modes evolve separately.
 
 ## License
 

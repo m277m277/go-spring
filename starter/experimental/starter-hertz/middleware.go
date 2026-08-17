@@ -23,7 +23,6 @@ import (
 	"time"
 
 	"github.com/cloudwego/hertz/pkg/app"
-	"github.com/cloudwego/hertz/pkg/app/middlewares/server/recovery"
 	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
 	"github.com/hertz-contrib/cors"
@@ -84,7 +83,10 @@ func applyMiddlewares(h *server.Hertz, cfg Config) error {
 		h.Use(LoadTest(mw.LoadTest.Header))
 	}
 	if mw.Recovery.Enabled {
-		h.Use(recovery.Recovery())
+		// Starter-owned recover (see recover.go): hertz's recovery middleware
+		// semantics, plus reporting through the shared goutil panic chain so
+		// the structured log bridge sees it.
+		h.Use(Recover())
 	}
 	if mw.RequestID.Enabled {
 		h.Use(requestid.New())

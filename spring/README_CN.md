@@ -57,7 +57,7 @@ Go-Spring 融合了成熟的依赖注入与自动配置设计思想，秉持 Go 
    - 为模块化自动装配奠定坚实基础。
 
 6. ⚙️ **分层配置体系**
-   - 支持多来源（命令行、环境变量、配置文件、内存）、多格式（YAML、TOML、Properties）配置加载；
+   - 支持多来源（命令行、环境变量、配置文件、内存）、多格式（YAML、TOML、Properties、JSON）配置加载；
    - 清晰的配置优先级分层，自动覆盖，原生支持多环境隔离；
    - 支持配置导入，可集成远程配置中心，满足云原生部署需求。
 
@@ -260,13 +260,13 @@ func init() {
 // 在应用配置中注册 Bean
 gs.Configure(func(app gs.App) {
 	app.Provide(&MyService{})
-	app.Root(&Bootstrap{}) // 标记为根 Bean，触发依赖注入
+	app.Provide(&Bootstrap{}).Export(gs.As[gs.Rooter]()) // 导出为根 Bean
 })
 ```
 
-> **💡 关于按需实例化与 `Root`**  
-> Go-Spring 默认采用**按需实例化**策略——只有被依赖或者标记为 `Root` 的 Bean 才会被实例化。  
-> 通过 `app.Root()` 标记的 Bean 会作为应用的入口点，框架会自动完成其依赖注入并实例化。  
+> **💡 关于根可达 Bean 与 `Rooter`**  
+> Go-Spring 采用**按需实例化**策略——只有被依赖的 Bean、或者本身作为依赖图根的 Bean 才会被实例化。  
+> 把 Bean 通过 `.Export(gs.As[gs.Rooter]())` 导出（与导出 `gs.Runner`、`gs.Server` 的方式相同）即可标记为应用的入口点：框架会实例化它，并完成它及其（传递）依赖的全部注入。  
 
 ### 2️⃣ 注入方式
 
@@ -413,8 +413,8 @@ Go-Spring 提供了**分层设计、灵活强大**的配置管理体系，支持
 
 框架会在启动时自动合并不同来源的配置项，并按照**优先级规则**自动覆盖，让你无需手动处理配置合并逻辑。
 
-Go-Spring 开箱支持三种主流配置格式：**YAML**（`.yaml`/`.yml`，推荐）、**Properties**（`.properties`）和
-**TOML**（`.toml`），框架会自动根据文件扩展名识别格式。
+Go-Spring 开箱支持四种主流配置格式：**YAML**（`.yaml`/`.yml`，推荐）、**Properties**（`.properties`）、
+**TOML**（`.toml`）和 **JSON**（`.json`），框架会自动根据文件扩展名识别格式。
 
 ### 1️⃣ 🔖 配置绑定
 
@@ -477,7 +477,7 @@ export GS_SPRING_PROFILES_ACTIVE=dev    # 映射到 "spring.profiles.active"
 通过激活不同的 profile 实现环境隔离，文件命名格式为 `app-{profile}.{ext}`：
 ```bash
 # 激活 dev 环境
-export SPRING_PROFILES_ACTIVE=dev
+export GS_SPRING_PROFILES_ACTIVE=dev
 ```
 框架会自动加载 `app-dev.yaml`（或其他格式），优先级高于基础配置。profile 配置中导入的配置也遵循后导入优先规则。
 
@@ -509,7 +509,7 @@ spring:
 ```go
 gs.Configure(func(app gs.App) {
     app.Property("app.name", "test-app")
-    app.Property("feature.enabled", true)
+    app.Property("feature.enabled", "true")
 })
 ```
 
@@ -653,7 +653,7 @@ Go-Spring 还提供了 `gs.Group` 便捷语法，用于处理一类常见场景�
 // 从配置批量创建多个 HTTP 客户端
 gs.Group(
 	"${http.clients}",           // 配置中 map 类型配置的路径
-	func(cfg HTTPClientConfig) (*HTTPClient, error) {
+	func(cp *gs.ContextProvider, name string, cfg HTTPClientConfig) (*HTTPClient, error) {
 		return NewHTTPClient(cfg) // 为每个配置条目创建一个客户端实例
 	},
 	func(c *HTTPClient) error {
@@ -712,7 +712,8 @@ version := config.Version.Value() // 总是获取最新值
 ```go
 func RefreshHandler(w http.ResponseWriter, r *http.Request, refresher *gs.PropertiesRefresher) {
 	// 模拟配置变更（实际场景中通常由配置中心推送变更）
-	os.Setenv("APP_VERSION", "v2.0.1")
+	// 带 GS_ 前缀的环境变量映射进属性命名空间：GS_APP_VERSION -> app.version
+	os.Setenv("GS_APP_VERSION", "v2.0.1")
 	// 触发刷新，所有 gs.Dync[T] 字段会自动更新
 	_ = refresher.RefreshProperties()
 	fmt.Fprintln(w, "Version updated!")

@@ -556,7 +556,7 @@ func (l *httpAccessLog) CaptureBody(r *http.Request) *bufutil.LimitedBuffer {
 		return nil
 	}
 	origBody := r.Body
-	reqBody := bufutil.New(l.cfg.Payload.Limit)
+	reqBody := bufutil.NewLimitedBuffer(l.cfg.Payload.Limit)
 	r.Body = bodyTee{io.TeeReader(origBody, reqBody), origBody}
 	return reqBody
 }

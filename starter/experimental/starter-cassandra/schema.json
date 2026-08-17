@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "spring.cassandra",
+  "type": "object",
+  "properties": {
+    "hosts": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "initial contact points; entries may carry a port ('host:9042')"
+    },
+    "keyspace": {
+      "type": "string",
+      "default": ""
+    },
+    "username": {
+      "type": "string",
+      "default": "",
+      "description": "PasswordAuthenticator user; must be set together with password"
+    },
+    "password": {
+      "type": "string",
+      "default": ""
+    },
+    "consistency": {
+      "type": "string",
+      "default": "local-quorum",
+      "enum": ["any", "one", "two", "three", "quorum", "all", "local-quorum", "each-quorum", "local-one"]
+    },
+    "timeout": {
+      "type": "string",
+      "description": "Duration string, e.g. '11s'",
+      "default": "11s"
+    },
+    "connect-timeout": {
+      "type": "string",
+      "description": "Duration string, e.g. '11s'",
+      "default": "11s"
+    },
+    "cql-version": {
+      "type": "string",
+      "default": "3.0.0"
+    },
+    "tls": {
+      "type": "object",
+      "description": "tlsconf shared block: enabled/cert-file/key-file/ca-file/server-name/insecure-skip-verify"
+    },
+    "observability": {
+      "type": "object",
+      "description": "Exec helper span/metric/access-log config (off/brief/detailed), see observe.ObserveConfig"
+    },
+    "driver": {
+      "type": "string",
+      "default": "DefaultDriver"
+    }
+  }
+}

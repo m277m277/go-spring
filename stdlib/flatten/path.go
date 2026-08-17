@@ -95,7 +95,7 @@ func JoinPath(path []Path) string {
 //   - Indices must be unsigned integers (no sign, no decimal).
 //   - Empty maps/slices are not special-cased here.
 //   - Returns an error if the key is malformed (e.g. unbalanced brackets,
-//     unexpected characters, or empty keys if disallowed).
+//     unexpected characters, or empty key/index segments).
 func SplitPath(key string) (_ []Path, err error) {
 	if key == "" {
 		return nil, errutil.Explain(nil, "SplitPath: invalid key: empty string")

@@ -22,14 +22,15 @@ import (
 	"go-spring.org/stdlib/errutil"
 )
 
-// GetBeforeItems is a function type that returns a list of items
-// that the given current item depends on (must be processed before current item).
-type GetBeforeItems func(items *list.List, current any) *list.List
+// BeforeItemsFn is a function type that returns the list of items the given
+// current item depends on (those must be processed before the current item).
+type BeforeItemsFn func(items *list.List, current any) *list.List
 
 // TopologicalSort performs topological sorting using three lists (processing, toSort, sorted)
 // to resolve dependencies and return a sorted list.
 // The input `items` is a list of all items to be sorted, and `fn` determines dependencies.
-func TopologicalSort(items *list.List, fn GetBeforeItems) (*list.List, error) {
+// Dependencies that are not present in `items` are silently skipped.
+func TopologicalSort(items *list.List, fn BeforeItemsFn) (*list.List, error) {
 	toSort := list.New()     // List of items that still need to be sorted.
 	sorted := list.New()     // List of items that have been fully sorted.
 	processing := list.New() // List of items currently being processed.
@@ -68,7 +69,7 @@ func searchInList(l *list.List, v any) *list.Element {
 // - current: The current item being processed (nil for the first item).
 // - fn: A function that retrieves the list of items that must appear before the current item.
 func dfsTopoVisit(items *list.List, toSort *list.List, sorted *list.List,
-	processing *list.List, current any, fn GetBeforeItems) error {
+	processing *list.List, current any, fn BeforeItemsFn) error {
 
 	// If no current item is specified, take the first item from the `toSort` list for processing.
 	if current == nil {
@@ -87,10 +88,12 @@ func dfsTopoVisit(items *list.List, toSort *list.List, sorted *list.List,
 
 		// Detect circular dependencies by checking if `c` is already being processed.
 		if searchInList(processing, c) != nil {
-			return errutil.Explain(nil, "dependency cycle detected")
+			return errutil.Explain(nil, "dependency cycle detected: %v depends on %v", current, c)
 		}
 
 		// Check if the dependency `c` is already sorted or still in the toSort list.
+		// A dependency absent from `items` (and thus from both lists) is silently
+		// skipped here — sorting never pulls in items that were not provided.
 		inSorted := searchInList(sorted, c) != nil
 		inToSort := searchInList(toSort, c) != nil
 

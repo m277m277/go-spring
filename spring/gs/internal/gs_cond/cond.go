@@ -118,7 +118,7 @@ func (c *onProperty) Matches(ctx gs.ConditionContext) (bool, error) {
 	val, ok := ctx.Prop(c.name)
 	if !ok {
 		if ctx.Has(c.name) {
-			err := errutil.Explain(nil, "property %s not leaf node", c.name)
+			err := errutil.Explain(nil, "property %s is not a leaf node", c.name)
 			return false, MatchErr(err, c)
 		}
 		return c.matchIfMissing, nil
@@ -313,7 +313,7 @@ type onOr struct {
 func checkConditions(conditions []gs.Condition) {
 	for _, c := range conditions {
 		if c == nil {
-			panic("conditions cannot contains nil")
+			panic("conditions cannot contain nil")
 		}
 	}
 }

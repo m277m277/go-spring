@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"go-spring.org/log"
+	"go-spring.org/spring/gs/internal/gs"
 	"go-spring.org/spring/gs/internal/gs_bean"
 	"go-spring.org/spring/gs/internal/gs_core/injecting"
 	"go-spring.org/spring/gs/internal/gs_core/resolving"
@@ -29,27 +30,18 @@ import (
 	"go-spring.org/stdlib/flatten"
 )
 
-// RefreshState represents the lifecycle state of the container.
-type RefreshState int
-
-const (
-	RefreshDefault = RefreshState(iota)
-	Refreshing
-	Refreshed
-)
-
 // Container is the core IoC container of the Go-Spring framework.
 type Container struct {
 	*resolving.Resolving
 	*injecting.Injecting
-	State RefreshState
+	State gs.RefreshState
 }
 
 // New creates a new IoC container instance.
 func New() *Container {
 	return &Container{
 		Resolving: resolving.New(),
-		State:     RefreshDefault,
+		State:     gs.RefreshDefault,
 	}
 }
 
@@ -71,32 +63,49 @@ func New() *Container {
 //   - p: configuration storage used for property resolution.
 //   - roots: root bean definitions that act as entry points for dependency injection.
 //
-// Refresh should only be called once per container instance.
+// Refresh should only be called once per container instance. If it fails,
+// State rolls back to RefreshDefault so the container does not report the
+// misleading "container already refreshed" on inspection, and Close remains
+// safe even though the injecting phase may never have started. Refresh is
+// not retryable: the resolving phase has already merged global beans.
 func (c *Container) Refresh(p flatten.Storage, roots []*gs_bean.BeanDefinition) error {
-	if c.State != RefreshDefault {
+	if c.State != gs.RefreshDefault {
 		return errutil.Explain(nil, "container already refreshed")
 	}
-	c.State = Refreshing
+	c.State = gs.Refreshing
 	log.Debugf(context.Background(), gs_bean.TagBeanLifecycle, "container refresh started: %d root beans", len(roots))
 
 	// Step 1: Resolve and prepare all bean definitions.
 	if err := c.Resolving.Refresh(p); err != nil {
+		c.State = gs.RefreshDefault
 		return errutil.Explain(err, "container resolving error")
 	}
 
 	// Step 2: Run the injecting phase and perform dependency wiring.
 	c.Injecting = injecting.New(p)
 	if err := c.Injecting.Refresh(roots, c.Beans()); err != nil {
+		c.State = gs.RefreshDefault
 		return errutil.Explain(err, "container injecting error")
 	}
 
 	// Step 3: Clear the initialization cache.
+	// The gate keeps the global init cache alive under `go test`, where each
+	// RunTest clones the bean registry but the process-wide init cache must
+	// survive across runs (see gs_init.Beans).
 	if !testing.Testing() {
 		gs_init.Clear()
 	}
 
-	c.State = Refreshed
+	c.State = gs.Refreshed
 	c.Resolving = nil
 	log.Debugf(context.Background(), gs_bean.TagBeanLifecycle, "container refresh complete")
 	return nil
+}
+
+// Close invokes all registered destroyer callbacks. It is safe to call even
+// when Refresh failed before the injecting phase started.
+func (c *Container) Close() {
+	if c.Injecting != nil {
+		c.Injecting.Close()
+	}
 }

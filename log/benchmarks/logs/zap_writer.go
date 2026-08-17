@@ -18,37 +18,22 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
+// Trimming note: this file originally vendored more of zap's test writer
+// kit (FailWriter, ShortWriter, Buffer, and the Syncer error-recording
+// helpers); only the pieces the benchmarks actually use are kept.
+
 package benchmarks
 
 import (
-	"bytes"
 	"io"
-	"strings"
-
-	"go-spring.org/stdlib/errutil"
 )
 
-// A Syncer is a spy for the Sync portion of zapcore.WriteSyncer.
-type Syncer struct {
-	err    error
-	called bool
-}
+// A Syncer satisfies the Sync portion of zapcore.WriteSyncer.
+type Syncer struct{}
 
-// SetError sets the error that the Sync method will return.
-func (s *Syncer) SetError(err error) {
-	s.err = err
-}
-
-// Sync records that it was called, then returns the user-supplied error (if
-// any).
+// Sync reports success without doing anything.
 func (s *Syncer) Sync() error {
-	s.called = true
-	return s.err
-}
-
-// Called reports whether the Sync method was called.
-func (s *Syncer) Called() bool {
-	return s.called
+	return nil
 }
 
 // A Discarder sends all writes to io.Discard.
@@ -57,41 +42,4 @@ type Discarder struct{ Syncer }
 // Write implements io.Writer.
 func (d *Discarder) Write(b []byte) (int, error) {
 	return io.Discard.Write(b)
-}
-
-// FailWriter is a WriteSyncer that always returns an error on writes.
-type FailWriter struct{ Syncer }
-
-// Write implements io.Writer.
-func (w FailWriter) Write(b []byte) (int, error) {
-	return len(b), errutil.Explain(nil, "failed")
-}
-
-// ShortWriter is a WriteSyncer whose write method never fails, but
-// nevertheless fails to the last byte of the input.
-type ShortWriter struct{ Syncer }
-
-// Write implements io.Writer.
-func (w ShortWriter) Write(b []byte) (int, error) {
-	return len(b) - 1, nil
-}
-
-// Buffer is an implementation of zapcore.WriteSyncer that sends all writes to
-// a bytes.Buffer. It has convenience methods to split the accumulated buffer
-// on newlines.
-type Buffer struct {
-	bytes.Buffer
-	Syncer
-}
-
-// Lines returns the current buffer contents, split on newlines.
-func (b *Buffer) Lines() []string {
-	output := strings.Split(b.String(), "\n")
-	return output[:len(output)-1]
-}
-
-// Stripped returns the current buffer contents with the last trailing newline
-// stripped.
-func (b *Buffer) Stripped() string {
-	return strings.TrimRight(b.String(), "\n")
 }

@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "spring.rocketmq",
+  "type": "object",
+  "properties": {
+    "name-servers": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "RocketMQ NameServer addresses, e.g. ['127.0.0.1:9876']"
+    },
+    "instance-name": {
+      "type": "string",
+      "default": "",
+      "description": "Distinguishes client instances on one host; empty = SDK-derived unique name"
+    },
+    "access-key": {
+      "type": "string",
+      "default": "",
+      "description": "ACL access key; must be set together with secret-key"
+    },
+    "secret-key": {
+      "type": "string",
+      "default": "",
+      "description": "ACL secret key that pairs with access-key"
+    },
+    "send-timeout": {
+      "type": "string",
+      "description": "Duration string, e.g. '3s'",
+      "default": "3s"
+    },
+    "retry": {
+      "type": "integer",
+      "default": 2,
+      "description": "Producer internal retries before a synchronous send fails"
+    },
+    "fail-fast": {
+      "type": "boolean",
+      "default": true,
+      "description": "Probe the first name server address with a TCP dial at startup"
+    },
+    "observability": {
+      "type": "object",
+      "description": "Per-operation access log config (off/brief/detailed), see observe.ObserveConfig"
+    },
+    "driver": {
+      "type": "string",
+      "default": "DefaultDriver"
+    }
+  }
+}

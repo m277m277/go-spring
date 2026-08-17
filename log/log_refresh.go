@@ -65,12 +65,13 @@ func RefreshConfig(m map[string]string) error {
 //	input:
 //	  {
 //	    "app.name": "MyApp",
-//	    "db!": "{host: localhost, port: 5432}",
+//	    "db!": "DbConfig { host = localhost, port = 5432 }",
 //	  }
 //
 //	output:
 //	  {
 //	    "app.name": "MyApp",
+//	    "db.type":  "DbConfig",
 //	    "db.host":  "localhost",
 //	    "db.port":  "5432",
 //	  }
@@ -129,9 +130,6 @@ func Refresh(s flatten.Storage) error {
 
 	s.MapKeys("logger", loggerNames)
 	s.MapKeys("appender", appenderNames)
-	// if len(appenderNames) == 0 {
-	// 	return errutil.Explain(nil, "appenders section not found")
-	// }
 
 	// Check logger definitions
 	for _, l := range loggerMap {
@@ -142,7 +140,8 @@ func Refresh(s flatten.Storage) error {
 
 	// newPluginFromType creates a plugin instance from configuration.
 	newPluginFromType := func(prefix string) (reflect.Value, string, error) {
-		// type 不能使用属性引用
+		// The "type" attribute is read raw from storage, so unlike other
+		// attributes it cannot use "${...}" property references.
 		plugin, ok := s.Value(prefix + ".type")
 		if !ok {
 			return reflect.Value{}, "", errutil.Explain(nil, "attribute 'type' not found")
@@ -156,10 +155,10 @@ func Refresh(s flatten.Storage) error {
 	}
 
 	var (
-		cRoot      = defaultLogger
-		cLoggers   = make(map[string]Logger)
-		cAppenders = make(map[string]Appender)
-		cTags      = make(map[string]Logger)
+		cfgRoot      = defaultLogger
+		cfgLoggers   = make(map[string]Logger)
+		cfgAppenders = make(map[string]Appender)
+		cfgTags      = make(map[string]Logger)
 	)
 
 	for name := range appenderNames {
@@ -172,7 +171,7 @@ func Refresh(s flatten.Storage) error {
 			err = errutil.Explain(nil, "plugin %s does not implement log.Appender", plugin)
 			return errutil.Explain(err, "create appender %s error", name)
 		}
-		cAppenders[name] = appender
+		cfgAppenders[name] = appender
 	}
 
 	// initAppenderRefs resolves and injects referenced appenders.
@@ -183,7 +182,7 @@ func Refresh(s flatten.Storage) error {
 		}
 		syncMode, appenderRefs := i.GetAppenderRefs()
 		for _, r := range appenderRefs {
-			a, ok := cAppenders[r.Ref]
+			a, ok := cfgAppenders[r.Ref]
 			if !ok {
 				return errutil.Explain(nil, "appender %s not found", r.Ref)
 			}
@@ -196,7 +195,7 @@ func Refresh(s flatten.Storage) error {
 		return nil
 	}
 
-	cLoggers[RootLoggerName] = cRoot
+	cfgLoggers[RootLoggerName] = cfgRoot
 	for name := range loggerNames {
 
 		v, plugin, err := newPluginFromType("logger." + name)
@@ -211,11 +210,11 @@ func Refresh(s flatten.Storage) error {
 			err = errutil.Explain(nil, "plugin %s does not implement log.Logger", plugin)
 			return errutil.Explain(err, "create logger %s error", name)
 		}
-		cLoggers[name] = logger
+		cfgLoggers[name] = logger
 
 		// Special handling for root logger
 		if name == RootLoggerName {
-			cRoot = logger
+			cfgRoot = logger
 			continue
 		}
 
@@ -240,63 +239,63 @@ func Refresh(s flatten.Storage) error {
 
 		// Register tag → logger mapping
 		for _, strTag := range tags {
-			if l, ok := cTags[strTag]; ok && l != logger {
+			if l, ok := cfgTags[strTag]; ok && l != logger {
 				err = errutil.Explain(nil, "tag '%s' already config in logger %s", strTag, l)
 				return errutil.Explain(err, "create logger %s error", name)
 			}
-			cTags[strTag] = logger
+			cfgTags[strTag] = logger
 		}
 	}
 
 	var (
-		success    bool
-		sLoggers   []Logger
-		sAppenders []Appender
+		success          bool
+		startedLoggers   []Logger
+		startedAppenders []Appender
 	)
 
 	defer func() {
 		if !success {
 			// Stop temp loggers and appenders
-			for _, l := range sLoggers {
+			for _, l := range startedLoggers {
 				l.Stop()
 			}
-			for _, a := range sAppenders {
+			for _, a := range startedAppenders {
 				a.Stop()
 			}
 		}
 	}()
 
 	// Start new appenders and loggers
-	for _, a := range cAppenders {
+	for _, a := range cfgAppenders {
 		if err := a.Start(); err != nil {
 			return errutil.Explain(err, "appender %s start error", a.GetName())
 		}
-		sAppenders = append(sAppenders, a)
+		startedAppenders = append(startedAppenders, a)
 	}
-	for _, l := range cLoggers {
+	for _, l := range cfgLoggers {
 		if err := l.Start(); err != nil {
 			return errutil.Explain(err, "logger %s start error", l.GetName())
 		}
-		sLoggers = append(sLoggers, l)
+		startedLoggers = append(startedLoggers, l)
 	}
 	success = true
 
 	// Bind named loggers
 	for _, l := range loggerMap {
-		l.logger.Store(&loggerValue{cLoggers[l.name]})
+		l.logger.Store(&loggerValue{cfgLoggers[l.name]})
 	}
 
 	// findLogger selects the most specific logger for a given tag,
 	// falling back hierarchically using "_*" patterns.
 	findLogger := func(tag string) Logger {
 		for {
-			if l, ok := cTags[tag]; ok {
+			if l, ok := cfgTags[tag]; ok {
 				return l
 			}
 			tag, _ = strings.CutSuffix(tag, "_*")
 			i := strings.LastIndex(tag, "_")
 			if i <= 0 {
-				return cRoot
+				return cfgRoot
 			}
 			tag = tag[:i] + "_*"
 		}
@@ -307,9 +306,9 @@ func Refresh(s flatten.Storage) error {
 		l.logger.Store(&loggerValue{findLogger(tag)})
 	}
 
-	global.loggers = slices.Collect(maps.Values(cLoggers))
-	global.appenders = slices.Collect(maps.Values(cAppenders))
-	global.named = cLoggers
+	global.loggers = slices.Collect(maps.Values(cfgLoggers))
+	global.appenders = slices.Collect(maps.Values(cfgAppenders))
+	global.named = cfgLoggers
 	global.refreshed = true
 
 	// Stop old loggers and appenders

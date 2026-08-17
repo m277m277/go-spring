@@ -372,3 +372,18 @@ func TestPath(t *testing.T) {
 		})
 	})
 }
+
+func TestPathType_String(t *testing.T) {
+	tests := []struct {
+		input    PathType
+		expected string
+	}{
+		{PathTypeKey, "key"},
+		{PathTypeIndex, "index"},
+		{PathType(99), "PathType(99)"},
+		{PathType(-1), "PathType(-1)"},
+	}
+	for _, tt := range tests {
+		assert.String(t, tt.input.String()).Equal(tt.expected)
+	}
+}

@@ -17,6 +17,7 @@
 package listutil
 
 import (
+	"fmt"
 	"testing"
 
 	"go-spring.org/stdlib/testing/assert"
@@ -60,7 +61,7 @@ func TestList_InsertOperations(t *testing.T) {
 		assert.That(t, e.Value()).Equal(expected[i])
 		i++
 	}
-	_ = e1
+	assert.That(t, l.Front() == e1).True()
 }
 
 func TestList_MoveOperations(t *testing.T) {
@@ -130,9 +131,12 @@ func ExampleNew() {
 	l.PushBack(3)
 
 	for e := l.Front(); e.Valid(); e = e.Next() {
-		_ = e.Value()
+		fmt.Println(e.Value())
 	}
 	// Output:
+	// 1
+	// 2
+	// 3
 }
 
 func ExampleList_PushBack() {
@@ -141,41 +145,43 @@ func ExampleList_PushBack() {
 	l.PushBack("banana")
 	l.PushBack("cherry")
 
-	front := l.Front().Value()
-	back := l.Back().Value()
-	_ = front
-	_ = back
+	fmt.Println(l.Front().Value())
+	fmt.Println(l.Back().Value())
 	// Output:
+	// apple
+	// cherry
 }
 
 func ExampleList_Remove() {
 	l := New[int]()
-	e1 := l.PushBack(10)
+	l.PushBack(10)
 	e2 := l.PushBack(20)
-	e3 := l.PushBack(30)
+	l.PushBack(30)
 
 	l.Remove(e2)
 
 	for e := l.Front(); e.Valid(); e = e.Next() {
-		_ = e.Value()
+		fmt.Println(e.Value())
 	}
-	_ = e1
-	_ = e3
 	// Output:
+	// 10
+	// 30
 }
 
 func ExampleList_InsertBefore() {
 	l := New[int]()
-	e1 := l.PushBack(1)
+	l.PushBack(1)
 	e3 := l.PushBack(3)
 
 	l.InsertBefore(2, e3)
 
 	for e := l.Front(); e.Valid(); e = e.Next() {
-		_ = e.Value()
+		fmt.Println(e.Value())
 	}
-	_ = e1
 	// Output:
+	// 1
+	// 2
+	// 3
 }
 
 func ExampleList_MoveToFront() {
@@ -187,8 +193,9 @@ func ExampleList_MoveToFront() {
 	e := l.Back()
 	l.MoveToFront(e)
 
-	_ = l.Front().Value()
+	fmt.Println(l.Front().Value())
 	// Output:
+	// 3
 }
 
 func ExampleList_PushBackList() {
@@ -203,7 +210,11 @@ func ExampleList_PushBackList() {
 	l1.PushBackList(l2)
 
 	for e := l1.Front(); e.Valid(); e = e.Next() {
-		_ = e.Value()
+		fmt.Println(e.Value())
 	}
 	// Output:
+	// 1
+	// 2
+	// 3
+	// 4
 }

@@ -117,6 +117,9 @@ type subscriber struct {
 }
 
 func (s *subscriber) Subscribe(ctx context.Context, handler messaging.Handler) error {
+	// SafeHandler converts a handler panic into the normal error path
+	// (nack/redelivery) instead of unwinding into the SDK goroutine.
+	handler = messaging.SafeHandler(handler)
 	loopCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	s.cancel = cancel
 	s.done = make(chan struct{})

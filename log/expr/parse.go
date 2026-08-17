@@ -14,6 +14,19 @@
  * limitations under the License.
  */
 
+// Package expr implements the small expression DSL used to declare
+// structured configuration values inside a flat property map.
+//
+// An expression takes the form "Type { key = value }", where value is a
+// string literal, an identifier, a number, or a nested expression. Parsing
+// flattens the expression into a map keyed by "type" and each field path,
+// using dotted keys for nested expressions (for example
+// "DbConfig { host = localhost, port = 5432 }" becomes
+// {"type": "DbConfig", "host": "localhost", "port": "5432"}).
+//
+// It is used by log.RefreshConfig to expand inline "!" values so that
+// appender, layout, and logger plugin structs can be constructed from the
+// shared flatten.Storage configuration primitive.
 package expr
 
 import (
@@ -142,7 +155,11 @@ func (l *ParseTreeListener) parseInnerExpr(key string, ctx IInnerExprContext) er
 	switch {
 	case ctx.Value().STRING() != nil:
 		s := ctx.Value().STRING().GetText()
-		strVal, err := strconv.Unquote(s)
+		// The grammar's STRING rule accepts JSON's "\/" escape, but
+		// strconv.Unquote only understands Go string syntax and rejects it.
+		// Translate the JSON-only escape to a plain "/" before unquoting so
+		// strings copied from JSON configs keep working.
+		strVal, err := strconv.Unquote(strings.ReplaceAll(s, `\/`, `/`))
 		if err != nil {
 			return errutil.Explain(err, "unquote string %q failed", s)
 		}
@@ -155,8 +172,11 @@ func (l *ParseTreeListener) parseInnerExpr(key string, ctx IInnerExprContext) er
 		return l.setValue(fieldKey, ctx.Value().FLOAT().GetText())
 	case ctx.Value().Expr() != nil:
 		return l.parseExpr(fieldKey, ctx.Value().Expr())
-	default: // for linter
-		return nil
+	default:
+		// Unreachable with the current grammar: value is always one of
+		// STRING, IDENT, INTEGER, FLOAT, or a nested expr. Report the
+		// unexpected token instead of silently dropping the field.
+		return errutil.Explain(nil, "unsupported value %q", ctx.Value().GetText())
 	}
 }
 

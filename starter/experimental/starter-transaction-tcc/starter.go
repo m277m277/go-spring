@@ -29,12 +29,14 @@
 //   - a *tcc.ParticipantRegistry — where application code registers each
 //     TCC method's participants.
 //
-// Wire them into an aspect chain to get the @GlobalTransactional(TCC) effect:
+// Wrap the business method with the decorator to get the
+// @GlobalTransactional(TCC) effect:
 //
 //	func RegisterOrder(reg *tcc.ParticipantRegistry) {
 //	    reg.Register("OrderService.Place", reserveStock, freezeBalance)
 //	}
-//	chain := aspect.NewChain(tcc.GlobalTCC(coord, reg))
+//	place := tcc.GlobalTCC(coord, reg)
+//	err := place(ctx, "OrderService.Place", func(ctx context.Context) error { ... })
 //
 // This is a Contributor-archetype starter (see starter/DESIGN.md §2.3): it opens
 // no port and starts no server. It is the strong-consistency sibling of

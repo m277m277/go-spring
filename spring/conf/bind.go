@@ -131,7 +131,7 @@ func (param *BindParam) BindTag(tag string, validate reflect.StructTag) error {
 }
 
 // Filter defines an interface for filtering configuration fields during binding.
-// Dynamic configuration fields have the same syntax, they need to be filtered out.
+// Dync fields use the same tag syntax; the filter removes them from static binding.
 type Filter interface {
 	Do(i any, param BindParam) (bool, error)
 }
@@ -151,7 +151,7 @@ type Filter interface {
 //   - Property not exist without default value.
 //   - Type conversion errors during parsing.
 //   - Custom converter function errors.
-func BindValue(p flatten.Storage, v reflect.Value, t reflect.Type, param BindParam, filter Filter) (RetErr error) {
+func BindValue(p flatten.Storage, v reflect.Value, t reflect.Type, param BindParam, filter Filter) (retErr error) {
 
 	if p == nil {
 		err := errutil.Explain(nil, "p cannot be nil")
@@ -165,11 +165,11 @@ func BindValue(p flatten.Storage, v reflect.Value, t reflect.Type, param BindPar
 
 	// run validation if "expr" tag is defined and no prior error
 	defer func() {
-		if RetErr == nil {
+		if retErr == nil {
 			tag, ok := param.Validate.Lookup("expr")
 			if ok && len(tag) > 0 {
-				if RetErr = validateField(tag, v.Interface()); RetErr != nil {
-					RetErr = errutil.Explain(RetErr, "validation failed at path %s with expr %q", param.Path, tag)
+				if retErr = validateField(tag, v.Interface()); retErr != nil {
+					retErr = errutil.Explain(retErr, "validation failed at path %s with expr %q", param.Path, tag)
 				}
 			}
 		}
@@ -265,8 +265,8 @@ func BindValue(p flatten.Storage, v reflect.Value, t reflect.Type, param BindPar
 //  2. A single delimited string:
 //     e.g. "list=a,b,c"  (split by ",")
 //
-// The slice is always reset (v.Set(slice)) before return,
-// even if binding fails midway.
+// On success the bound slice replaces the target (v.Set(slice)); if binding
+// fails midway, the target is left untouched.
 func bindSlice(p flatten.Storage, v reflect.Value, t reflect.Type, param BindParam, filter Filter) error {
 
 	elemType := t.Elem()

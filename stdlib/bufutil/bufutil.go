@@ -35,17 +35,18 @@ import "bytes"
 // are dropped (not errored), and Write always reports the full write size so a
 // reader/writer feeding it - notably an [io.TeeReader] - never blocks or errors.
 //
-// A zero-value LimitedBuffer has cap 0 and discards everything; construct one with
-// [New] to set a non-zero cap.
+// A zero-value LimitedBuffer has cap 0 and discards everything; construct one
+// with [NewLimitedBuffer] to set a non-zero cap.
 type LimitedBuffer struct {
 	buf bytes.Buffer
 	max int
 }
 
-// New returns a LimitedBuffer that keeps at most max bytes; further writes are
-// discarded (and still reported as written). Panics if max < 0, since a negative
-// cap is a programmer error, not a runtime condition to silently paper over.
-func New(max int) *LimitedBuffer {
+// NewLimitedBuffer returns a LimitedBuffer that keeps at most max bytes; further
+// writes are discarded (and still reported as written). Panics if max < 0, since
+// a negative cap is a programmer error, not a runtime condition to silently
+// paper over.
+func NewLimitedBuffer(max int) *LimitedBuffer {
 	if max < 0 {
 		panic("bufutil: negative cap")
 	}

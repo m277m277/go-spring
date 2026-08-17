@@ -44,6 +44,6 @@ func FileLine(fn any) (file string, line int, fnName string) {
 	}
 
 	// method values are printed as "T.m-fm"
-	s = strings.TrimRight(s, "-fm")
+	s = strings.TrimSuffix(s, "-fm")
 	return file, line, s
 }

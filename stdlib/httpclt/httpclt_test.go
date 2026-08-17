@@ -21,25 +21,15 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
-	"os"
-	"sync"
 	"testing"
-	"time"
 
-	"go-spring.org/stdlib/httpclt"
 	"go-spring.org/stdlib/hashutil"
+	"go-spring.org/stdlib/httpclt"
 	"go-spring.org/stdlib/jsonflow"
 	"go-spring.org/stdlib/testing/assert"
 )
-
-func init() {
-	doRequest := httpclt.DoRequest
-	httpclt.DoRequest = func(r *http.Request, meta httpclt.Metadata, fn func(io.Reader) error) (*http.Response, error) {
-		fmt.Printf("%#v\n", meta)
-		return doRequest(r, meta, fn)
-	}
-}
 
 type HelloRequest struct {
 	HelloRequestBody
@@ -97,54 +87,125 @@ func (r *HelloResponse) DecodeJSON(d jsonflow.Decoder) (err error) {
 	return
 }
 
-type HelloClient struct {
-	ServiceName string
+// formBody implements EncodeForm so httpclt sends it form-encoded.
+type formBody struct {
+	Values url.Values
 }
 
-// Hello sends a GET request to the /v1/hello endpoint with the given request body.
-func (c *HelloClient) Hello(ctx context.Context, req *HelloRequest, opts ...httpclt.RequestOption) (*http.Response, *HelloResponse, error) {
-	meta := httpclt.CombineMetadata(httpclt.Metadata{
-		Target:  c.ServiceName,
+func (f *formBody) EncodeForm() (string, error) {
+	return f.Values.Encode(), nil
+}
+
+func TestObjectResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(fmt.Appendf(nil, `{"message": "hello %s"}`, r.URL.Query().Get("message")))
+	}))
+	defer server.Close()
+
+	meta := httpclt.Metadata{
+		Target:  server.Listener.Addr().String(),
 		Schema:  "http",
-		Method:  "GET",
+		Method:  http.MethodGet,
 		Pattern: "/v1/hello",
-		// nolint: staticcheck
-		RawPath: fmt.Sprintf("/v1/hello"),
-		Query:   req,
+		RawPath: "/v1/hello",
+		Query:   &HelloRequest{Message: "world"},
 		Header: http.Header{
 			"Content-Type": []string{"application/x-www-form-urlencoded"},
 			"Accept":       []string{"application/json"},
 		},
-	}, opts...)
-	//return httpclt.JSONResponse[*HelloResponse](ctx, meta)
-	return httpclt.ObjectResponse(ctx, NewHelloResponse(), meta)
+	}
+
+	_, resp, err := httpclt.ObjectResponse(context.Background(), NewHelloResponse(), meta)
+	assert.Error(t, err).Nil()
+	assert.That(t, resp).Equal(&HelloResponse{Message: new("hello world")})
 }
 
-func TestHello(t *testing.T) {
-	server := &http.Server{Addr: ":9090", Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Println(r.URL.RawQuery)
-		_ = r.Header.Write(os.Stdout)
-		_, _ = w.Write(fmt.Appendf(nil, `{"message": "hello %s"}`, r.URL.Query().Get("message")))
-	})}
+func TestJSONResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.That(t, r.Header.Get("X-Request-ID")).Equal("12345678")
+		_, _ = w.Write([]byte(`{"message":"hello json"}`))
+	}))
+	defer server.Close()
 
-	var wg sync.WaitGroup
-	wg.Go(func() {
-		_ = server.ListenAndServe()
-	})
-	time.Sleep(time.Millisecond * 100)
+	meta := httpclt.Metadata{
+		Target:  server.Listener.Addr().String(),
+		Schema:  "http",
+		Method:  http.MethodGet,
+		RawPath: "/v1/hello",
+	}
 
 	h := http.Header{}
 	h.Set("X-Request-ID", "12345678")
 
-	client := &HelloClient{ServiceName: "127.0.0.1:9090"}
-	_, resp, err := client.Hello(context.Background(), &HelloRequest{
-		Message: "world",
-	}, httpclt.WithHeader(h))
-
+	_, out, err := httpclt.JSONResponse[*HelloResponse](context.Background(),
+		httpclt.CombineMetadata(meta, httpclt.WithHeader(h)))
 	assert.Error(t, err).Nil()
-	assert.That(t, resp).Equal(&HelloResponse{Message: new("hello world")})
-	fmt.Println(resp.Message)
+	assert.That(t, out.Message).Equal(new("hello json"))
+}
 
-	_ = server.Shutdown(context.Background())
-	wg.Wait()
+func TestJSONResponseError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"message":`)) // invalid JSON
+	}))
+	defer server.Close()
+
+	meta := httpclt.Metadata{
+		Target:  server.Listener.Addr().String(),
+		Schema:  "http",
+		Method:  http.MethodGet,
+		RawPath: "/v1/hello",
+	}
+
+	_, _, err := httpclt.JSONResponse[*HelloResponse](context.Background(), meta)
+	assert.Error(t, err).NotNil()
+}
+
+func TestWithConfigAndCombineMetadata(t *testing.T) {
+	meta := httpclt.Metadata{
+		Target:  "user-svc",
+		Schema:  "http",
+		Method:  http.MethodGet,
+		RawPath: "/v1/hello",
+		Config:  map[string]string{"existing": "1"},
+	}
+
+	got := httpclt.CombineMetadata(meta,
+		httpclt.WithConfig(map[string]string{"timeout": "3s"}),
+		httpclt.WithHeader(http.Header{"X-Trace": []string{"1"}}),
+	)
+
+	// WithConfig merges into the existing map instead of replacing it.
+	assert.That(t, got.Config).Equal(map[string]string{"existing": "1", "timeout": "3s"})
+	assert.That(t, got.Header.Get("X-Trace")).Equal("1")
+
+	// CombineMetadata copies the Metadata struct: the base had no Header, so
+	// WithHeader's new map lives only on the copy. (Config maps are reference
+	// types, so the merge is visible through both — don't share base maps when
+	// that matters.)
+	assert.That(t, meta.Header).Nil()
+}
+
+func TestEncodeFormBody(t *testing.T) {
+	var gotBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer server.Close()
+
+	meta := httpclt.Metadata{
+		Target:  server.Listener.Addr().String(),
+		Schema:  "http",
+		Method:  http.MethodPost,
+		RawPath: "/v1/hello",
+		Header: http.Header{
+			"Content-Type": []string{"application/x-www-form-urlencoded"},
+		},
+		Body: &formBody{Values: url.Values{"message": []string{"world"}}},
+	}
+
+	_, _, err := httpclt.JSONResponse[map[string]any](context.Background(), meta)
+	assert.Error(t, err).Nil()
+	assert.That(t, gotBody).Equal("message=world")
 }

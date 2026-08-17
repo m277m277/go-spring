@@ -120,6 +120,9 @@ type subscriber struct {
 }
 
 func (s *subscriber) Subscribe(_ context.Context, handler messaging.Handler) error {
+	// SafeHandler converts a handler panic into the normal error path
+	// (nack/redelivery) instead of unwinding into the SDK goroutine.
+	handler = messaging.SafeHandler(handler)
 	deliveries, err := s.ch.Consume(s.queue, "", false, false, false, false, nil)
 	if err != nil {
 		return err

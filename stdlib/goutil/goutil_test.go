@@ -28,11 +28,9 @@ import (
 
 func TestGo(t *testing.T) {
 	t.Run("panic recovery", func(t *testing.T) {
-		var s string
 		goutil.Go(t.Context(), func(ctx context.Context) {
 			panic("something is wrong")
 		}, goutil.InheritCancel).Wait()
-		assert.That(t, s).Equal("")
 	})
 
 	t.Run("normal execution", func(t *testing.T) {
@@ -43,7 +41,7 @@ func TestGo(t *testing.T) {
 		assert.That(t, s).Equal("hello world!")
 	})
 
-	t.Run("context cancel with withoutCancel=false", func(t *testing.T) {
+	t.Run("context cancel with InheritCancel", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 
 		resultCh := make(chan string, 1)
@@ -51,7 +49,7 @@ func TestGo(t *testing.T) {
 			<-ctx.Done()
 			select {
 			case <-ctx.Done():
-				resultCh <- "context was cancelled (expected with withoutCancel=false)"
+				resultCh <- "context was cancelled (expected with InheritCancel)"
 			default:
 				resultCh <- "context was not cancelled"
 			}
@@ -62,10 +60,10 @@ func TestGo(t *testing.T) {
 		status.Wait()
 
 		result := <-resultCh
-		assert.That(t, result).Equal("context was cancelled (expected with withoutCancel=false)")
+		assert.That(t, result).Equal("context was cancelled (expected with InheritCancel)")
 	})
 
-	t.Run("context cancel with withoutCancel=true", func(t *testing.T) {
+	t.Run("context cancel with DetachCancel", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 
 		resultCh := make(chan string, 1)
@@ -74,14 +72,14 @@ func TestGo(t *testing.T) {
 		goutil.Go(ctx, func(ctx context.Context) {
 			select {
 			case <-time.After(50 * time.Millisecond):
-				resultCh <- "context was not cancelled (as expected with withoutCancel=true)"
+				resultCh <- "context was not cancelled (as expected with DetachCancel)"
 			case <-ctx.Done():
-				resultCh <- "context was cancelled (unexpected with withoutCancel=true)"
+				resultCh <- "context was cancelled (unexpected with DetachCancel)"
 			}
 		}, goutil.DetachCancel).Wait()
 
 		result := <-resultCh
-		assert.That(t, result).Equal("context was not cancelled (as expected with withoutCancel=true)")
+		assert.That(t, result).Equal("context was not cancelled (as expected with DetachCancel)")
 	})
 }
 
@@ -132,7 +130,7 @@ func TestGoValue(t *testing.T) {
 		assert.That(t, err).Equal(expectedErr)
 	})
 
-	t.Run("context cancel with withoutCancel=false", func(t *testing.T) {
+	t.Run("context cancel with InheritCancel", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 
 		resultFuture := goutil.GoValue(ctx, func(ctx context.Context) (string, error) {
@@ -153,24 +151,24 @@ func TestGoValue(t *testing.T) {
 		assert.That(t, result).Equal("context was cancelled as expected")
 	})
 
-	t.Run("context cancel with withoutCancel=true", func(t *testing.T) {
+	t.Run("context cancel with DetachCancel", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		cancel()
 
 		result, err := goutil.GoValue(ctx, func(ctx context.Context) (string, error) {
 			select {
 			case <-time.After(50 * time.Millisecond):
-				return "context was not cancelled (as expected with withoutCancel=true)", nil
+				return "context was not cancelled (as expected with DetachCancel)", nil
 			case <-ctx.Done():
-				return "context was cancelled (unexpected with withoutCancel=true)", nil
+				return "context was cancelled (unexpected with DetachCancel)", nil
 			}
 		}, goutil.DetachCancel).Wait()
 
 		assert.That(t, err).Nil()
-		assert.That(t, result).Equal("context was not cancelled (as expected with withoutCancel=true)")
+		assert.That(t, result).Equal("context was not cancelled (as expected with DetachCancel)")
 	})
 
-	t.Run("context value inheritance with withoutCancel", func(t *testing.T) {
+	t.Run("context value inheritance with DetachCancel", func(t *testing.T) {
 		key := "test_key"
 		value := "test_value"
 		// nolint: staticcheck

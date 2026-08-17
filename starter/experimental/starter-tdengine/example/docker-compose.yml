@@ -1,0 +1,13 @@
+name: gs-tdengine-example
+
+services:
+  tdengine:
+    image: tdengine/tdengine:3.3.6.0
+    container_name: tdengine-example
+    environment:
+      # Skip the interactive first-login password prompt so the example's
+      # root/taosdata credentials keep working headless.
+      TAOS_FQDN: tdengine
+    ports:
+      - "127.0.0.1:6041:6041"
+      - "127.0.0.1:6030:6030"

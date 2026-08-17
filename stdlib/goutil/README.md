@@ -2,17 +2,16 @@
 
 [English](README.md) | [中文](README_CN.md)
 
-Run goroutines safely with built-in panic recovery.
+`goutil` launches goroutines with built-in panic recovery, so a panic inside a
+goroutine no longer crashes the process; the recovered panic is routed to a
+global `OnPanic` callback for logging, metrics, or alerting. It covers both
+`func(ctx)` (`Go`) and `func(ctx) (T, error)` (`GoValue`) shapes, and every
+launch returns a handle with `Wait()` for joining without hand-rolled channels
+or `sync.WaitGroup` bookkeeping. It is not a worker pool, semaphore, or
+cancellation framework — `errgroup`, `semaphore`, and friends stay in
+`golang.org/x/sync`.
 
-## Features
-
-- **Panic Recovery**: Automatically captures panics in goroutines to prevent crashes
-- **Global Callback**: Provides `OnPanic` callback for logging, metrics, or alerting
-- **Context Control**: Supports flexible context cancellation modes (inherit/detach)
-- **Return Value Support**: Captures return values and errors from goroutines
-- **Synchronization**: Provides `Wait()` method to wait for goroutine completion
-
-## Usage Examples
+## Usage
 
 ### Basic Usage
 
@@ -23,7 +22,7 @@ import (
     "context"
     "fmt"
     "time"
-    
+
     "go-spring.org/stdlib/goutil"
 )
 
@@ -34,7 +33,7 @@ func main() {
         time.Sleep(100 * time.Millisecond)
         fmt.Println("goroutine completed")
     }, goutil.InheritCancel)
-    
+
     // Wait for goroutine to complete
     status.Wait()
 }
@@ -76,7 +75,7 @@ time.Sleep(50 * time.Millisecond)
 cancel() // child goroutine receives cancellation signal
 ```
 
-**DetachCancel**: Child goroutine不受 parent context cancellation
+**DetachCancel**: the child goroutine is not affected by parent context cancellation.
 
 ```go
 ctx, cancel := context.WithCancel(context.Background())
@@ -120,13 +119,12 @@ value, err := goutil.GoValue(context.Background(), func(ctx context.Context) (st
 fmt.Printf("value: %q, error: %v\n", value, err)
 ```
 
-## Important Notes
+### Important Notes
 
-### 1. Context Cancellation is Cooperative
+**1. Context cancellation is cooperative** — goroutines don't automatically
+respond to cancellation; you must check explicitly in the function.
 
-Goroutines don't automatically respond to context cancellation; you must check explicitly in the function.
-
-**Wrong**: Does not respond to cancellation
+Wrong (does not respond to cancellation):
 
 ```go
 goutil.Go(ctx, func(ctx context.Context) {
@@ -134,7 +132,7 @@ goutil.Go(ctx, func(ctx context.Context) {
 }, goutil.InheritCancel)
 ```
 
-**Right**: Actively checks cancellation
+Right (actively checks cancellation):
 
 ```go
 goutil.Go(ctx, func(ctx context.Context) {
@@ -148,22 +146,20 @@ goutil.Go(ctx, func(ctx context.Context) {
 }, goutil.InheritCancel)
 ```
 
-### 2. Defer Always Executes
-
-Even when a panic occurs, defer statements execute normally:
+**2. Defer always executes** — even when a panic occurs:
 
 ```go
 goutil.Go(context.Background(), func(ctx context.Context) {
     file, _ := os.Open("data.txt")
     defer file.Close() // executes even on panic
-    
+
     processData(file) // may panic
 }, goutil.InheritCancel)
 ```
 
-## Typical Use Cases
+### Typical Use Cases
 
-### 1. Web Server Background Tasks
+Web server background tasks:
 
 ```go
 http.HandleFunc("/upload", func(w http.ResponseWriter, r *http.Request) {
@@ -172,12 +168,12 @@ http.HandleFunc("/upload", func(w http.ResponseWriter, r *http.Request) {
         // process file...
         // won't crash server even if panic occurs
     }, goutil.DetachCancel)
-    
+
     w.WriteHeader(http.StatusAccepted)
 })
 ```
 
-### 2. Scheduled Tasks
+Scheduled tasks:
 
 ```go
 go func() {
@@ -190,13 +186,13 @@ go func() {
 }()
 ```
 
-### 3. Batch Concurrent Processing
+Batch concurrent processing:
 
 ```go
 func ProcessBatch(items []Item) error {
     var wg sync.WaitGroup
     results := make(chan Result, len(items))
-    
+
     for _, item := range items {
         wg.Add(1)
         go func(it Item) {
@@ -204,7 +200,7 @@ func ProcessBatch(items []Item) error {
             res, err := goutil.GoValue(context.Background(), func(ctx context.Context) (Result, error) {
                 return processItem(it), nil
             }, goutil.InheritCancel).Wait()
-            
+
             if err != nil {
                 log.Printf("processing failed: %v", err)
                 return
@@ -212,20 +208,44 @@ func ProcessBatch(items []Item) error {
             results <- res
         }(item)
     }
-    
+
     wg.Wait()
     close(results)
     return nil
 }
 ```
 
-## Comparison with Other Approaches
+### Comparison with Other Approaches
 
 | Approach | Panic Recovery | Context Control | Return Values | Synchronization |
 |----------|---------------|-----------------|---------------|-----------------|
 | go func() | ❌ | ✅ | ✅ | ❌ |
 | errgroup.Group | ❌ | ✅ | ✅ | ✅ |
 | **goutil** | ✅ | ✅ | ✅ | ✅ |
+
+## Design
+
+`goutil` is part of the zero-dependency `stdlib` layer — a thin wrapper, not
+a concurrency framework.
+
+- **Global `OnPanic` seam**: a package-level `var` that applications overwrite
+  during initialization to plug into their logging / metrics stack. A
+  variable rather than a getter/setter pair, because there is exactly one
+  configuration point and set-once is enough.
+- **Explicit `CancelMode`**: `InheritCancel` passes the context through;
+  `DetachCancel` wraps it with `context.WithoutCancel` so the goroutine
+  outlives its launcher. Chosen at every call site — no "default" that
+  quietly changes behavior.
+- **`Status` / `ValueStatus[T]`**: both handles synchronize on a single
+  `close(chan)`. `ValueStatus[T].Wait` also surfaces the recovered panic as
+  an error, so `GoValue` callers see one error channel whether the failure
+  came from `return err` or a `panic`.
+
+Constraints: `OnPanic` runs inside the recovering goroutine — a slow or
+panicking hook stalls the shutdown path it should observe, so keep it cheap
+and never let it panic. The default `OnPanic` prints to stdout via
+`fmt.Printf` (zero-config for tests and small programs); override it in
+anything serious.
 
 ## License
 

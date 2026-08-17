@@ -21,7 +21,6 @@ import (
 	"errors"
 	"testing"
 
-	"go-spring.org/cloud/experimental/aspect"
 	"go-spring.org/cloud/experimental/transaction"
 	"go-spring.org/stdlib/testing/assert"
 )
@@ -210,14 +209,14 @@ func TestGlobalTransactional_RunsRegisteredSaga(t *testing.T) {
 		transaction.Step{Name: "b", Action: func(context.Context) (any, error) { return nil, errors.New("boom") }},
 	)
 	coord := transaction.NewCoordinator()
-	chain := aspect.NewChain(transaction.GlobalTransactional(coord, reg))
+	decorator := transaction.GlobalTransactional(coord, reg)
 
 	ctx := transaction.WithSagaID(context.Background(), "order-42")
 	// The target must not run: it is replaced by the registered saga.
 	targetRan := false
-	_, err := chain.Run(ctx, "OrderService.Place", func(context.Context) (any, error) {
+	err := decorator(ctx, "OrderService.Place", func(context.Context) error {
 		targetRan = true
-		return nil, nil
+		return nil
 	})
 	assert.Error(t, err).NotNil()
 	assert.That(t, targetRan).False()
@@ -227,12 +226,14 @@ func TestGlobalTransactional_RunsRegisteredSaga(t *testing.T) {
 func TestGlobalTransactional_PassthroughWhenUnregistered(t *testing.T) {
 	reg := transaction.NewStepRegistry()
 	coord := transaction.NewCoordinator()
-	chain := aspect.NewChain(transaction.GlobalTransactional(coord, reg))
+	decorator := transaction.GlobalTransactional(coord, reg)
 
 	ran := false
-	v, err := chain.Run(context.Background(), "Unknown.Method", func(context.Context) (any, error) {
+	var v string
+	err := decorator(context.Background(), "Unknown.Method", func(context.Context) error {
 		ran = true
-		return "target", nil
+		v = "target"
+		return nil
 	})
 	assert.Error(t, err).Nil()
 	assert.That(t, ran).True()

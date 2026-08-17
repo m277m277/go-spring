@@ -42,12 +42,14 @@ func ArgErr(err error, arg gs.Arg) error {
 }
 
 // TagArg represents an argument resolved using a tag for property binding
-// or dependency injection.
+// or dependency injection. An empty tag means "bind the whole configuration
+// root" (${ROOT}) for property-binding targets.
 type TagArg struct {
 	Tag string
 }
 
-// Tag creates a TagArg with the given tag string.
+// Tag creates a TagArg with the given tag string. An empty tag binds the
+// whole configuration root when used for property binding.
 func Tag(tag string) gs.Arg {
 	return TagArg{Tag: tag}
 }
@@ -61,9 +63,7 @@ func (arg TagArg) GetArgValue(ctx gs.ArgContext, t reflect.Type) (reflect.Value,
 	// Bind property values based on the argument type.
 	if typeutil.IsPropBindingTarget(t) {
 		if arg.Tag == "" {
-			if arg.Tag == "" {
-				arg.Tag = "${ROOT}"
-			}
+			arg.Tag = "${ROOT}"
 		}
 		v := reflect.New(t).Elem()
 		if err := ctx.Bind(v, arg.Tag); err != nil {
@@ -264,19 +264,16 @@ func (r *ArgList) get(ctx gs.ArgContext) ([]reflect.Value, error) {
 	return result, nil
 }
 
-// CallableFunc is an alias for any callable function.
-type CallableFunc = any
-
 // Callable wraps a target function together with its resolved ArgList.
 // It can be invoked at runtime with the correct arguments.
 type Callable struct {
-	fn      CallableFunc
+	fn      any
 	argList *ArgList
 }
 
 // callableFuncType validates the type of a callable function.
 // It returns the reflected type of the function if valid, or an error otherwise.
-func callableFuncType(fn CallableFunc) (reflect.Type, error) {
+func callableFuncType(fn any) (reflect.Type, error) {
 	if fn == nil {
 		return nil, errutil.Explain(nil, "callable function cannot be nil")
 	}
@@ -292,7 +289,7 @@ func callableFuncType(fn CallableFunc) (reflect.Type, error) {
 }
 
 // NewCallable creates a Callable by binding the given arguments to the function.
-func NewCallable(fn CallableFunc, args []gs.Arg) (*Callable, error) {
+func NewCallable(fn any, args []gs.Arg) (*Callable, error) {
 	fnType, err := callableFuncType(fn)
 	if err != nil {
 		return nil, err
@@ -321,12 +318,13 @@ type BindArg struct {
 }
 
 // validBindFunc validates that a function is a proper bind target.
-func validBindFunc(fn CallableFunc) error {
+// Valid signatures are func(...) T and func(...) (T, error).
+func validBindFunc(fn any) error {
 	t, err := callableFuncType(fn)
 	if err != nil {
 		return err
 	}
-	if numOut := t.NumOut(); numOut == 1 { // func(...) error
+	if numOut := t.NumOut(); numOut == 1 { // func(...) T
 		if o := t.Out(0); !typeutil.IsErrorType(o) {
 			return nil
 		}
@@ -335,13 +333,13 @@ func validBindFunc(fn CallableFunc) error {
 			return nil
 		}
 	}
-	err = errutil.Explain(nil, "expected func(...) error or func(...) (T, error), got %s", t.String())
+	err = errutil.Explain(nil, "expected func(...) T or func(...) (T, error), got %s", t.String())
 	return errutil.Explain(err, "invalid bind function signature")
 }
 
 // Bind creates a BindArg for a given function and its arguments.
 // The function must have a valid bindable signature.
-func Bind(fn CallableFunc, args ...gs.Arg) *BindArg {
+func Bind(fn any, args ...gs.Arg) *BindArg {
 	if err := validBindFunc(fn); err != nil {
 		panic(err)
 	}
@@ -364,7 +362,7 @@ func (arg *BindArg) SetFileLine(file string, line int) {
 func (arg *BindArg) Condition(conditions ...gs.Condition) *BindArg {
 	for _, c := range conditions {
 		if c == nil {
-			panic("conditions cannot contains nil")
+			panic("conditions cannot contain nil")
 		}
 	}
 	arg.conditions = append(arg.conditions, conditions...)

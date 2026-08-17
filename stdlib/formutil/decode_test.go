@@ -34,8 +34,8 @@ func (x *Request) DecodeForm(data string) error {
 	}
 
 	var (
-		hashBool bool
-		hashInt  bool
+		seenBool bool
+		seenInt  bool
 	)
 
 	for key, values := range m {
@@ -44,7 +44,7 @@ func (x *Request) DecodeForm(data string) error {
 		}
 		switch key {
 		case "Bool":
-			hashBool = true
+			seenBool = true
 			if x.Bool, err = formutil.DecodeBool(key, values); err != nil {
 				return errutil.Explain(err, "decode form field %s error", key)
 			}
@@ -53,7 +53,7 @@ func (x *Request) DecodeForm(data string) error {
 				return errutil.Explain(err, "decode form field %s error", key)
 			}
 		case "Int":
-			hashInt = true
+			seenInt = true
 			if x.Int, err = formutil.DecodeInt[int](key, values); err != nil {
 				return errutil.Explain(err, "decode form field %s error", key)
 			}
@@ -133,14 +133,14 @@ func (x *Request) DecodeForm(data string) error {
 			if x.StringItemMap, err = formutil.DecodeJSON[map[string]*Item](key, values); err != nil {
 				return errutil.Explain(err, "decode form field %s error", key)
 			}
-		default: // for linter
+		default: // unreachable: every key in ExpectedStr is handled above
 		}
 	}
 
-	if !hashBool {
+	if !seenBool {
 		return errutil.Explain(nil, "missing required field Bool")
 	}
-	if !hashInt {
+	if !seenInt {
 		return errutil.Explain(nil, "missing required field Int")
 	}
 
@@ -153,4 +153,68 @@ func TestDecode(t *testing.T) {
 		t.Fatal(err)
 	}
 	assert.That(t, x).Equal(ExpectedReq)
+}
+
+func TestDecodeEmptyValues(t *testing.T) {
+	t.Run("DecodeString with no values", func(t *testing.T) {
+		_, err := formutil.DecodeString("k", nil)
+		assert.Error(t, err).String("missing value for form field k")
+	})
+
+	t.Run("DecodeInt with no values", func(t *testing.T) {
+		_, err := formutil.DecodeInt[int]("k", []string{})
+		assert.Error(t, err).String("missing value for form field k")
+	})
+
+	t.Run("DecodeBool with no values", func(t *testing.T) {
+		_, err := formutil.DecodeBool("k", []string{})
+		assert.Error(t, err).String("missing value for form field k")
+	})
+}
+
+func TestDecodeErrors(t *testing.T) {
+	t.Run("Too many values", func(t *testing.T) {
+		_, err := formutil.DecodeString("k", []string{"a", "b"})
+		assert.Error(t, err).String("too many values for form field k")
+	})
+
+	t.Run("Invalid bool", func(t *testing.T) {
+		_, err := formutil.DecodeBool("k", []string{"yes"})
+		assert.Error(t, err).Matches(`strconv.ParseBool: parsing "yes": invalid syntax`)
+	})
+
+	t.Run("Invalid int", func(t *testing.T) {
+		_, err := formutil.DecodeInt[int]("k", []string{"1.0"})
+		assert.Error(t, err).Matches(`strconv.ParseInt: parsing "1.0": invalid syntax`)
+	})
+
+	t.Run("Overflow int8", func(t *testing.T) {
+		_, err := formutil.DecodeInt[int8]("k", []string{"999"})
+		assert.Error(t, err).String("overflow for form field k")
+	})
+
+	t.Run("Invalid base64", func(t *testing.T) {
+		_, err := formutil.DecodeBytes("k", []string{"not*base64"})
+		assert.Error(t, err).Matches("illegal base64 data at input byte .*")
+	})
+
+	t.Run("Invalid JSON", func(t *testing.T) {
+		_, err := formutil.DecodeJSON[Item]("k", []string{"{invalid"})
+		assert.That(t, err).NotNil()
+	})
+
+	t.Run("DecodeList error propagation", func(t *testing.T) {
+		_, err := formutil.DecodeList("k", []string{"1", "x"}, formutil.DecodeInt[int])
+		assert.Error(t, err).Matches(`strconv.ParseInt: parsing "x": invalid syntax`)
+	})
+}
+
+func TestEncodeNilPtrOmitted(t *testing.T) {
+	m := url.Values{}
+	_ = formutil.EncodeBoolPtr(m, "BoolPtr", nil)
+	_ = formutil.EncodeIntPtr[int](m, "IntPtr", nil)
+	_ = formutil.EncodeUintPtr[uint](m, "UintPtr", nil)
+	_ = formutil.EncodeFloatPtr[float32](m, "FloatPtr", nil)
+	_ = formutil.EncodeStringPtr(m, "StringPtr", nil)
+	assert.String(t, m.Encode()).Equal("")
 }

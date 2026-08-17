@@ -61,7 +61,10 @@ func newApp() *AppStarter {
 	return &AppStarter{app: gs_app.NewApp()}
 }
 
-// Web creates a new application with web server enabled.
+// Web creates a new application and controls its built-in HTTP server.
+// The server is enabled by default; Web(false) disables it by setting the
+// "spring.http.server.enabled" property to "false" (useful for pure CLI
+// or worker processes with no HTTP endpoints). Web(true) keeps the default.
 func Web(enable bool) *AppStarter {
 	return Configure(func(app App) {
 		if !enable {
@@ -227,9 +230,10 @@ func (s *AppStarter) RunTest(t *testing.T, f any) {
 }
 
 // validateRunTestFunc validates the signature of the test function.
-// It checks if the function is a pointer-to-struct and if it has exactly one argument.
-// If the function is nil or has an invalid signature, it returns an error.
-// If the function is valid, it returns the function type and value.
+// It checks that the function takes exactly one argument and that the
+// argument is a pointer-to-struct. If the function is nil or has an
+// invalid signature, it returns an error. If the function is valid, it
+// returns the function type and value.
 func validateRunTestFunc(f any) (reflect.Type, reflect.Value, error) {
 	if f == nil {
 		return nil, reflect.Value{}, errutil.Explain(nil, "RunTest requires func(*Struct), got <nil>")

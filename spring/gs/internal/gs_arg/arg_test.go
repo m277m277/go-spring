@@ -618,7 +618,7 @@ func TestBindArg_Bind(t *testing.T) {
 		}
 		assert.Panic(t, func() {
 			Bind(fn, args...)
-		}, "invalid bind function signature: expected func\\(.*\\) error or func\\(.*\\) \\(T, error\\)")
+		}, "invalid bind function signature: expected func\\(.*\\) T or func\\(.*\\) \\(T, error\\)")
 	})
 
 	t.Run("non-function type", func(t *testing.T) {
@@ -628,13 +628,11 @@ func TestBindArg_Bind(t *testing.T) {
 		}, "callable function must be a function type, got string")
 	})
 
-	t.Run("function returning only error", func(t *testing.T) {
-		fn := func(a int, b string) error {
-			return nil
-		}
+	t.Run("function returning nothing", func(t *testing.T) {
+		fn := func(a int, b string) {}
 		assert.Panic(t, func() {
 			Bind(fn)
-		}, "invalid bind function signature: expected func\\(.*\\) error or func\\(.*\\) \\(T, error\\)")
+		}, "invalid bind function signature: expected func\\(.*\\) T or func\\(.*\\) \\(T, error\\)")
 	})
 
 	t.Run("function with invalid return types", func(t *testing.T) {
@@ -643,7 +641,7 @@ func TestBindArg_Bind(t *testing.T) {
 		}
 		assert.Panic(t, func() {
 			Bind(fn)
-		}, "invalid bind function signature: expected func\\(.*\\) error or func\\(.*\\) \\(T, error\\)")
+		}, "invalid bind function signature: expected func\\(.*\\) T or func\\(.*\\) \\(T, error\\)")
 	})
 
 	t.Run("function with too many return values", func(t *testing.T) {
@@ -656,7 +654,7 @@ func TestBindArg_Bind(t *testing.T) {
 		}
 		assert.Panic(t, func() {
 			Bind(fn, args...)
-		}, "invalid bind function signature: expected func\\(.*\\) error or func\\(.*\\) \\(T, error\\)")
+		}, "invalid bind function signature: expected func\\(.*\\) T or func\\(.*\\) \\(T, error\\)")
 	})
 
 	t.Run("error in argument processing", func(t *testing.T) {
@@ -890,7 +888,7 @@ func TestBindArg_Condition(t *testing.T) {
 		})
 		assert.Panic(t, func() {
 			arg.Condition(nil)
-		}, "conditions cannot contains nil")
+		}, "conditions cannot contain nil")
 	})
 
 	t.Run("multiple conditions - all true", func(t *testing.T) {

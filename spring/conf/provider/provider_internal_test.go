@@ -56,3 +56,35 @@ func TestLoadCustomProviderSourceWithColon(t *testing.T) {
 	assert.That(t, gotOptional).True()
 	assert.That(t, gotSource).Equal("localhost:2379/config")
 }
+
+func TestLoadUnsupportedProvider(t *testing.T) {
+	_, err := Load("unknown-provider:./config.yaml")
+	assert.Error(t, err).Matches("unsupported provider type unknown-provider")
+}
+
+func TestLoadFile(t *testing.T) {
+
+	t.Run("optional missing file returns nil", func(t *testing.T) {
+		m, err := Load("optional:file:./missing.yaml")
+		assert.That(t, err).Nil()
+		assert.That(t, m).Nil()
+	})
+
+	t.Run("required missing file returns error", func(t *testing.T) {
+		_, err := Load("file:./missing.yaml")
+		assert.Error(t, err).Matches("no such file or directory")
+	})
+
+	t.Run("existing file", func(t *testing.T) {
+		m, err := Load("../testdata/config/app.properties")
+		assert.That(t, err).Nil()
+		assert.That(t, m).Equal(map[string]string{
+			"properties.list[0]":          "1",
+			"properties.list[1]":          "2",
+			"properties.obj.list[0].age":  "4",
+			"properties.obj.list[0].name": "tom",
+			"properties.obj.list[1].age":  "2",
+			"properties.obj.list[1].name": "jerry",
+		})
+	})
+}

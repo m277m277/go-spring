@@ -1,20 +1,28 @@
 # jsonflow
+
 [English](README.md) | [中文](README_CN.md)
 
-`jsonflow` is Go-Spring's streaming JSON layer. It sits on top of Go 1.26's
-`encoding/json/v2` + `encoding/json/jsontext` and provides:
+`jsonflow` is Go-Spring's streaming JSON layer, built on Go 1.26's
+`encoding/json/v2` + `encoding/json/jsontext`. It is the framework's single
+JSON boundary: everything marshaled or unmarshaled goes through it, so the
+whole codebase shares the same defaults (deterministic map key order, nil
+map / slice as `null`). On top of a drop-in `Marshal` / `Unmarshal` /
+`MarshalWrite` / `UnmarshalRead` API it offers generic `Encode<T>` /
+`Decode<T>` helpers for hand-written streaming encoders / decoders, generated
+code, and custom `JSONEncoder` / `JSONDecoder` implementations. Part of the
+zero-dependency `stdlib` layer (only `encoding/json/v2` and sibling stdlib
+packages). It is not a schema library — field ordering, discovery, and
+validation remain the caller's concern.
 
-- A drop-in `Marshal` / `Unmarshal` / `MarshalWrite` / `UnmarshalRead` API
-  with sensible defaults (deterministic map key order, nil map / slice as
-  `null`).
-- A generic set of `Encode<T>` / `Decode<T>` helpers for hand-written
-  streaming encoders / decoders, generated code, and custom
-  `JSONEncoder` / `JSONDecoder` implementations.
+## Usage
 
-Part of the zero-dependency `stdlib` layer (only `encoding/json/v2` and
-sibling stdlib packages).
+Import path:
 
-## Top-level API
+```go
+import "go-spring.org/stdlib/jsonflow"
+```
+
+### Top-level API
 
 - `Marshal(v, opts...) ([]byte, error)`
 - `MarshalIndent(v, prefix, indent string) ([]byte, error)`
@@ -34,7 +42,7 @@ Options implement the sealed `MarshalOptions` interface. Built-in options:
   (default `true`).
 - `Deterministic` — sort map keys deterministically (default `true`).
 
-## Streaming helpers
+### Streaming helpers
 
 For values that implement `JSONEncoder` / `JSONDecoder`, `jsonflow` provides
 per-scalar and structural helpers:
@@ -47,8 +55,8 @@ Encoders (`Encoder = json.Encoder`):
 - `EncodeArrayBegin` / `EncodeArrayEnd` / `EncodeArray` and
   `EncodeObjectBegin` / `EncodeObjectEnd` / `EncodeMap`.
 - Map-key helpers: `EncodeIntKey`, `EncodeUintKey`, `EncodeStringKey`.
-- Every scalar also has a `Ptr` variant that emits `null` for a `nil`
-  pointer.
+- Every scalar except Bytes also has a `Ptr` variant that emits `null` for a
+  `nil` pointer.
 
 Decoders (`Decoder = json.Decoder`):
 
@@ -57,9 +65,10 @@ Decoders (`Decoder = json.Decoder`):
 - `DecodeArray`, `DecodeMap` (higher-order combinators).
 - `DecodeObjectBegin` / `DecodeObjectEnd` / `DecodeEOF` for framing.
 - `Parse*` counterparts for use inside custom `parseFn` callbacks.
-- Every scalar has a `Ptr` variant that returns `nil` on JSON `null`.
+- Every scalar except Bytes has a `Ptr` variant that returns `nil` on JSON
+  `null`; `DecodeBytes` handles `null` itself.
 
-## Example
+### Example
 
 ```go
 import "go-spring.org/stdlib/jsonflow"
@@ -80,3 +89,44 @@ func (u *User) EncodeJSON(e jsonflow.Encoder) error {
 
 b, _ := jsonflow.Marshal(&User{Name: "alice", Age: 30})
 ```
+
+## Design
+
+- **`JSONEncoder` / `JSONDecoder` seam**: opt-in hook for values that want to
+  own their wire format. `Marshal` / `UnmarshalRead` type-assert first, then
+  fall back to `encoding/json/v2`. The primary seam used by code-generated
+  types.
+- **Sealed `MarshalOptions`**: an unexported `NotForPublicUse{}` argument on
+  `JSONOptions` keeps the option set closed. New options ship as new
+  package-level types (`Indent`, `NilSliceAsNull`, etc.) — user
+  extensibility is traded away for API stability.
+- **Deterministic defaults**: `NilSliceAsNull(true)`, `NilMapAsNull(true)`
+  and `Deterministic(true)` are always applied first, before user options can
+  override them — chosen to keep golden-file tests and cache keying stable
+  across runs.
+- **Generic scalar helpers**: `EncodeInt[T ~int|...]` and friends avoid
+  reflection at the leaf level; combined with `mathutil.Overflow*`, decoders
+  reject out-of-range numbers before they widen silently.
+- **Higher-order combinators**: `DecodeArray[T](parseFn)` and
+  `DecodeMap[K,V](parseKey, parseVal)` compose per-type decoders without
+  capturing framework state.
+
+### Constraints & trade-offs
+
+- Depends on `encoding/json/v2` — Go 1.26+ only, no v1 fallback. The
+  streaming helpers program against `internal/json`, a vendor-neutral seam
+  of token interfaces (Encoder, Decoder, Kind); `internal/jsonv2` is its
+  sole adapter, implemented on top of `encoding/json/v2`.
+- `EncodeFloat` maps `NaN`, `+Inf`, `-Inf` to the strings `"NaN"`,
+  `"Infinity"`, `"-Infinity"` respectively. This keeps output valid JSON,
+  but round-tripping requires the caller's decoder to know that convention.
+- `DecodeBytes` treats `null` as "return nil, no error", while
+  `DecodeString` treats `null` as an error. Bytes are commonly optional;
+  strings usually are not, and the shape reflects that.
+- Numeric decoders accept map keys as both `"..."` and `0` tokens through
+  the `ParseIntKey` / `ParseUintKey` variants — necessary because
+  `encoding/json/v2` renders numeric map keys as strings.
+
+## License
+
+Apache License 2.0

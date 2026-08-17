@@ -19,35 +19,35 @@ package errutil
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"go-spring.org/stdlib/testing/assert"
 )
 
 func TestRequireField(t *testing.T) {
-	assert.NoError(t, RequireField("mail", "host", "smtp.example.com"))
-	assert.NoError(t, RequireField("mail", "host", "  x  "))
+	assert.Error(t, RequireField("mail", "host", "smtp.example.com")).Nil()
+	assert.Error(t, RequireField("mail", "host", "  x  ")).Nil()
 
 	err := RequireField("mail", "host", "")
-	assert.EqualError(t, err, "mail: host is required")
+	assert.Error(t, err).String("mail: host is required")
 
 	err = RequireField("mail", "host", "   ")
-	assert.EqualError(t, err, "mail: host is required")
+	assert.Error(t, err).String("mail: host is required")
 }
 
 func TestRequireAny(t *testing.T) {
 	// Any present -> nil.
-	assert.NoError(t, RequireAny("http-client",
+	assert.Error(t, RequireAny("http-client",
 		Field{Name: "addr", Value: "1.2.3.4"},
 		Field{Name: "service-name", Value: ""},
-	))
-	assert.NoError(t, RequireAny("http-client",
+	)).Nil()
+	assert.Error(t, RequireAny("http-client",
 		Field{Name: "addr", Value: ""},
 		Field{Name: "service-name", Value: "orders"},
-	))
+	)).Nil()
 
 	// All empty -> standardized message.
 	err := RequireAny("http-client",
 		Field{Name: "addr", Value: ""},
 		Field{Name: "service-name", Value: "  "},
 	)
-	assert.EqualError(t, err, "http-client: one of addr or service-name is required")
+	assert.Error(t, err).String("http-client: one of addr or service-name is required")
 }

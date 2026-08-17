@@ -31,6 +31,18 @@
 | --- | --- | --- |
 | `starter-http-client` | Go `net/http` + [`gs-http-gen`](../gs/gs-http-gen) | 声明式 HTTP 客户端(对标 OpenFeign / `@HttpExchange`):在同一个 `*http.Client` 背后接入发现 + 负载均衡 + 韧性 + 链路追踪透传 |
 
+## 配置中心
+
+| Starter | 底层库 | 领域 |
+| --- | --- | --- |
+| `starter-config-apollo` | [apolloconfig/agollo/v4](https://github.com/apolloconfig/agollo) | Apollo 配置中心 |
+| `starter-config-nacos` | [nacos-sdk-go/v2](https://github.com/nacos-group/nacos-sdk-go) | Nacos 配置中心 |
+| `starter-config-consul` | [consul/api](https://github.com/hashicorp/consul) | Consul KV |
+| `starter-config-etcd` | [etcd/client/v3](https://go.etcd.io/etcd) | etcd KV |
+| `starter-config-vault` | [vault/api](https://github.com/hashicorp/vault) | Vault secret/配置 |
+| `starter-config-k8s` | [client-go](https://github.com/kubernetes/client-go) | K8s ConfigMap/Secret |
+| `starter-config-bus` | [nats.go](https://github.com/nats-io/nats.go) | 配置总线（多实例广播） |
+
 ## RPC 框架
 
 注册服务后由 starter 负责监听/服务构建、生命周期与优雅关闭。
@@ -62,13 +74,16 @@
 
 | Starter | 底层库 | 领域 |
 | --- | --- | --- |
-| `starter-gorm-mysql` | [gorm](https://gorm.io/) | MySQL 关系型数据库 |
+| `starter-gorm-mysql` | [gorm](https://gorm.io/) | MySQL 关系型数据库（TiDB、OceanBase MySQL 模式同样适用 —— 二者均兼容 MySQL 线协议） |
 | `starter-gorm-postgres` | [gorm](https://gorm.io/) | PostgreSQL 关系型数据库 |
 | `starter-gorm-sqlserver` | [gorm](https://gorm.io/) | Microsoft SQL Server 关系型数据库 |
 | `starter-gorm-clickhouse` | [gorm](https://gorm.io/) | ClickHouse OLAP 列式数据库 |
 | `starter-mongodb` | [mongo-driver/v2](https://go.mongodb.org/mongo-driver/v2) | MongoDB 文档数据库 |
 | `starter-neo4j` | [neo4j-go-driver](https://github.com/neo4j/neo4j-go-driver) | Neo4j 图数据库 |
 | `starter-elasticsearch` | [go-elasticsearch](https://github.com/elastic/go-elasticsearch) | Elasticsearch 搜索引擎 |
+| `starter-influxdb` | [influxdb-client-go/v2](https://github.com/influxdata/influxdb-client-go) | InfluxDB 2.x 时序数据库 |
+| `starter-tdengine` | [driver-go/v3 (taosWS)](https://github.com/taosdata/driver-go) | TDengine 时序数据库（websocket，零 CGO） |
+| `starter-cassandra` | [gocql](https://github.com/gocql/gocql) | Cassandra / ScyllaDB 宽表数据库 |
 | `starter-repository-gorm` | [gorm](https://gorm.io/) | 基于任意 gorm `*gorm.DB` 的通用 `repository.Repository[T,ID]`(CRUD + 分页 + 审计) |
 
 ## 缓存
@@ -87,9 +102,16 @@
 | `starter-kafka` | [twmb/franz-go](https://github.com/twmb/franz-go) | Kafka |
 | `starter-kafka-sarama` | [IBM/sarama](https://github.com/IBM/sarama) | Kafka（另一驱动实现，共用 `spring.kafka` 前缀） |
 | `starter-pulsar` | [apache/pulsar-client-go](https://github.com/apache/pulsar-client-go) | Apache Pulsar |
+| `starter-rocketmq` | [rocketmq-client-go/v2](https://github.com/apache/rocketmq-client-go) | Apache RocketMQ 4.x/5.x（NameServer 协议）；自带 `messaging.Binder` |
 | `starter-rabbitmq` | [amqp091-go](https://github.com/rabbitmq/amqp091-go) | RabbitMQ |
 | `starter-nats` | [nats.go](https://github.com/nats-io/nats.go) | NATS 核心消息 + JetStream（纯 Go） |
 | `starter-mqtt` | [paho.mqtt.golang](https://github.com/eclipse/paho.mqtt.golang) | MQTT |
+
+## 对象存储
+
+| Starter | 底层库 | 说明 |
+| --- | --- | --- |
+| `starter-s3` | [minio-go](https://github.com/minio/minio-go) | S3 协议 —— MinIO/AWS 原生，阿里云 OSS 与腾讯云 COS 走 S3 兼容端点（`bucket-lookup=path`） |
 
 ## 安全 / 授权
 
@@ -110,11 +132,12 @@
 | --- | --- | --- |
 | `starter-ants` | [ants](https://github.com/panjf2000/ants) | 进程内、资源受限的 goroutine 协程池 |
 
-## 邮件
+## 邮件 / 通知
 
 | Starter | 底层库 | 说明 |
 | --- | --- | --- |
 | `starter-mail` | [wneessen/go-mail](https://github.com/wneessen/go-mail) | SMTP 发信（HTML/附件/多收件人）；只发信，不含模板引擎 |
+| `starter-webhook` | 仅标准库 | 聊天 webhook：generic + 钉钉/飞书/企微/Slack 载荷格式与 HMAC 加签，零第三方依赖 |
 
 ## 可观测 / 诊断
 

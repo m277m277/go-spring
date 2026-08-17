@@ -107,7 +107,7 @@ func decodeBody(r *http.Request, i RequestObject) error {
 			DecodeJSON(d jsonflow.Decoder) error
 		})
 		if !ok {
-			return errutil.Explain(nil, "decode form error: not a DecodeJSON implementer")
+			return errutil.Explain(nil, "decode json error: not a DecodeJSON implementer")
 		}
 		if err = v.DecodeJSON(d); err != nil {
 			return errutil.Explain(err, "json decode error")
@@ -151,6 +151,8 @@ func ReadRequest(r *http.Request, i RequestObject) error {
 	return nil
 }
 
+// JSONHandler is the business function wrapped by HandleJSON: it receives
+// the decoded request and returns the response to marshal as JSON.
 type JSONHandler[Req any, Resp any] func(context.Context, Req) Resp
 
 // HandleJSON wraps a JSONHandler into an http.HandlerFunc to handle JSON requests.
@@ -246,6 +248,8 @@ func (e *Event[T]) GetRetry() int {
 	return *e.retry
 }
 
+// StreamHandler is the business function wrapped by HandleStream: it pushes
+// SSE events onto the responses channel and returns when the stream is over.
 type StreamHandler[Req any, Resp any] func(context.Context, Req, chan<- Resp)
 
 // HandleStream wraps a StreamHandler into an http.HandlerFunc to
@@ -266,6 +270,12 @@ func HandleStream[Req RequestObject, Resp *Event[T], T any](w http.ResponseWrite
 		return
 	}
 
+	// Set response headers for SSE before the writer goroutine starts,
+	// so no write can race the header map.
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
 	done := make(chan struct{})
 	responses := make(chan Resp)
 
@@ -274,13 +284,12 @@ func HandleStream[Req RequestObject, Resp *Event[T], T any](w http.ResponseWrite
 		var res *Event[T]
 		for res = range responses {
 
-			select {
-			case <-r.Context().Done():
-				return
-			default: // for linter
+			// Once the client is gone, stop writing but keep draining the
+			// channel so the producer never blocks on an unread send.
+			if r.Context().Err() != nil {
+				continue
 			}
 
-			// Write SSE event
 			if res.HasID() {
 				if _, err := w.Write([]byte("id: " + res.GetID() + "\n")); err != nil {
 					ErrorHandler(r, w, err)
@@ -288,7 +297,6 @@ func HandleStream[Req RequestObject, Resp *Event[T], T any](w http.ResponseWrite
 				}
 			}
 
-			// Write SSE event
 			if res.HasEvent() {
 				if _, err := w.Write([]byte("event: " + res.GetEvent() + "\n")); err != nil {
 					ErrorHandler(r, w, err)
@@ -296,7 +304,13 @@ func HandleStream[Req RequestObject, Resp *Event[T], T any](w http.ResponseWrite
 				}
 			}
 
-			// Write SSE event
+			if res.HasRetry() {
+				if _, err := w.Write([]byte("retry: " + strconv.Itoa(res.GetRetry()) + "\n")); err != nil {
+					ErrorHandler(r, w, err)
+					continue
+				}
+			}
+
 			if _, err := w.Write([]byte("data: ")); err != nil {
 				ErrorHandler(r, w, err)
 				continue
@@ -305,26 +319,16 @@ func HandleStream[Req RequestObject, Resp *Event[T], T any](w http.ResponseWrite
 				ErrorHandler(r, w, err)
 				continue
 			}
-			if _, err := w.Write([]byte("\n")); err != nil {
+
+			// A blank line terminates the event frame; without it,
+			// spec-compliant clients never dispatch the event.
+			if _, err := w.Write([]byte("\n\n")); err != nil {
 				ErrorHandler(r, w, err)
 				continue
-			}
-
-			// Write SSE event
-			if res.HasRetry() {
-				if _, err := w.Write([]byte("retry: " + strconv.Itoa(res.GetRetry()) + "\n")); err != nil {
-					ErrorHandler(r, w, err)
-					continue
-				}
 			}
 			flusher.Flush()
 		}
 	}()
-
-	// Set response headers for SSE
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
 
 	ctx, cancel := ctxcache.Init(r.Context())
 	defer cancel()

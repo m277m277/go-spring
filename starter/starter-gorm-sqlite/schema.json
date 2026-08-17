@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "spring.gorm.sqlite",
+  "type": "object",
+  "properties": {
+    "file": {
+      "type": "string",
+      "description": "SQLite database path, or ':memory:' for an in-memory database"
+    },
+    "journal-mode": {
+      "type": "string",
+      "default": "wal",
+      "enum": ["wal", "delete", "truncate", "persist", "memory", "off"]
+    },
+    "busy-timeout": {
+      "type": "integer",
+      "default": 5000,
+      "description": "SQLite busy timeout in milliseconds (_busy_timeout pragma)"
+    },
+    "foreign-keys": {
+      "type": "boolean",
+      "default": true,
+      "description": "enable the foreign_keys pragma"
+    },
+    "max-open-conns": { "type": "integer", "default": 0 },
+    "max-idle-conns": { "type": "integer", "default": 0 },
+    "conn-max-lifetime": { "type": "string", "default": "0s" },
+    "conn-max-idle-time": { "type": "string", "default": "0s" },
+    "ping-timeout": { "type": "string", "default": "5s" },
+    "slow-threshold": { "type": "string", "default": "0s" },
+    "observe.enabled": { "type": "boolean", "default": true }
+  }
+}

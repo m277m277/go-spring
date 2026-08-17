@@ -1,0 +1,41 @@
+# starter-config-apollo Design
+
+[English](DESIGN.md) | [中文](DESIGN_CN.md)
+
+A config-provider starter (starter/DESIGN.md §2.5): registers an `apollo`
+provider under `spring.app.imports`, mirroring starter-config-nacos's shape.
+
+## 1. Responsibilities & Boundaries
+
+- **Owns**: the provider registration, source parsing, agollo client cache,
+  change-listener→refresh bridge, and the namespace→properties parsing.
+- **Does not own**: governance.Source integration (a future adapter, see
+  README), and the Apollo admin/portal stack.
+
+## 2. Key Abstractions & Seams
+
+- **conf.RegisterProvider("apollo", ctrl.Load)** + **gs.Rooter** — same
+  dual-role controller as nacos: the Rooter gets the `PropertiesRefresher`
+  autowired, and Load serves config fetches. No bound Config — connection
+  params live in the source string.
+- **clientFor cache** — one agollo Client per `(server, appId, cluster,
+  secret, namespace)`; namespace is in the key because agollo fixes
+  `NamespaceName` at StartWithConfig time.
+- **Listener-before-fetch** — the load-bearing invariant shared with nacos.
+
+## 3. Constraints
+
+- agollo v4's wire uses `/configfiles/json/...` (raw JSON object, not the
+  ApolloConfig envelope) for the initial sync; the starter relies on agollo's
+  own parsing, not its own.
+- `appId` is required in the source (agollo cannot fetch without it).
+
+## 4. Trade-offs / Alternatives Rejected
+
+- **agollo v4 vs Apollo OpenAPI**: agollo is the official Go SDK with the
+  change-notification long-polling already built; the OpenAPI would mean
+  hand-rolling the notification loop.
+- **Cold-load-only example vs dockerized quick-start**: the quick-start needs
+  a MySQL + configservice/admin/portal trio; the starter's contract is the
+  provider seam, so a mock config service exercises it end-to-end without the
+  stack.

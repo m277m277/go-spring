@@ -21,6 +21,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"go-spring.org/stdlib/goutil"
 )
 
 // Event describes one scheduled fire, delivered to an [Observer] for metrics or
@@ -378,10 +380,12 @@ func (t *task) emit(ev Event) {
 }
 
 // safeRun invokes job, converting a panic into an error so one bad run cannot
-// kill the scheduler goroutine.
+// kill the scheduler goroutine. The panic is also reported through the shared
+// panic chain (goutil), so the framework's log/metrics bridge sees it.
 func safeRun(ctx context.Context, job Job) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
+			goutil.ReportPanic(ctx, r)
 			err = fmt.Errorf("scheduling: job panicked: %v", r)
 		}
 	}()

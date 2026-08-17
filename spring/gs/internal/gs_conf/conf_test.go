@@ -206,6 +206,47 @@ func TestAppConfig(t *testing.T) {
 
 		_ = os.Setenv("GS_SPRING_APP_CONFIG_DIR", tmpDir)
 		_, err = NewAppConfig().Refresh()
-		assert.Error(t, err).NotNil()
+		assert.Error(t, err).Matches("load import file /nonexistent/file\\.properties failed")
 	})
+
+	t.Run("import path placeholder error", func(t *testing.T) {
+		t.Cleanup(clean)
+		tmpDir := t.TempDir()
+		appProps := tmpDir + "/app.properties"
+		err := os.WriteFile(appProps, []byte("spring.app.imports=${missing.key}"), 0644)
+		assert.That(t, err).Nil()
+
+		_ = os.Setenv("GS_SPRING_APP_CONFIG_DIR", tmpDir)
+		_, err = NewAppConfig().Refresh()
+		// The placeholder is resolved while binding the imports key, so the
+		// failure surfaces through the bind path rather than loadFileImports.
+		assert.Error(t, err).Matches("load imports for config file .*app\\.properties failed: bind imports config failed.*property \"missing.key\" does not exist")
+	})
+
+	t.Run("config file load error", func(t *testing.T) {
+		t.Cleanup(clean)
+		tmpDir := t.TempDir()
+		// A directory named app.yaml is not "not exist", so its read failure
+		// must abort the refresh instead of being skipped.
+		err := os.Mkdir(tmpDir+"/app.yaml", 0755)
+		assert.That(t, err).Nil()
+
+		_ = os.Setenv("GS_SPRING_APP_CONFIG_DIR", tmpDir)
+		_, err = NewAppConfig().Refresh()
+		assert.Error(t, err).Matches("load config file .*app\\.yaml failed")
+	})
+
+	t.Run("dotenv read error", func(t *testing.T) {
+		t.Cleanup(clean)
+		// A directory is not a readable .env file and is not "not exist".
+		_ = os.Setenv(EnvFile, t.TempDir())
+
+		_, err := NewAppConfig().Refresh()
+		assert.Error(t, err).Matches("load \\.env file failed")
+	})
+}
+
+func TestDedupe(t *testing.T) {
+	assert.That(t, dedupe(nil)).Nil()
+	assert.That(t, dedupe([]string{"a", " a ", "", "b", "a", "  "})).Equal([]string{"a", "b"})
 }

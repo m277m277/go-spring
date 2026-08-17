@@ -276,6 +276,7 @@ const (
 	StorageMax
 )
 
+// ConfigSource couples a PropertiesStorage with a source name for diagnostics.
 type ConfigSource struct {
 	*PropertiesStorage
 	Name string

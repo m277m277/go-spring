@@ -79,8 +79,9 @@ func (f *funcRunner) Run(ctx context.Context) error {
 }
 
 type funcServer struct {
-	run  func(ctx context.Context, sig ReadySignal) error
-	stop func() error
+	run     func(ctx context.Context, sig ReadySignal) error
+	stop    func() error
+	preStop func(ctx context.Context)
 }
 
 func (f *funcServer) Run(ctx context.Context, sig ReadySignal) error {
@@ -94,9 +95,15 @@ func (f *funcServer) Stop() error {
 	return f.stop()
 }
 
+func (f *funcServer) PreStop(ctx context.Context) {
+	if f.preStop != nil {
+		f.preStop(ctx)
+	}
+}
+
 func TestApp(t *testing.T) {
 
-	t.Run("property conflict", func(t *testing.T) {
+	t.Run("env and default properties merge by layer", func(t *testing.T) {
 		Reset()
 		t.Cleanup(Reset)
 
@@ -104,7 +111,20 @@ func TestApp(t *testing.T) {
 		app.Property("a", "123")
 		_ = os.Setenv("GS_A_B", "456")
 		err := app.Start()
-		assert.Error(t, err).Nil() // .Matches("path a.b conflicts with existing structure")
+		assert.That(t, err).Nil()
+
+		// A leaf added by a higher-precedence layer (env: a.b=456) does not
+		// conflict with the lower-precedence default layer's leaf (a=123):
+		// layered storages merge by precedence instead of rejecting the
+		// structure change, and each key resolves from its own layer.
+		ls := app.env.Load()
+		assert.That(t, ls).NotNil()
+		v, ok := ls.Value("a.b")
+		assert.That(t, ok).True()
+		assert.That(t, v).Equal("456")
+		v, ok = ls.Value("a")
+		assert.That(t, ok).True()
+		assert.That(t, v).Equal("123")
 	})
 
 	t.Run("bean creation failure", func(t *testing.T) {
@@ -377,5 +397,124 @@ func TestApp(t *testing.T) {
 		case <-time.After(time.Second):
 			t.Fatal("WaitForShutdown did not return after Stop completed")
 		}
+	})
+
+	t.Run("pre-stop runs before stop and waits the drain delay", func(t *testing.T) {
+		Reset()
+		t.Cleanup(Reset)
+
+		app := NewApp()
+		app.Property("app.shutdown.pre-stop-delay", "100ms")
+
+		var preStopAt, stopAt time.Time
+		app.c.Provide(&funcServer{
+			run: func(ctx context.Context, sig ReadySignal) error {
+				<-sig.TriggerAndWait()
+				return nil
+			},
+			preStop: func(ctx context.Context) {
+				preStopAt = time.Now()
+			},
+			stop: func() error {
+				stopAt = time.Now()
+				return nil
+			},
+		}).Export(gs.As[Server]())
+
+		go func() {
+			time.Sleep(50 * time.Millisecond)
+			app.ShutDown()
+		}()
+		err := app.Start()
+		assert.That(t, err).Nil()
+		app.WaitForShutdown()
+
+		assert.That(t, preStopAt.IsZero()).False()
+		assert.That(t, stopAt.IsZero()).False()
+		assert.That(t, stopAt.After(preStopAt)).True()
+		// The drain delay must fully elapse between PreStop and Stop.
+		assert.That(t, stopAt.Sub(preStopAt) >= 100*time.Millisecond).True()
+	})
+
+	t.Run("shutdown timeout bounds the wait for stuck servers", func(t *testing.T) {
+		Reset()
+		t.Cleanup(Reset)
+
+		app := NewApp()
+		app.Property("app.shutdown.timeout", "100ms")
+
+		stopRelease := make(chan struct{})
+		t.Cleanup(func() { close(stopRelease) })
+
+		app.c.Provide(&funcServer{
+			run: func(ctx context.Context, sig ReadySignal) error {
+				<-sig.TriggerAndWait()
+				return nil
+			},
+			stop: func() error {
+				<-stopRelease // stuck server: Stop never finishes on its own
+				return nil
+			},
+		}).Export(gs.As[Server]())
+
+		go func() {
+			time.Sleep(50 * time.Millisecond)
+			app.ShutDown()
+		}()
+		err := app.Start()
+		assert.That(t, err).Nil()
+
+		started := time.Now()
+		done := make(chan struct{})
+		go func() {
+			app.WaitForShutdown()
+			close(done)
+		}()
+		select {
+		case <-done:
+			assert.That(t, time.Since(started) >= 100*time.Millisecond).True()
+			assert.String(t, logBuf.String()).Contains("shutdown timed out after 100ms, forcing cleanup")
+		case <-time.After(3 * time.Second):
+			t.Fatal("WaitForShutdown did not return within the shutdown timeout")
+		}
+	})
+
+	t.Run("refresh properties before start", func(t *testing.T) {
+		Reset()
+		t.Cleanup(Reset)
+
+		app := NewApp()
+		err := app.RefreshProperties()
+		assert.Error(t, err).Matches("app not started yet, cannot refresh properties")
+	})
+
+	t.Run("refresh properties after config dropped", func(t *testing.T) {
+		Reset()
+		t.Cleanup(Reset)
+
+		app := NewApp()
+		err := app.Start() // no gs.Dync values registered, config is dropped
+		assert.That(t, err).Nil()
+
+		err = app.RefreshProperties()
+		assert.Error(t, err).Matches("configuration dropped: no gs.Dync values registered, nothing to refresh")
+	})
+
+	t.Run("env provider snapshot", func(t *testing.T) {
+		Reset()
+		t.Cleanup(Reset)
+
+		app := NewApp()
+		provider := &EnvProvider{app: app}
+
+		// Before properties are loaded the snapshot is empty.
+		assert.That(t, len(provider.Snapshot())).Equal(0)
+
+		app.Property("app.name", "test-app")
+		err := app.Start()
+		assert.That(t, err).Nil()
+
+		snapshot := provider.Snapshot()
+		assert.That(t, snapshot["app.name"]).Equal("test-app")
 	})
 }

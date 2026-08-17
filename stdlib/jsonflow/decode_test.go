@@ -778,6 +778,12 @@ func TestDecodeMap(t *testing.T) {
 		_, err := DecodeMap(DecodeString, DecodeInt[int])(d)
 		assert.Error(t, err).String("invalid JSON: expected number but got `invalid`")
 	})
+
+	t.Run("Decode map with invalid key", func(t *testing.T) {
+		d := NewDecoder(strings.NewReader(`{"a": 1}`))
+		_, err := DecodeMap(DecodeIntKey[int], DecodeInt[int])(d)
+		assert.Error(t, err).String(`strconv.ParseInt: parsing "a": invalid syntax`)
+	})
 }
 
 func TestDecodeObjectBegin(t *testing.T) {
@@ -841,6 +847,11 @@ func TestDecodeEOF(t *testing.T) {
 		_, err := DecodeBool(d)
 		assert.That(t, err).Nil()
 		assert.Error(t, DecodeEOF(d)).String("invalid JSON: unexpected token after top-level value `false`")
+	})
+
+	t.Run("Decode EOF with malformed token", func(t *testing.T) {
+		d := NewDecoder(strings.NewReader("tru"))
+		assert.That(t, DecodeEOF(d)).NotNil()
 	})
 }
 
@@ -1112,6 +1123,12 @@ func TestDecodeObject(t *testing.T) {
 		result, err := DecodeObject(NewTestObject)(d)
 		assert.That(t, err).Nil()
 		assert.That(t, result).Nil()
+	})
+
+	t.Run("Decode object with invalid token", func(t *testing.T) {
+		d := NewDecoder(strings.NewReader("123"))
+		_, err := DecodeObject(NewTestObject)(d)
+		assert.Error(t, err).String("invalid JSON: expected `{` but got `123`")
 	})
 
 	t.Run("Missing required Int field", func(t *testing.T) {

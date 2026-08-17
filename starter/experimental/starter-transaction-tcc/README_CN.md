@@ -90,7 +90,8 @@ func RegisterOrder(reg *tcc.ParticipantRegistry) {
     reg.Register("OrderService.Place", reserveStock, freezeBalance)
 }
 
-chain := aspect.NewChain(tcc.GlobalTCC(coord, reg))
+place := tcc.GlobalTCC(coord, reg)
+// err := place(ctx, "OrderService.Place", func(ctx context.Context) error { ... })
 ```
 
 在入口处用 `tcc.WithTransactionID(ctx, id)` 设置事务 id，使其与业务幂等键对齐。

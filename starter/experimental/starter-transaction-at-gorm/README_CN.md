@@ -87,11 +87,12 @@ return coord.Commit(context.Background(), xid)    // 删除 undo log
 
 ### 4. 或声明为 `@GlobalTransactional`
 
-把 `at.GlobalAT` 接入拦截器链 —— 即 `@GlobalTransactional(AT)` 的零反射等价物。它开启
+用 `at.GlobalAT` 装饰器包住调用 —— 即 `@GlobalTransactional(AT)` 的零反射等价物。它开启
 全局事务、注入 xid，成功则提交、出错则回滚：
 
 ```go
-chain := aspect.NewChain(at.GlobalAT(coord))
+place := at.GlobalAT(coord)
+// err := place(ctx, "OrderService.Place", func(ctx context.Context) error { ... })
 ```
 
 与 Saga、TCC 不同，AT **不需要方法注册表**：分支是从携带全局事务 id 的 context 下执行

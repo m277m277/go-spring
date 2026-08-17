@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "spring.influxdb",
+  "type": "object",
+  "properties": {
+    "server-url": {
+      "type": "string",
+      "description": "InfluxDB base URL, e.g. 'http://127.0.0.1:8086'"
+    },
+    "auth-token": {
+      "type": "string",
+      "description": "API token used for authentication"
+    },
+    "org": {
+      "type": "string",
+      "default": "",
+      "description": "default organization for the wrapper's write/query helpers"
+    },
+    "bucket": {
+      "type": "string",
+      "default": "",
+      "description": "default destination bucket for the wrapper's write helpers"
+    },
+    "observability": {
+      "type": "object",
+      "description": "Per-request span/metric/access-log config (off/brief/detailed), see observe.ObserveConfig"
+    },
+    "driver": {
+      "type": "string",
+      "default": "DefaultDriver"
+    }
+  }
+}

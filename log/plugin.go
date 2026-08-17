@@ -60,7 +60,7 @@ type Plugin struct {
 	Line  int          // Line number where plugin was registered
 }
 
-// RegisterPlugin registers a plugin struct type with a given name and plugin type.
+// RegisterPlugin registers the plugin struct type T under the given name.
 func RegisterPlugin[T any](name string) {
 	t := reflect.TypeFor[T]()
 	if t.Kind() != reflect.Struct {
@@ -478,6 +478,8 @@ func injectArrayElement(fv reflect.Value, ft reflect.StructField, prefix string,
 	return nil
 }
 
+// validateSliceIndexes checks that the indexed keys under the given prefix
+// form a contiguous 0-based sequence, e.g. prefix[0], prefix[1], prefix[2].
 func validateSliceIndexes(prefix string, values map[string]string, name string) error {
 	indexes := make(map[int]struct{})
 	for key := range values {

@@ -153,14 +153,14 @@ func TestError_NotIs(t *testing.T) {
 	// Test failed case - same errors
 	m.Reset()
 	assert.Error(m, err).NotIs(err)
-	assert.String(t, m.String()).Equal(`error# Assertion failed: expected error not to be target (according to errors.Is), but they are equal 
+	assert.String(t, m.String()).Equal(`error# Assertion failed: expected error not to be target (according to errors.Is), but they are equal
   actual: this is an error
 expected: this is an error`)
 
 	// Test failed case with Require - should fatal
 	m.Reset()
 	require.Error(m, err).NotIs(err, "index is 0")
-	assert.String(t, m.String()).Equal(`fatal# Assertion failed: expected error not to be target (according to errors.Is), but they are equal 
+	assert.String(t, m.String()).Equal(`fatal# Assertion failed: expected error not to be target (according to errors.Is), but they are equal
   actual: this is an error
 expected: this is an error
  message: "index is 0"`)
@@ -186,7 +186,7 @@ expected: this is an error
 	// Test with custom message on failure
 	m.Reset()
 	assert.Error(m, err).NotIs(err, "expected errors to be different")
-	assert.String(t, m.String()).Equal(`error# Assertion failed: expected error not to be target (according to errors.Is), but they are equal 
+	assert.String(t, m.String()).Equal(`error# Assertion failed: expected error not to be target (according to errors.Is), but they are equal
   actual: this is an error
 expected: this is an error
  message: "expected errors to be different"`)

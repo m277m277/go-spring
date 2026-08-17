@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "spring.xxljob",
+  "type": "object",
+  "properties": {
+    "app-name": { "type": "string", "description": "executor app name, as registered with the admin" },
+    "admin-addresses": { "type": "array", "items": { "type": "string" }, "description": "xxl-job admin base URLs" },
+    "port": { "type": "integer", "description": "executor callback server port (required)" },
+    "access-token": { "type": "string", "default": "" },
+    "registry-interval": { "type": "string", "default": "10s" },
+    "log-dir": { "type": "string", "default": "./logs" },
+    "observability": { "type": "object" }
+  }
+}

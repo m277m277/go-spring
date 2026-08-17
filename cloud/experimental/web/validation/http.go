@@ -37,9 +37,9 @@ func JSONDecoder[T any](r *http.Request, dst *T) error {
 	return json.NewDecoder(r.Body).Decode(dst)
 }
 
-// Handle is the server-side seam for request validation, mirroring
-// aspect.NewHandler: it returns an [http.Handler] that
-// decodes the body into a fresh T, validates it, and only then calls next with
+// Handle is the server-side seam for request validation: it returns an
+// [http.Handler] that decodes the body into a fresh T, validates it, and only
+// then calls next with
 // the populated value. A decode or validation failure short-circuits with 400
 // and a structured JSON body ({"errors":[...]}) so bad input never reaches
 // business code. When v is nil the value is passed through unvalidated (the seam

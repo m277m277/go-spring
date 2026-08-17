@@ -15,8 +15,8 @@
 - 可插拔 `TokenValidator` 缝隙 + driver 注册表(`RegisterValidator` /
   `GetValidator` / `MustGetValidator`),与 `discovery.Register` /
   `resilience.RegisterDriver` 同构。
-- 方法级安全:`Require(authorities...)` 是 `aspect.Interceptor`,插入 aspect
-  拦截链——`@PreAuthorize` 的等价物。
+- 方法级安全:`Require(authorities...)` 返回普通装饰器——`@PreAuthorize` 的
+  等价物,与其他横切按普通函数嵌套组合。
 - HTTP 中间件链:`Chain`、`Authenticate`、`Authorize`、`CORS`、`CSRF`
   (double-submit-cookie)——普通 `func(http.Handler) http.Handler` 装饰器,
   不是自建 filter 注册中心。
@@ -68,13 +68,10 @@ func main() {
 }
 ```
 
-服务方法级校验用 aspect 拦截链搭配 `security.Require`:
+服务方法级校验用 `security.Require` 装饰器直接包调用:
 
 ```go
-import "go-spring.org/spring/aspect"
-
-chain := aspect.NewChain(security.Require("orders:write"))
-_, err := aspect.Around(chain, ctx, "PlaceOrder", svc.placeOrder)
+err := security.Require("orders:write")(ctx, svc.placeOrder)
 ```
 
 JWT 资源服务器 starter(`starter-security-jwt`)提供具体 `TokenValidator` 并

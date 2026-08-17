@@ -40,9 +40,13 @@ var TagBeanLifecycle = log.RegisterAppTag("bean", "lifecycle")
 // BeanStatus represents the different lifecycle statuses of a bean.
 type BeanStatus int8
 
+// StatusDeleted marks a bean as deleted (filtered out of the container).
+// It is declared separately so that StatusDefault can be the first iota
+// spec and therefore the zero value of BeanStatus.
+const StatusDeleted BeanStatus = -1
+
 const (
-	StatusDeleted   = BeanStatus(-1)   // Bean has been deleted.
-	StatusDefault   = BeanStatus(iota) // Default status of the bean.
+	StatusDefault   = BeanStatus(iota) // Default status of the bean; the zero value of BeanStatus.
 	StatusResolving                    // Bean is being resolved.
 	StatusResolved                     // Bean has been resolved.
 	StatusCreating                     // Bean is being created.
@@ -294,7 +298,7 @@ func (d *BeanDefinition) Export(exports ...reflect.Type) *BeanDefinition {
 func (d *BeanDefinition) Condition(conditions ...gs.Condition) *BeanDefinition {
 	for _, c := range conditions {
 		if c == nil {
-			panic("conditions cannot contains nil")
+			panic("conditions cannot contain nil")
 		}
 	}
 	d.conditions = append(d.conditions, conditions...)

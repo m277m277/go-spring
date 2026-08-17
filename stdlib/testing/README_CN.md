@@ -2,40 +2,34 @@
 
 [English](README.md) | [中文](README_CN.md)
 
-Go-Spring Testing 是一个为 Go 语言设计的优雅测试断言库，提供了流畅（Fluent）的 API 风格，让你的测试代码更加清晰易读。
+Go-Spring Testing 是 Go-Spring 各模块自测使用的零依赖断言库。它提供 fluent、按类型分族的断言 API（`That` / `Error` / `Number` / `String` / `Slice` / `Map` / `Panic`），替代 `stretchr/testify` 与 `gomega`；借助泛型做到编译期类型安全，除 Go 标准库外零依赖。
 
-## 特性概述
+## 使用方式
 
-- 📝 **双模式支持**：提供 `assert` 和 `require` 两种模式，满足不同场景需求
-- 💧 **流畅 API**：链式调用让代码更易读，接近自然语言
-- 🏷️ **类型安全**：泛型保证类型安全，编译期检查错误
-- 🔧 **类型专属**：针对不同数据类型提供专门的断言方法
-- 🧩 **功能丰富**：覆盖日常测试绝大多数断言需求，支持通用值、错误、数字、字符串、切片、字典、Panic 检测等
-- ✅ **零依赖**：仅依赖 Go 标准库
+两个入口暴露完全相同的函数，按 import 选择失败行为：
 
-## assert vs require
+```go
+import (
+	"go-spring.org/stdlib/testing/assert"  // 失败继续
+	"go-spring.org/stdlib/testing/require" // 失败停止
+)
+```
 
-Go-Spring Testing 提供两个包来满足不同的测试需求：
+模块内共四个包：`assert` 与 `require`（两个对外入口）、`internal`（共享引擎）、`testcase`（约束两个入口不漂移的共享测试套）。原 `testing/container` 包已于 2026-08-16 删除——仓库约定 docker 相关集成测试走进程外 `check.sh`，进程内容器场景可直接用 `testcontainers-go`；`testing/contract` 已迁往 `cloud/contract`。
 
-### `assert` 包
+### assert vs require
 
-`assert` 包提供的断言函数在**断言失败时不会终止测试函数的执行**。
+- **`assert`** 在断言失败时不终止测试：后续断言依然会被检查，适合希望一次运行报告全部失败的场景。
+- **`require`** 在断言失败时立即终止测试——适合关键前置条件不满足、后续断言可能 panic 或出错的场景，例如先验证对象非空再继续操作。
 
-当断言失败时，测试会继续运行，后续断言依然会被检查。这在希望在一次测试运行中报告多个失败，一次性看到所有问题的情况下非常有用。
-
-### `require` 包
-
-`require` 包提供的断言函数在**断言失败时会立即停止测试函数的执行**。
-
-当断言失败时，测试立刻终止，后续断言不再被检查。这适合关键条件不满足时，后续断言可能会导致 panic 或其他问题的场景。
-比如，当你需要验证一个对象非空才能继续后续操作时。
-
-## 基本示例
+### 基本示例
 
 ```go
 package main
 
 import (
+	"math"
+	"os"
 	"testing"
 
 	"go-spring.org/stdlib/testing/assert"
@@ -46,7 +40,7 @@ func TestExample(t *testing.T) {
 	// 通用断言 - 任何类型都可以使用
 	assert.That(t, "hello").Equal("hello")        // 相等断言
 	assert.That(t, user).NotNil()                 // 非空断言
-	assert.That(t, 42).True()                     // 布尔值为真
+	assert.That(t, len("hello") > 0).True()       // 布尔表达式为真
 
 	// 使用 require - 如果失败，测试立刻停止
 	require.That(t, user).NotNil()
@@ -54,7 +48,7 @@ func TestExample(t *testing.T) {
 	// 错误断言
 	err := someFunc()
 	assert.Error(t, err).NotNil()                 // 期望发生错误
-	assert.Error(t, err).Is(os.IsNotExist)         // 使用 errors.Is 检查错误类型
+	assert.Error(t, err).Is(os.ErrNotExist)        // 使用 errors.Is 检查错误类型
 
 	// 数字断言
 	assert.Number(t, 42).GreaterThan(40)          // 大于
@@ -83,15 +77,17 @@ func TestExample(t *testing.T) {
 	// Panic 断言
 	assert.Panic(t, func() {
 		panic("something wrong happened")
-	}, "wrong")  // 断言会 panic，且 panic 信息包含 "wrong"
+	}, "wrong")  // 断言 fn 会 panic，且 panic 信息匹配模式 "wrong"
 }
 ```
 
-## 断言方法大全
+### 断言方法大全
 
-### 通用断言 (That)
+下列每个断言族的所有方法都支持在最后添加 `msg ...string` 参数自定义错误信息。
 
-所有类型都可以使用这些通用断言方法，**所有方法都支持在最后添加 `msg ...string` 参数自定义错误信息**。
+#### 通用断言 (That)
+
+所有类型都可以使用。
 
 | 方法 | 说明 |
 |------|------|
@@ -101,16 +97,16 @@ func TestExample(t *testing.T) {
 | `NotNil(...msg)` | 验证值不为 `nil` |
 | `Equal(expected, ...msg)` | 使用 `reflect.DeepEqual` 深度比较是否相等 |
 | `NotEqual(expected, ...msg)` | 验证不深度相等 |
-| `Same(expected, ...msg)` | 使用 `==` 比较是否完全相同（指针地址相同）|
+| `Same(expected, ...msg)` | 使用 `==` 比较是否完全相同（按 Go 的 `==` 判定）|
 | `NotSame(expected, ...msg)` | 使用 `!=` 比较是否不同 |
 | `TypeOf(interface, ...msg)` | 验证类型可赋值给目标类型 |
 | `Implements(interface, ...msg)` | 验证类型实现了指定接口 |
 | `Has(expected, ...msg)` | 调用值的 `Has` 方法，验证返回 `true` |
 | `Contains(expected, ...msg)` | 调用值的 `Contains` 方法，验证返回 `true` |
 
-### 错误断言 (Error)
+#### 错误断言 (Error)
 
-专门用于 `error` 类型的断言，**所有方法都支持在最后添加 `msg ...string` 参数自定义错误信息**。
+专门用于 `error` 类型。
 
 | 方法 | 说明 |
 |------|------|
@@ -121,9 +117,9 @@ func TestExample(t *testing.T) {
 | `String(expect, ...msg)` | 验证错误信息字符串相等 |
 | `Matches(pattern, ...msg)` | 验证错误信息匹配正则表达式 |
 
-### 数字断言 (Number)
+#### 数字断言 (Number)
 
-支持所有数字类型（`int`/`uint`/`float` 等）的断言，**所有方法都支持在最后添加 `msg ...string` 参数自定义错误信息**。
+支持所有数字类型（`int`/`uint`/`float` 等）。
 
 | 方法 | 说明 |
 |------|------|
@@ -146,9 +142,9 @@ func TestExample(t *testing.T) {
 | `IsInf(sign, ...msg)` | 是无穷大（sign ≥ 0 为 +Inf，< 0 为 -Inf）|
 | `IsFinite(...msg)` | 是有限数（不是 NaN 也不是 Inf）|
 
-### 字符串断言 (String)
+#### 字符串断言 (String)
 
-专门用于 `string` 类型的断言，**所有方法都支持在最后添加 `msg ...string` 参数自定义错误信息**。
+专门用于 `string` 类型。
 
 | 方法 | 说明 |
 |------|------|
@@ -174,9 +170,9 @@ func TestExample(t *testing.T) {
 | `IsHex(...msg)` | 验证是合法十六进制字符串 |
 | `IsBase64(...msg)` | 验证是合法 Base64 编码 |
 
-### 切片断言 (Slice)
+#### 切片断言 (Slice)
 
-专门用于切片类型 `[]T` 的断言，**所有方法都支持在最后添加 `msg ...string` 参数自定义错误信息**。
+专门用于切片类型 `[]T`。
 
 | 方法 | 说明 |
 |------|------|
@@ -198,9 +194,9 @@ func TestExample(t *testing.T) {
 | `AnyMatches(fn, ...msg)` | 至少有一个元素满足条件函数 |
 | `NoneMatches(fn, ...msg)` | 没有元素满足条件函数 |
 
-### Map 断言 (Map)
+#### Map 断言 (Map)
 
-专门用于字典类型 `map[K]V` 的断言，**所有方法都支持在最后添加 `msg ...string` 参数自定义错误信息**。
+专门用于字典类型 `map[K]V`。
 
 | 方法 | 说明 |
 |------|------|
@@ -225,13 +221,23 @@ func TestExample(t *testing.T) {
 | `HasSameKeys(expect, ...msg)` | 与 expect 拥有完全相同的键集合 |
 | `HasSameValues(expect, ...msg)` | 与 expect 拥有完全相同的值集合（不关心顺序）|
 
-### Panic 断言
+#### Panic 断言
 
-用于检测函数是否会 panic，顶层函数，**支持在最后添加 `msg ...string` 参数自定义错误信息**。
+顶层函数，用于检测函数是否会 panic。
 
 | 方法 | 说明 |
 |------|------|
 | `Panic(t, fn, pattern, ...msg)` | 断言 `fn` 会发生 panic，并且 panic 信息匹配正则表达式 `pattern` |
+
+## 关键设计
+
+**一个引擎、两个薄包装。** fluent API 与全部检查逻辑都在 `internal`；`assert` 与 `require` 只设置 `fatalOnFailure` 标志然后转派——该 bool 是两个模式唯一的行为差异。`internal` 刻意不导出：对外可调 API 必须走模式包装，让失败停止 / 失败继续的选择在调用点显式。
+
+**`internal.TestingT` 缝隙。** 所有断言函数都接收这个 `*testing.T` 最小接口（`Helper` / `Error` / `Fatal`），因此同一套库在真 `*testing.T`、subtest、以及外层伪 harness 里都能跑——`testcase` 套件本身就是用 `internal.MockTestingT` 驱动断言、记录并校验失败信息的。
+
+**只用标准库。** `stdlib/testing` 及其子包只 import Go 标准库（以及彼此）；任何其他依赖都会漏进每个模块的测试二进制。`stdlib/errutil` 只出现在 `testcase` 套件的测试文件里，引擎本身不引。
+
+**自己实现而非依赖 testify。** 两模式 fluent 断言足够简单，自己扛掉了一个每个 stdlib 用户必须带的第三方依赖；API 有意接近 testify（肌肉记忆），但实现是我们自己的。同理，一套共享 `testcase` 套件优于各包复制测试——分开两份必然随两个模式的各自演化而漂移。
 
 ## 许可证
 

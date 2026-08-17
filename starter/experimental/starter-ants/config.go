@@ -17,9 +17,11 @@
 package StarterAnts
 
 import (
+	"context"
 	"time"
 
 	"github.com/panjf2000/ants/v2"
+	"go-spring.org/stdlib/goutil"
 )
 
 // Ensure antsPool implements Pool.
@@ -41,16 +43,32 @@ var driverRegistry = map[string]Driver{}
 
 // panicHandler is an optional handler invoked when a task submitted to a
 // DefaultDriver-built pool panics. It is a global hook shared by every such
-// pool; register it with SetPanicHandler before the container starts. Without
-// it, ants re-panics on the worker goroutine. Per-pool handlers require a
-// custom Driver.
+// pool; register it with SetPanicHandler before the container starts. When
+// unset, poolPanicHandler bridges into the shared goutil panic chain (the
+// structured-log bridge go-spring.org/log installs), so pool panics land in
+// the same report stream as goroutine, handler and job panics. Per-pool
+// handlers require a custom Driver.
 var panicHandler func(any)
 
 // SetPanicHandler registers a handler invoked when a task panics on any
-// DefaultDriver-built pool. Pass nil to clear it. Call this before the
-// application starts, since the handler is read when each pool is created.
+// DefaultDriver-built pool. Pass nil to clear it (which re-enables the shared
+// goutil reporting). Call this before the application starts, since the
+// handler is read when each pool is created.
 func SetPanicHandler(fn func(any)) {
 	panicHandler = fn
+}
+
+// poolPanicHandler is what the pools actually receive: the user hook when
+// set, otherwise the shared-chain bridge. ants hands over only the panic
+// value, so the bridge captures the stack itself — ReportPanic is called
+// from the deferred recover in the worker, so the panicking frames are still
+// on the stack.
+func poolPanicHandler(p any) {
+	if panicHandler != nil {
+		panicHandler(p)
+		return
+	}
+	goutil.ReportPanic(context.Background(), p)
 }
 
 func init() {
@@ -128,7 +146,7 @@ func (DefaultDriver) CreatePool(c Config) (Pool, error) {
 		ants.WithMaxBlockingTasks(c.MaxBlockingTasks),
 		ants.WithNonblocking(c.Nonblocking),
 		ants.WithDisablePurge(c.DisablePurge),
-		ants.WithPanicHandler(panicHandler),
+		ants.WithPanicHandler(poolPanicHandler),
 	)
 	if err != nil {
 		return nil, err

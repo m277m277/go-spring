@@ -1,0 +1,37 @@
+name: gs-rocketmq-example
+
+services:
+  namesrv:
+    image: apache/rocketmq:5.3.1
+    container_name: rmqnamesrv
+    command: sh mqnamesrv
+    environment:
+      # Cap the JVM heap so the stack fits modest developer machines /
+      # Docker Desktop VMs (the image default is 2g per JVM).
+      JAVA_OPT_EXT: "-Xms256m -Xmx256m"
+    ports:
+      - "127.0.0.1:9876:9876"
+
+  broker:
+    image: apache/rocketmq:5.3.1
+    container_name: rmqbroker
+    command: sh mqbroker -n namesrv:9876 -c /home/rocketmq/broker.conf
+    environment:
+      JAVA_OPT_EXT: "-Xms512m -Xmx512m -Xmn128m"
+    depends_on:
+      namesrv:
+        condition: service_started
+    volumes:
+      - ./broker.conf:/home/rocketmq/broker.conf:ro
+    ports:
+      - "127.0.0.1:10911:10911"
+      - "127.0.0.1:10909:10909"
+
+# The topics the examples need are created from check.sh via
+# `docker exec rmqbroker sh mqadmin updateTopic ...`. A push consumer's
+# Subscribe queries topic route info eagerly and fails on a missing topic,
+# and autoCreateTopicEnable only kicks in on the first produce — so the topic
+# must exist before the app starts. The init cannot live in a side-car
+# container: broker.conf advertises brokerIP1=127.0.0.1 so host-side clients
+# can dial the published port, which makes a side-car's own connection to the
+# "broker" hit itself.

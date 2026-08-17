@@ -120,6 +120,21 @@ type Condition interface {
 	Matches(ctx ConditionContext) (bool, error)
 }
 
+/********************************* refresh ***********************************/
+
+// RefreshState represents the lifecycle state of a container refresh. It is
+// the single shared definition for the resolving and injecting phases (and
+// the container facade that joins them); each phase walks the relevant
+// subset of the same state machine.
+type RefreshState int
+
+const (
+	RefreshDefault = RefreshState(iota) // Not refreshed yet.
+	RefreshPrepare                      // Resolving is preparing (merging global beans and modules).
+	Refreshing                          // Refresh is in progress.
+	Refreshed                           // Refresh completed successfully.
+)
+
 /************************************* arg ***********************************/
 
 // ArgContext provides the runtime context for resolving arguments.
@@ -194,13 +209,16 @@ func (e *InjectionError) Unwrap() error {
 //
 // If bean is non-empty, it wraps as InjectionError with bean context.
 // Otherwise, args[0] is used as format string for errutil.Explain
-// with args[1:] as format arguments.
+// with args[1:] as format arguments. If args[0] is not a string, the
+// format context is skipped and err is returned as-is (still wrapped
+// as InjectionError when bean is non-empty).
 func WrapInjectErr(bean string, err error, args ...any) error {
 	var e *InjectionError
 	if !errors.As(err, &e) {
 		if len(args) > 0 {
-			format := args[0].(string)
-			err = errutil.Explain(err, format, args[1:]...)
+			if format, ok := args[0].(string); ok {
+				err = errutil.Explain(err, format, args[1:]...)
+			}
 		}
 		if bean == "" {
 			return err

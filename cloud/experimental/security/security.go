@@ -20,7 +20,7 @@
 //
 // It answers two questions for a resource server: "who is the caller?"
 // ([Authentication] carried on the request context) and "may this caller do
-// this?" ([HasAnyAuthority] / the aspect [Require] marker). Token verification
+// this?" ([HasAnyAuthority] / the [Require] decorator). Token verification
 // itself is pluggable: a starter implements the single [TokenValidator]
 // interface (e.g. JWT verification) and registers it via [RegisterValidator];
 // method-level guards then resolve validators by name without depending on any

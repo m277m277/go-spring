@@ -20,6 +20,8 @@ import (
 	"fmt"
 )
 
+// Number is a constraint that permits any Go numeric type, both signed and
+// unsigned integers as well as floating point numbers.
 type Number interface {
 	~int | ~int8 | ~int16 | ~int32 | ~int64 | ~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 | ~float32 | ~float64
 }
@@ -184,9 +186,11 @@ func (a *NumberAssertion[T]) NotBetween(lower, upper T, msg ...string) *NumberAs
 // InDelta asserts that the number value is within the delta range of the expected value.
 func (a *NumberAssertion[T]) InDelta(expect T, delta T, msg ...string) *NumberAssertion[T] {
 	a.t.Helper()
-	diff := a.v - expect
-	if diff < 0 {
-		diff = -diff
+	var diff T
+	if a.v > expect {
+		diff = a.v - expect // branch the subtraction so unsigned types don't wrap around
+	} else {
+		diff = expect - a.v
 	}
 	if diff > delta { // todo (lvan100) 精度问题
 		str := fmt.Sprintf(`expected number to be within ±%v of %v, but it is %v`, delta, expect, a.v)

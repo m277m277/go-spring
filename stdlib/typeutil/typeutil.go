@@ -43,6 +43,7 @@ type FloatType interface {
 }
 
 // IsFuncType reports whether the provided reflect.Type represents a function.
+// It panics if t is nil.
 func IsFuncType(t reflect.Type) bool {
 	return t.Kind() == reflect.Func
 }
@@ -58,12 +59,14 @@ func IsErrorType(t reflect.Type) bool {
 
 // ReturnNothing reports whether the provided function type returns no values.
 // It is useful when analyzing function signatures using reflection.
+// It panics if t is nil.
 func ReturnNothing(t reflect.Type) bool {
 	return t.NumOut() == 0
 }
 
 // ReturnOnlyError reports whether the provided function type returns exactly
 // one value and that value is an error.
+// It panics if t is nil.
 func ReturnOnlyError(t reflect.Type) bool {
 	return t.NumOut() == 1 && IsErrorType(t.Out(0))
 }
@@ -85,6 +88,8 @@ func ReturnOnlyError(t reflect.Type) bool {
 //	func()                     // returns nothing
 //	func() error               // returns only an error
 //	func() (*A, *B, error)     // returns more than two values
+//
+// It panics if t is nil.
 func IsConstructor(t reflect.Type) bool {
 	if !IsFuncType(t) {
 		return false

@@ -38,7 +38,7 @@ const (
 	ValueTypeObject
 )
 
-// Field represents a structured log field with a key and it's value.
+// Field represents a structured log field with a key and its value.
 type Field struct {
 	Key  string
 	Type ValueType

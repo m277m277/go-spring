@@ -25,10 +25,22 @@ import (
 	"go-spring.org/stdlib/mathutil"
 )
 
+// singleValue verifies that the form field carries exactly one raw value.
+func singleValue(key string, values []string) error {
+	switch len(values) {
+	case 1:
+		return nil
+	case 0:
+		return errutil.Explain(nil, "missing value for form field %s", key)
+	default:
+		return errutil.Explain(nil, "too many values for form field %s", key)
+	}
+}
+
 // DecodeBool decodes a boolean value from form values.
 func DecodeBool(key string, values []string) (bool, error) {
-	if len(values) > 1 {
-		return false, errutil.Explain(nil, "too many values for form field %s", key)
+	if err := singleValue(key, values); err != nil {
+		return false, err
 	}
 	return strconv.ParseBool(values[0])
 }
@@ -44,8 +56,8 @@ func DecodeBoolPtr(key string, values []string) (*bool, error) {
 
 // DecodeInt decodes a signed integer value from form values.
 func DecodeInt[T ~int64 | ~int32 | ~int16 | ~int8 | ~int](key string, values []string) (T, error) {
-	if len(values) > 1 {
-		return 0, errutil.Explain(nil, "too many values for form field %s", key)
+	if err := singleValue(key, values); err != nil {
+		return 0, err
 	}
 	i, err := strconv.ParseInt(values[0], 10, 64)
 	if err != nil {
@@ -68,8 +80,8 @@ func DecodeIntPtr[T ~int64 | ~int32 | ~int16 | ~int8 | ~int](key string, values 
 
 // DecodeUint decodes an unsigned integer value from form values.
 func DecodeUint[T ~uint64 | ~uint32 | ~uint16 | ~uint8 | ~uint](key string, values []string) (T, error) {
-	if len(values) > 1 {
-		return 0, errutil.Explain(nil, "too many values for form field %s", key)
+	if err := singleValue(key, values); err != nil {
+		return 0, err
 	}
 	u, err := strconv.ParseUint(values[0], 10, 64)
 	if err != nil {
@@ -92,8 +104,8 @@ func DecodeUintPtr[T ~uint64 | ~uint32 | ~uint16 | ~uint8 | ~uint](key string, v
 
 // DecodeFloat decodes a floating-point value from form values.
 func DecodeFloat[T ~float64 | ~float32](key string, values []string) (T, error) {
-	if len(values) > 1 {
-		return 0, errutil.Explain(nil, "too many values for form field %s", key)
+	if err := singleValue(key, values); err != nil {
+		return 0, err
 	}
 	f, err := strconv.ParseFloat(values[0], 64)
 	if err != nil {
@@ -116,24 +128,25 @@ func DecodeFloatPtr[T ~float64 | ~float32](key string, values []string) (*T, err
 
 // DecodeString decodes a string value from form values.
 func DecodeString(key string, values []string) (string, error) {
-	if len(values) > 1 {
-		return "", errutil.Explain(nil, "too many values for form field %s", key)
+	if err := singleValue(key, values); err != nil {
+		return "", err
 	}
 	return values[0], nil
 }
 
 // DecodeStringPtr decodes a string value and returns a pointer to it.
 func DecodeStringPtr(key string, values []string) (*string, error) {
-	if len(values) > 1 {
-		return nil, errutil.Explain(nil, "too many values for form field %s", key)
+	s, err := DecodeString(key, values)
+	if err != nil {
+		return nil, err
 	}
-	return new(values[0]), nil
+	return new(s), nil
 }
 
 // DecodeBytes decodes a base64-encoded string into a byte slice.
 func DecodeBytes(key string, values []string) ([]byte, error) {
-	if len(values) > 1 {
-		return nil, errutil.Explain(nil, "too many values for form field %s", key)
+	if err := singleValue(key, values); err != nil {
+		return nil, err
 	}
 	return base64.StdEncoding.DecodeString(values[0])
 }
@@ -141,8 +154,8 @@ func DecodeBytes(key string, values []string) ([]byte, error) {
 // DecodeJSON decodes a JSON-encoded value into the target type.
 func DecodeJSON[T any](key string, values []string) (T, error) {
 	var v T
-	if len(values) > 1 {
-		return v, errutil.Explain(nil, "too many values for form field %s", key)
+	if err := singleValue(key, values); err != nil {
+		return v, err
 	}
 	if err := jsonflow.Unmarshal([]byte(values[0]), &v); err != nil {
 		return v, err

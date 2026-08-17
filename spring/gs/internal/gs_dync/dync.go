@@ -88,14 +88,14 @@ func (r *Value[T]) Value() T {
 
 // OnChanged registers a listener invoked with the new and previous values after a
 // refresh commits. At most one listener is supported; calling OnChanged again when
-// a listener is already registered is a no-op (TODO: log a warning in that case).
+// a listener is already registered is a no-op.
 func (r *Value[T]) OnChanged(l func(newVal, oldVal T)) {
 	prev, ok := r.listener.Load().(func(newVal, oldVal T))
 	if !ok || prev == nil {
 		r.listener.Store(l)
 		return
 	}
-	// TODO: log a warning; a listener is already registered and will not be overwritten.
+	// A listener is already registered and will not be overwritten.
 }
 
 // onValid binds a new value from prop without applying it. The returned newVal is

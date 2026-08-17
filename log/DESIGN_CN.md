@@ -10,8 +10,8 @@
 
 - 发射结构化日志事件：等级（`Trace` … `Fatal`）、tag、上下文字段、可
   插拔输出格式。
-- 从扁平属性 map（`RefreshConfig`）或配置文件（`RefreshFile`）加载配
-  置，让应用能不重启就热更新日志拓扑。
+- 从扁平属性 map（`RefreshConfig`）加载配置，让应用能不重启就热更新
+  日志拓扑；配置文件的读取与解析由调用方完成（例如借助 `stdlib/flatten`）。
 - **不**承担远端传输（Kafka、ES、Loki）。内置 sink 只有 console / file
   / rolling-file；其它形态各自实现 `Appender` 插件注册进来。
 
@@ -43,7 +43,7 @@
   `trace_id`/`span_id`）。这是跨切面上下文数据的官方接入点。
 - **字段编码**。`Field`（`log/field.go`）是值类型，包含 `Key`、`Type`
   （`ValueType`）、`Num`（数值载荷）、`Any`（指针/切片载荷）。基础类型
-  helper（`Bool`、`Int64`、`String`、`Msg`、`Msgf`、`Reflect`、
+  helper（`Bool`、`Int`、`String`、`Msg`、`Msgf`、`Reflect`、
   `Array`、`Object`、`FieldsFromMap`）造字段时不会每次分配 slice。
   `Event` 与编码 buffer 走 `sync.Pool`（`plugin_appender.go` 的
   `bufferPool`；超过 `bufferCap`（默认 10 KB、可用环境变量
@@ -67,7 +67,7 @@
 ## 4. 权衡与被否决的方案
 
 - **不采用 Log4j2 XML 风格配置**。Go-Spring 采用扁平属性 map + `!` 内
-  联表达式（`db!: "{host: localhost, port: 5432}"`），因为
+  联表达式（`db!: "DbConfig { host = localhost, port = 5432 }"`），因为
   `flatten.Storage` 是全框架共享的配置原语。Layout / logger 插件走的注
   入路径与任何框架 bean 一致。
 - **不暴露全局 logger 单例**。`GetLogger(name)` 仅为兼容老调用点

@@ -126,14 +126,6 @@ func TestProperties_Resolve(t *testing.T) {
 		assert.Error(t, err).Matches("property reference depth exceeds 100")
 	})
 
-	//t.Run("array property as string", func(t *testing.T) {
-	//	p := flatten.MapProperties(map[string]any{
-	//		"a.b.c": []string{"3"},
-	//	})
-	//	_, err := conf.Resolve(p,"${a.b.c}")
-	//	assert.Error(t, err).Matches("property \"a.b.c\" isn't simple value")
-	//})
-
 	t.Run("missing bracket", func(t *testing.T) {
 		p := flatten.NewPropertiesStorage(flatten.MapProperties(map[string]any{
 			"a.b.c": []string{"3"},
@@ -141,71 +133,120 @@ func TestProperties_Resolve(t *testing.T) {
 		_, err := conf.Resolve(p, "${a.b.c")
 		assert.Error(t, err).Matches("invalid syntax: unmatched braces in '\\${a.b.c'")
 	})
-
-	//t.Run("invalid expression", func(t *testing.T) {
-	//	p := flatten.MapProperties(map[string]any{
-	//		"a.b.c": []string{"3"},
-	//	})
-	//	_, err := conf.Resolve(p,"${a.b.c[0]}==${a.b.c}")
-	//	assert.Error(t, err).Matches("property \"a.b.c\" isn't simple value")
-	//})
 }
 
-func TestProperties_CopyTo(t *testing.T) {
-	t.Run("success", func(t *testing.T) {
-		//p := flatten.MapProperties(map[string]any{
-		//	"a.b.c": []string{"3"},
-		//})
-		//assert.That(t, p.Keys()).Equal([]string{
-		//	"a.b.c[0]",
-		//})
+// TestPropertiesStorage verifies the flatten.Storage seam that conf binds
+// against: hierarchical data is flattened into indexed leaf keys, prefix keys
+// report Exists, and map/slice discovery returns the child structure.
+func TestPropertiesStorage(t *testing.T) {
+	p := flatten.NewPropertiesStorage(flatten.MapProperties(map[string]any{
+		"a.b.c": []string{"4", "5"},
+		"a.b.d": "x",
+	}))
 
-		//assert.That(t, p.Exists("a.b.c")).True()
-		//assert.That(t, p.Exists("a.b.c[0]")).True()
-		//assert.That(t, p.Get("a.b.c[0]")).Equal("3")
-		//assert.That(t, p.Data()).Equal(map[string]string{
-		//	"a.b.c[0]": "3",
-		//})
-
-		//s := flatten.MapProperties(map[string]any{
-		//	"a.b.c": []string{"4", "5"},
-		//})
-		//assert.That(t, s.Keys()).Equal([]string{
-		//	"a.b.c[0]",
-		//	"a.b.c[1]",
-		//})
-
-		//assert.That(t, s.Exists("a.b.c")).True()
-		//assert.That(t, s.Exists("a.b.c[0]")).True()
-		//assert.That(t, s.Exists("a.b.c[1]")).True()
-		//assert.That(t, s.Data()).Equal(map[string]string{
-		//	"a.b.c[0]": "4",
-		//	"a.b.c[1]": "5",
-		//})
-
-		//err := p.CopyTo(s)
-		//assert.That(t, err).Nil()
-		//assert.That(t, s.Data()).Equal(map[string]string{
-		//	"a.b.c[0]": "3",
-		//	"a.b.c[1]": "5",
-		//})
+	assert.That(t, p.Data()).Equal(map[string]string{
+		"a.b.c[0]": "4",
+		"a.b.c[1]": "5",
+		"a.b.d":    "x",
 	})
 
-	t.Run("type conflict", func(t *testing.T) {
-		p := flatten.MapProperties(map[string]any{
-			"a.b.c": []string{"3"},
-		})
-		assert.That(t, p.Data()).Equal(map[string]string{
-			"a.b.c[0]": "3",
+	t.Run("exists", func(t *testing.T) {
+		assert.That(t, p.Exists("a")).True()     // prefix of deeper keys
+		assert.That(t, p.Exists("a.b")).True()   // prefix of deeper keys
+		assert.That(t, p.Exists("a.b.c")).True() // prefix of indexed keys
+		assert.That(t, p.Exists("a.b.c[0]")).True()
+		assert.That(t, p.Exists("a.b.d")).True()  // exact leaf key
+		assert.That(t, p.Exists("a.b.e")).False() // no such key
+	})
+
+	t.Run("value", func(t *testing.T) {
+		v, ok := p.Value("a.b.c[0]")
+		assert.That(t, ok).True()
+		assert.That(t, v).Equal("4")
+
+		_, ok = p.Value("a.b.c") // slice node, not a leaf
+		assert.That(t, ok).False()
+	})
+
+	t.Run("map keys", func(t *testing.T) {
+		keys := make(map[string]struct{})
+		assert.That(t, p.MapKeys("a.b", keys)).True()
+		assert.That(t, keys).Equal(map[string]struct{}{"c": {}, "d": {}})
+
+		keys = make(map[string]struct{})
+		assert.That(t, p.MapKeys("a.b.e", keys)).False()
+		assert.That(t, len(keys)).Equal(0)
+	})
+
+	t.Run("slice entries", func(t *testing.T) {
+		entries := make(map[string]string)
+		assert.That(t, p.SliceEntries("a.b.c", entries)).True()
+		assert.That(t, entries).Equal(map[string]string{
+			"a.b.c[0]": "4",
+			"a.b.c[1]": "5",
 		})
 
-		//s := flatten.MapProperties(map[string]any{
-		//	"a.b.c": "3",
-		//})
-		//assert.That(t, s.Get("a.b.c")).Equal("3")
+		entries = make(map[string]string)
+		assert.That(t, p.SliceEntries("a.b.d", entries)).False() // leaf, not a slice
+		assert.That(t, len(entries)).Equal(0)
+	})
+}
 
-		//err := p.CopyTo(s)
-		//assert.Error(t, err).Matches("path a.b.c\\[0\\] conflicts with existing structure")
+type bindEachConfig struct {
+	Port int `value:"${port:=0}"`
+}
+
+func TestBindEach(t *testing.T) {
+
+	t.Run("empty map", func(t *testing.T) {
+		p := flatten.NewPropertiesStorage(flatten.NewProperties(nil))
+		calls := 0
+		err := conf.BindEach(p, "${servers:=}", func(name string, c bindEachConfig) error {
+			calls++
+			return nil
+		})
+		assert.That(t, err).Nil()
+		assert.That(t, calls).Equal(0)
+	})
+
+	t.Run("multiple entries", func(t *testing.T) {
+		p := flatten.NewPropertiesStorage(flatten.MapProperties(map[string]any{
+			"servers": map[string]any{
+				"a": map[string]any{"port": 1},
+				"b": map[string]any{"port": 2},
+			},
+		}))
+		got := make(map[string]int)
+		err := conf.BindEach(p, "${servers}", func(name string, c bindEachConfig) error {
+			got[name] = c.Port
+			return nil
+		})
+		assert.That(t, err).Nil()
+		assert.That(t, got).Equal(map[string]int{"a": 1, "b": 2})
+	})
+
+	t.Run("bind error propagates", func(t *testing.T) {
+		p := flatten.NewPropertiesStorage(flatten.NewProperties(nil))
+		err := conf.BindEach(p, "${servers}", func(name string, c bindEachConfig) error {
+			return nil
+		})
+		assert.Error(t, err).Matches(`map property "servers" does not exist`)
+	})
+
+	t.Run("fn error aborts the loop", func(t *testing.T) {
+		p := flatten.NewPropertiesStorage(flatten.MapProperties(map[string]any{
+			"servers": map[string]any{
+				"a": map[string]any{"port": 1},
+				"b": map[string]any{"port": 2},
+			},
+		}))
+		calls := 0
+		err := conf.BindEach(p, "${servers}", func(name string, c bindEachConfig) error {
+			calls++
+			return fmt.Errorf("boom")
+		})
+		assert.Error(t, err).Matches("boom")
+		assert.That(t, calls).Equal(1) // first error aborts, remaining entries are skipped
 	})
 }
 

@@ -83,6 +83,9 @@ type subscriber struct {
 }
 
 func (s *subscriber) Subscribe(_ context.Context, handler messaging.Handler) error {
+	// SafeHandler converts a handler panic into the normal error path
+	// (nack/redelivery) instead of unwinding into the SDK goroutine.
+	handler = messaging.SafeHandler(handler)
 	cb := func(nm *nats.Msg) {
 		// startConsume extracts the upstream trace, opens a consumer span +
 		// metric + access log; nil-safe when observability is off.

@@ -4,7 +4,7 @@
 
 `starter-transaction-saga` 属于 **Contributor** 形态(见
 [starter/DESIGN.md](../DESIGN.md) §2.3),把 `spring/transaction` 中的 Saga
-分布式事务能力接入 Go-Spring。它以进程内 Coordinator + aspect 链达
+分布式事务能力接入 Go-Spring。它以进程内 Coordinator + 普通装饰器达
 `@GlobalTransactional(SAGA)` 等价效果,不复刻 Seata 的 TC/TM/RM,也不依赖
 字节码魔法。
 

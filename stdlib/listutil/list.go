@@ -35,12 +35,12 @@ func (e Element[T]) Value() T {
 	return e.Element.Value.(T)
 }
 
-// Next returns the next element of list l or nil if e is the last element.
+// Next returns e's successor, or the zero Element if e is the last element.
 func (e Element[T]) Next() Element[T] {
 	return Element[T]{e.Element.Next()}
 }
 
-// Prev returns the previous element of list l or nil if e is the first element.
+// Prev returns e's predecessor, or the zero Element if e is the first element.
 func (e Element[T]) Prev() Element[T] {
 	return Element[T]{e.Element.Prev()}
 }
@@ -70,8 +70,8 @@ func (l *List[T]) Back() Element[T] {
 }
 
 // Remove removes e from l if e is an element of list l.
-// It returns the element value e.Value.
-// The element must not be nil.
+// It returns the value stored in e.
+// The element must be valid, i.e. e.Valid() must hold.
 func (l *List[T]) Remove(e Element[T]) T {
 	return l.List.Remove(e.Element).(T)
 }
@@ -88,42 +88,42 @@ func (l *List[T]) PushBack(v T) Element[T] {
 
 // InsertBefore inserts a new element e with value v immediately before mark and returns e.
 // If mark is not an element of l, the list is not modified.
-// The mark must not be nil.
+// The mark must be valid, i.e. mark.Valid() must hold.
 func (l *List[T]) InsertBefore(v T, mark Element[T]) Element[T] {
 	return Element[T]{l.List.InsertBefore(v, mark.Element)}
 }
 
 // InsertAfter inserts a new element e with value v immediately after mark and returns e.
 // If mark is not an element of l, the list is not modified.
-// The mark must not be nil.
+// The mark must be valid, i.e. mark.Valid() must hold.
 func (l *List[T]) InsertAfter(v T, mark Element[T]) Element[T] {
 	return Element[T]{l.List.InsertAfter(v, mark.Element)}
 }
 
 // MoveToFront moves element e to the front of list l.
 // If e is not an element of l, the list is not modified.
-// The element must not be nil.
+// The element must be valid, i.e. e.Valid() must hold.
 func (l *List[T]) MoveToFront(e Element[T]) {
 	l.List.MoveToFront(e.Element)
 }
 
 // MoveToBack moves element e to the back of list l.
 // If e is not an element of l, the list is not modified.
-// The element must not be nil.
+// The element must be valid, i.e. e.Valid() must hold.
 func (l *List[T]) MoveToBack(e Element[T]) {
 	l.List.MoveToBack(e.Element)
 }
 
 // MoveBefore moves element e to its new position before mark.
 // If e or mark is not an element of l, or e == mark, the list is not modified.
-// The element and mark must not be nil.
+// The element and mark must be valid, i.e. e.Valid() and mark.Valid() must hold.
 func (l *List[T]) MoveBefore(e, mark Element[T]) {
 	l.List.MoveBefore(e.Element, mark.Element)
 }
 
 // MoveAfter moves element e to its new position after mark.
 // If e or mark is not an element of l, or e == mark, the list is not modified.
-// The element and mark must not be nil.
+// The element and mark must be valid, i.e. e.Valid() and mark.Valid() must hold.
 func (l *List[T]) MoveAfter(e, mark Element[T]) {
 	l.List.MoveAfter(e.Element, mark.Element)
 }

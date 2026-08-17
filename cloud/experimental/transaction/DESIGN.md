@@ -81,4 +81,4 @@ different failure semantics and it is honest to keep them separate.
   a hand-written compensation. Requiring `Compensate` up front is cheaper.
 - **Explicit `StepRegistry` over reflect-based scanning.** Java's annotation
   approach walks bytecode; Go can register at wiring time in one line. That
-  keeps the aspect a plain lookup with no reflection over user code.
+  keeps the decorator a plain lookup with no reflection over user code.

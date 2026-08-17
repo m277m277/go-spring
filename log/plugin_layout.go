@@ -40,6 +40,11 @@ type BaseLayout struct {
 // GetFileLine returns the "file:line" string for a log event.
 // If the result exceeds FileLineMaxLength,
 // the leading part is truncated and replaced with "...".
+//
+// Truncation is skipped when FileLineMaxLength <= 16: with such a small
+// budget the "..." prefix would dominate the output and the few remaining
+// characters would carry no useful location information, so the full
+// (overlong) string is preferred over a mangled one.
 func (c *BaseLayout) GetFileLine(e *Event) string {
 	fileLine := e.File + ":" + strconv.Itoa(e.Line)
 	if c.FileLineMaxLength <= 16 {

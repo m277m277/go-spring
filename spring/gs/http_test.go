@@ -17,6 +17,9 @@
 package gs
 
 import (
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"go-spring.org/stdlib/testing/assert"
@@ -27,5 +30,20 @@ func TestNewSimpleHttpServer(t *testing.T) {
 		s := NewSimpleHttpServer(nil, SimpleHttpServerConfig{Address: ":0"})
 		assert.That(t, s.svr.Addr).Equal(":0")
 		assert.That(t, s.svr.Handler).Nil()
+	})
+
+	t.Run("real mux routing", func(t *testing.T) {
+		mux := http.NewServeMux()
+		mux.HandleFunc("/ping", func(w http.ResponseWriter, r *http.Request) {
+			fmt.Fprintln(w, "pong")
+		})
+		s := NewSimpleHttpServer(&HttpServeMux{mux}, SimpleHttpServerConfig{Address: ":0"})
+		assert.That(t, s.svr.Addr).Equal(":0")
+		assert.That(t, s.svr.Handler).NotNil()
+
+		w := httptest.NewRecorder()
+		s.svr.Handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/ping", nil))
+		assert.That(t, w.Code).Equal(http.StatusOK)
+		assert.That(t, w.Body.String()).Equal("pong\n")
 	})
 }

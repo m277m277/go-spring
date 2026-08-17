@@ -159,7 +159,12 @@ func (c *EnvProvider) Snapshot() map[string]string {
 //   - Graceful shutdown orchestration
 type App struct {
 	c *gs_core.Container // IoC container
-	p *gs_conf.AppConfig // Application configuration
+
+	// p holds the application configuration. It is swapped atomically: Start
+	// drops it (Store(nil)) after the container is wired when no dynamic
+	// (gs.Dync) values are registered, while RefreshProperties — documented
+	// as callable from any goroutine — loads it concurrently.
+	p atomic.Pointer[gs_conf.AppConfig]
 
 	ctx    context.Context    // Root context for managing cancellation
 	cancel context.CancelFunc // Function to cancel the root context
@@ -195,12 +200,13 @@ func NewApp() *App {
 	// nolint: staticcheck
 	ctx := context.WithValue(context.Background(), "app", "")
 	ctx, cancel := context.WithCancel(ctx)
-	return &App{
+	app := &App{
 		c:      gs_core.New(),
-		p:      gs_conf.NewAppConfig(),
 		ctx:    ctx,
 		cancel: cancel,
 	}
+	app.p.Store(gs_conf.NewAppConfig())
+	return app
 }
 
 // Context returns the root context for the application.
@@ -211,7 +217,7 @@ func (app *App) Context() context.Context {
 // Property sets an app-level property in the application's configuration.
 // This method allows programmatic configuration during initialization.
 func (app *App) Property(key string, val string) {
-	app.p.Properties.Set(key, val)
+	app.p.Load().Properties.Set(key, val)
 }
 
 // Provide registers a new bean definition in the IoC container.
@@ -238,10 +244,11 @@ func (app *App) RefreshProperties() error {
 	if !app.started.Load() {
 		return errutil.Explain(nil, "app not started yet, cannot refresh properties")
 	}
-	if app.p == nil {
-		return errutil.Explain(nil, "app.p is nil")
+	cp := app.p.Load()
+	if cp == nil {
+		return errutil.Explain(nil, "configuration dropped: no gs.Dync values registered, nothing to refresh")
 	}
-	p, err := app.p.Refresh()
+	p, err := cp.Refresh()
 	if err != nil {
 		return err
 	}
@@ -311,7 +318,7 @@ func (app *App) Start() error {
 	app.c.Provide(&EnvProvider{app})
 
 	// Load and refresh application properties
-	p, err := app.p.Refresh()
+	p, err := app.p.Load().Refresh()
 	if err != nil {
 		return err
 	}
@@ -341,7 +348,7 @@ func (app *App) Start() error {
 
 	// If there are no dynamic fields, clear the configuration
 	if app.c.DynamicObjectsCount() == 0 {
-		app.p = nil
+		app.p.Store(nil)
 	}
 
 	// Execute all Runner beans sequentially

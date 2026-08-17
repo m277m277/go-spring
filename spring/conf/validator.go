@@ -29,9 +29,9 @@ package conf
 // This means each nested struct can independently carry its own cross-field
 // validation rules.
 //
-// The implementation must be safe to call on a zero-value receiver: the binding
-// system uses reflect.New(t).Elem() to create struct values, so the struct is
-// always addressable when Validate is called.
+// Validate runs after all fields are bound, but a field whose key is missing
+// and has no tag default keeps its zero value, so implementations must be safe
+// to call on such a defaults-only struct.
 //
 // Usage:
 //

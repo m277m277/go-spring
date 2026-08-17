@@ -44,6 +44,10 @@ func TestBeanStatus(t *testing.T) {
 	assert.That(t, StatusCreating.String()).Equal("creating")
 	assert.That(t, StatusCreated.String()).Equal("created")
 	assert.That(t, StatusWired.String()).Equal("wired")
+
+	// StatusDefault must be the zero value of BeanStatus so that a
+	// zero-initialized BeanStatus never reports "unknown".
+	assert.That(t, BeanStatus(0)).Equal(StatusDefault)
 }
 
 type TestBeanInterface interface {
@@ -88,7 +92,7 @@ func TestBeanDefinition(t *testing.T) {
 		assert.That(t, StatusCreated).Equal(bean.GetStatus())
 
 		bean.Caller(1)
-		assert.String(t, bean.FileLine()).HasSuffix("gs/internal/gs_bean/bean_test.go:90")
+		assert.String(t, bean.FileLine()).HasSuffix("gs/internal/gs_bean/bean_test.go:94")
 
 		bean.Name("test-1")
 		assert.That(t, bean.GetName()).Equal("test-1")
@@ -217,7 +221,7 @@ func TestBeanDefinition(t *testing.T) {
 		bean := makeBean(v.Type(), v, nil, "test")
 		assert.Panic(t, func() {
 			bean.Condition(nil)
-		}, "conditions cannot contains nil")
+		}, "conditions cannot contain nil")
 	})
 
 	t.Run("on profiles", func(t *testing.T) {
@@ -298,6 +302,98 @@ func TestBeanDefinition(t *testing.T) {
 				ok, err := c.Matches(ctx)
 				assert.That(t, err).Nil()
 				assert.That(t, ok).True()
+			}
+		})
+
+		t.Run("negated profile not active", func(t *testing.T) {
+			beanNegated := makeBean(v.Type(), v, nil, "test")
+			beanNegated.OnProfiles("!prod")
+
+			m := gsmock.NewManager()
+			ctx := gs.NewConditionContextMockImpl(m)
+			ctx.MockProp().ReturnValue("dev", true)
+
+			for _, c := range beanNegated.Conditions() {
+				ok, err := c.Matches(ctx)
+				assert.That(t, err).Nil()
+				assert.That(t, ok).True()
+			}
+		})
+
+		t.Run("negated profile active", func(t *testing.T) {
+			beanNegated := makeBean(v.Type(), v, nil, "test")
+			beanNegated.OnProfiles("!prod")
+
+			m := gsmock.NewManager()
+			ctx := gs.NewConditionContextMockImpl(m)
+			ctx.MockProp().ReturnValue("prod", true)
+
+			for _, c := range beanNegated.Conditions() {
+				ok, err := c.Matches(ctx)
+				assert.That(t, err).Nil()
+				assert.That(t, ok).False()
+			}
+		})
+
+		t.Run("mixed profiles - negated profile saves the match", func(t *testing.T) {
+			// "dev" is not active, but "cloud" is not active either, so the
+			// "!cloud" term matches and the bean is created.
+			beanMixed := makeBean(v.Type(), v, nil, "test")
+			beanMixed.OnProfiles("dev", "!cloud")
+
+			m := gsmock.NewManager()
+			ctx := gs.NewConditionContextMockImpl(m)
+			ctx.MockProp().ReturnValue("prod", true)
+
+			for _, c := range beanMixed.Conditions() {
+				ok, err := c.Matches(ctx)
+				assert.That(t, err).Nil()
+				assert.That(t, ok).True()
+			}
+		})
+
+		t.Run("mixed profiles - neither term matches", func(t *testing.T) {
+			beanMixed := makeBean(v.Type(), v, nil, "test")
+			beanMixed.OnProfiles("dev", "!cloud")
+
+			m := gsmock.NewManager()
+			ctx := gs.NewConditionContextMockImpl(m)
+			ctx.MockProp().ReturnValue("cloud", true)
+
+			for _, c := range beanMixed.Conditions() {
+				ok, err := c.Matches(ctx)
+				assert.That(t, err).Nil()
+				assert.That(t, ok).False()
+			}
+		})
+
+		t.Run("mixed profiles - positive term matches", func(t *testing.T) {
+			beanMixed := makeBean(v.Type(), v, nil, "test")
+			beanMixed.OnProfiles("dev", "!cloud")
+
+			m := gsmock.NewManager()
+			ctx := gs.NewConditionContextMockImpl(m)
+			ctx.MockProp().ReturnValue("dev,cloud", true)
+
+			for _, c := range beanMixed.Conditions() {
+				ok, err := c.Matches(ctx)
+				assert.That(t, err).Nil()
+				assert.That(t, ok).True()
+			}
+		})
+
+		t.Run("empty active profiles", func(t *testing.T) {
+			beanNegated := makeBean(v.Type(), v, nil, "test")
+			beanNegated.OnProfiles("!prod")
+
+			m := gsmock.NewManager()
+			ctx := gs.NewConditionContextMockImpl(m)
+			ctx.MockProp().ReturnValue("", true)
+
+			for _, c := range beanNegated.Conditions() {
+				ok, err := c.Matches(ctx)
+				assert.That(t, err).Nil()
+				assert.That(t, ok).False()
 			}
 		})
 	})
@@ -417,20 +513,6 @@ func TestNewBean(t *testing.T) {
 		assert.That(t, len(bean.Conditions())).Equal(1)
 	})
 
-	t.Run("method - 4", func(t *testing.T) {
-		parent := NewBean(&TestBean{})
-		bean := NewBean((*TestBean).Clone, parent)
-		assert.That(t, bean.GetName()).Equal("*gs_bean.TestBean")
-		assert.That(t, len(bean.Conditions())).Equal(1)
-	})
-
-	t.Run("method - 5", func(t *testing.T) {
-		parent := NewBean(&TestBean{})
-		bean := NewBean((*TestBean).Clone, gs_arg.Index(0, parent))
-		assert.That(t, bean.GetName()).Equal("*gs_bean.TestBean")
-		assert.That(t, len(bean.Conditions())).Equal(1)
-	})
-
 	t.Run("method error - 1", func(t *testing.T) {
 		assert.Panic(t, func() {
 			NewBean((*TestBean).Clone, gs_arg.Tag(""))
@@ -441,5 +523,63 @@ func TestNewBean(t *testing.T) {
 		assert.Panic(t, func() {
 			NewBean((*TestBean).Clone, gs_arg.Index(0, gs_arg.Tag("")))
 		}, "IndexArg\\[0] must contain a \\*BeanDefinition")
+	})
+}
+
+func TestBeanDefinitionClone(t *testing.T) {
+
+	t.Run("object bean gets a new instance", func(t *testing.T) {
+		original := &TestBean{}
+		bean := NewBean(original).Name("test")
+
+		clone := bean.Clone()
+		assert.That(t, clone).NotSame(bean)
+		assert.That(t, clone.GetName()).Equal("test")
+		assert.That(t, clone.GetType()).Equal(reflect.TypeFor[*TestBean]())
+		assert.That(t, clone.Interface()).NotSame(original) // fresh instance, not the original pointer
+
+		// Mutating the clone's metadata must not touch the original.
+		clone.Name("changed")
+		assert.That(t, bean.GetName()).Equal("test")
+	})
+
+	t.Run("constructor bean gets a fresh value target", func(t *testing.T) {
+		ctor := func() *TestBean { return &TestBean{} }
+		bean := NewBean(ctor).Name("test")
+
+		clone := bean.Clone()
+		assert.That(t, clone.GetType()).Equal(reflect.TypeFor[*TestBean]())
+		assert.That(t, clone.Callable()).Same(bean.Callable()) // the ctor itself is shared
+		assert.That(t, clone.GetValue().CanSet()).True()       // fresh settable target for the ctor result
+		assert.That(t, clone.GetValue().IsNil()).True()        // not yet populated until the ctor runs
+	})
+
+	t.Run("function bean shares the value", func(t *testing.T) {
+		fn := func(int, int) string { return "" }
+		bean := NewBean(reflect.ValueOf(fn)).Name("fn")
+
+		clone := bean.Clone()
+		assert.That(t, clone.GetType()).Equal(reflect.TypeFor[func(int, int) string]())
+		assert.That(t, clone.GetValue().Pointer()).Equal(bean.GetValue().Pointer()) // funcs are immutable, value shared
+	})
+}
+
+func TestBeanDefinitionBeanID(t *testing.T) {
+
+	t.Run("named bean", func(t *testing.T) {
+		bean := NewBean(&TestBean{}).Name("test")
+		assert.That(t, bean.BeanID()).Equal(gs.BeanID{
+			Name: "test",
+			Type: reflect.TypeFor[*TestBean](),
+		})
+	})
+
+	t.Run("unnamed bean", func(t *testing.T) {
+		bean := NewBean(&TestBean{})
+		// An explicitly unnamed bean defaults its name to the type string.
+		assert.That(t, bean.BeanID()).Equal(gs.BeanID{
+			Name: "*gs_bean.TestBean",
+			Type: reflect.TypeFor[*TestBean](),
+		})
 	})
 }

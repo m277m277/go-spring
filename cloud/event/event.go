@@ -27,8 +27,7 @@
 // concrete struct — and subscription is a plain generic function that keeps the
 // call site type-safe. The only reflection is a single type key used to route a
 // published value to the handlers registered for that exact type, mirroring the
-// restraint of [go-spring.org/cloud/experimental/aspect] (the type-safe interceptor chain)
-// and [go-spring.org/spring/lock] (the interface-as-seam abstraction).
+// restraint of [go-spring.org/spring/lock] (the interface-as-seam abstraction).
 //
 // This is strictly an in-process bus. It is not a cross-instance broadcast: for
 // fan-out across replicas over a message queue, that is a separate concern
@@ -70,14 +69,14 @@
 // A synchronous handler that fails does not stop the others: every handler runs
 // and their errors are combined with [errors.Join], so one faulty subscriber
 // cannot silently suppress the rest. This follows the pass-through spirit of the
-// aspect chain — the bus stays out of the way and reports what happened.
+// interceptor chain — the bus stays out of the way and reports what happened.
 //
 // # nil / empty transparency
 //
 // Publishing an event with no subscribers is a no-op that returns nil, and
 // subscribing on a nil bus returns a no-op cancel. Wiring the bus therefore
 // stays inert until a producer and a consumer actually meet, the same
-// transparent-pass-through property the aspect and resilience packages rely on.
+// transparent-pass-through property the resilience packages rely on.
 //
 // # Container integration
 //
@@ -94,6 +93,8 @@ import (
 	"reflect"
 	"slices"
 	"sync"
+
+	"go-spring.org/stdlib/goutil"
 )
 
 // ErrClosed is returned by [Bus.Publish] once [Bus.Close] has been called. A
@@ -143,8 +144,8 @@ type subOptions struct {
 type SubOption func(*subOptions)
 
 // WithOrder sets the delivery priority of a synchronous handler: lower values
-// run first (index 0 is outermost, matching the aspect chain's ordering
-// convention). Handlers with equal order keep registration order. It has no
+// run first (index 0 is outermost). Handlers with equal order keep
+// registration order. It has no
 // effect on asynchronous handlers, whose workers run independently.
 func WithOrder(order int) SubOption {
 	return func(o *subOptions) { o.order = order }
@@ -275,7 +276,12 @@ func (b *bus) remove(typ reflect.Type, e *entry) {
 func (b *bus) runWorker(e *entry, onError func(ctx context.Context, err error)) {
 	defer b.wg.Done()
 	deliver := func(ae asyncEvent) {
-		if err := e.invoke(ae.ctx, ae.event); err != nil && onError != nil {
+		// SafeRun converts a handler panic into an error (reported through the
+		// shared panic chain) instead of silently killing this worker — the
+		// bus would otherwise keep accepting events nobody delivers.
+		if err := goutil.SafeRun(ae.ctx, func(ctx context.Context) error {
+			return e.invoke(ctx, ae.event)
+		}); err != nil && onError != nil {
 			onError(ae.ctx, err)
 		}
 	}

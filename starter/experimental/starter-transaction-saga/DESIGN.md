@@ -5,7 +5,7 @@
 `starter-transaction-saga` is a **Contributor**-archetype starter (see
 [starter/DESIGN.md](../DESIGN.md) §2.3) that wires the Saga
 distributed-transaction capability from `spring/transaction` into a
-Go-Spring application. An in-process coordinator + aspect chain reaches
+Go-Spring application. An in-process coordinator + plain decorator reaches
 `@GlobalTransactional(SAGA)` equivalence, without replicating Seata
 TC/TM/RM roles or bytecode magic.
 

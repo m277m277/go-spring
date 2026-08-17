@@ -33,10 +33,10 @@ import (
 	"net/http/httptest"
 	"strings"
 
-	"go-spring.org/spring/conf"
-	"go-spring.org/spring/conf/reader"
 	"go-spring.org/cloud/experimental/web/i18n"
 	"go-spring.org/cloud/experimental/web/validation"
+	"go-spring.org/spring/conf"
+	"go-spring.org/spring/conf/reader"
 	"go-spring.org/stdlib/flatten"
 
 	_ "go-spring.org/starter-validation" // registers the "default" driver

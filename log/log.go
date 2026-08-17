@@ -253,6 +253,8 @@ func record(ctx context.Context, level Level, tag string, logger Logger, skip in
 		_, file, line, _ = runtime.Caller(skip)
 	case CallerTypeFast:
 		file, line = FastCaller(skip)
+	case CallerTypeNone:
+		// No caller information is attached on purpose.
 	default: // for linter
 	}
 

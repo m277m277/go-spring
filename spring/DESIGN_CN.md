@@ -14,7 +14,7 @@ import `cloud` 生态库、任何三方业务 SDK 或任何 starter。
   （`Provide`、`Module`、`Group`、`Condition`）暴露给 starter 去贡献。
 - `spring/conf` 是配置引擎：分层来源（命令行、环境变量、
   `app-<profile>.<ext>`、`app.<ext>`、内存、tag 默认值）按优先级合并，
-  格式读取器在 `spring/conf/reader/{yaml,toml,prop}`，可插拔解密在
+  格式读取器在 `spring/conf/reader/{yaml,toml,prop,json}`，可插拔解密在
   `spring/conf/decrypt`。引擎独立于容器，容器在启动过程中驱动它。它也
   是外部生态唯一直接复用的 spring 包——如 starter-governance 的规则解
   析胶水就构建在它之上。
@@ -31,7 +31,6 @@ import `cloud` 生态库、任何三方业务 SDK 或任何 starter。
 | 家族 | 归属 | 理由 |
 |---|---|---|
 | `httpsvr`、`httpclt` | `stdlib/` | 纯 HTTP 语义，无容器依赖 |
-| `aspect` | `cloud/experimental/aspect` | 被 cloud 各家族消费的 AOP 原语 |
 | 治理（`resilience`/`fault`/`traffic`）、`discovery`、`loadbalance`、`event`、`scheduling`、`batch`、`lock`、`messaging`、`transaction`、`tlsconf`、`cache`、`repository`、`migration`、`i18n`、`validation`、`httpx`、`security`、`session` | `cloud/`（go-spring.org/cloud） | 生态抽象，容器无关——cloud 模块不 import 任何 spring 包 |
 | 具体后端（Redis、GORM、Kafka、dubbo-go…） | `starter/` | 三方 SDK + gs 接线 |
 
@@ -82,10 +81,34 @@ import `cloud` 生态库、任何三方业务 SDK 或任何 starter。
 
 ## 4. 权衡与被否决的方案
 
+下面的否决不是各自独立的取舍，而是同一条立场：**容器只做装配，不做
+裁决。** Java Spring 扩展点的膨胀源于本项目并不承受的三种力——服务于
+寄宿在 Spring *之上*的数千框架的钩子（BeanPostProcessor 存在的理由是
+让代理能替换用户的 bean）、为偿还语言限制而搬进容器的复杂度（无一等
+装饰能力、类型擦除）、以及二十年不允许做减法的向后兼容。Go 的一等函
+数让装饰成为显式嵌套；配置键激活让"什么时候装配"不再是问题。某个家
+族需要接入时，得到的是类型化的 seam（`.Export(gs.As[...])` 收集、
+Driver 注册表）——面向该家族的契约，而不是能改写任意 bean 的钩子。
+
 - **拒绝运行时扫描（Spring Boot 那样的 classpath 扫描）**。所有 bean 元
-  数据都在 `init()` 里注册，没有 classpath 遍历。代价是每个 bean 提供
-  方必须被真正链接进来（`internal/init.go` 中的 blank import）；收益是
-  可预测的启动、无顺序玄学、接线后零反射。
+  数据都在 `init()` 里注册，没有 classpath 遍历。代价是每个 bean 提供方
+  包必须被 `main` 直接或间接 import，否则其 `init()` 不会执行、bean 会
+  静默缺失；收益是可预测的启动、无顺序玄学、接线后零反射。
+- **拒绝 `autoconfig.exclude`**。Spring Boot 之所以需要排除清单，是因为
+  自动配置按 classpath 存在性激活——急切且隐式，只能另找一个地方放关掉
+  它的开关。这里所有 starter 经配置键条件注册
+  （`gs.Module(gs.OnProperty("spring.X"), ...)`）：import 一个 starter 在
+  配置出现之前不装配任何东西，所以"禁用"就是"不配置"；少数开关型便利
+  （如 `spring.pprof.enabled`）自带显式开关。代价：starter 作者必须把注
+  册挂在配置键条件上——不允许 `init()` 里无条件注册；收益：开关只有一
+  个，就在运维本来就会看的配置里，不存在需要同步维护的第二份漂移开关。
+- **拒绝 `@Primary`**。注入以名字为先（`autowire:"name"`），Spring 里
+  `@Primary` 解决的"按类型多候选"歧义在这里基本不会出现；当默认 bean 需
+  要让位于用户提供的 bean 时，用条件作用在默认 bean 的**注册**上表达——
+  `gs.OnMissingBean[T]()`、`gs.OnSingleBean[T]()`、`gs.OnProperty(...)`，
+  决定的是"这个 bean 存不存在"，而不是"已有的几个里谁赢"。代价：带默认
+  实现的 starter 必须显式挂条件，不能靠优先级标记；收益：类型索引里没有
+  隐藏的优先级层——依赖图保持按名寻址，整个决策在注册期可见。
 - **拒绝编译期 DI（Wire 那种代码生成）**。容器保留运行时依赖图，让条件
   模块、从配置 map 里批量建 bean 的 `Group`、`Dync[T]` 热刷新可以在启
   动/运行期决定实例化什么。反射被约束在启动那一遍。

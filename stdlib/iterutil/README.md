@@ -2,9 +2,14 @@
 
 [English](README.md) | [中文](README_CN.md)
 
-`iterutil` is a small and handy Go utility package that makes your loops more elegant and ✨functional✨.
-It’s designed to solve the problem where `defer` statements inside standard `for` loops only execute
-when the **entire function** returns!
+`iterutil` is a small, handy set of callback-driven loops that make your code
+more elegant and ✨functional✨. Each helper hands the loop body to a callback,
+which gives `defer` per-iteration semantics: deferred calls fire when the
+iteration's callback returns, not when the enclosing function returns — the
+classic footgun of `defer` inside a standard `for` loop. It is part of the
+zero-dependency `stdlib` layer, and it is deliberately not a full iteration
+DSL: Go's own `for` is still the tool for the vast majority of loops; use
+these helpers only when per-iteration cleanup matters.
 
 ## Usage
 
@@ -47,15 +52,12 @@ iterutil.StepRanges(10, 0, -3, func (i int) {
 })
 ```
 
-## Why Use It?
+### Why Use It?
 
-In traditional `for` loops, any `defer` statements execute only when the **enclosing function** returns — not after each
-iteration.
-
-With `iterutil`, you can use closures to scope each iteration and ensure `defer` runs **right when you expect it to**.
-🎯
-
-Example:
+In a traditional `for` loop, `defer` statements execute only when the
+**enclosing function** returns — not after each iteration. With `iterutil`,
+closures scope each iteration so `defer` runs **right when you expect it
+to**. 🎯
 
 ```go
 iterutil.Times(3, func (i int) {
@@ -75,6 +77,16 @@ running 2
 deferred 2
 ```
 
+## Design
+
+- **Direction is inferred from the arguments.** `Ranges(2, 5, fn)` counts up,
+  `Ranges(5, 2, fn)` counts down. This removes a Boolean parameter at the
+  cost of a "no-op" when `start == end`.
+- **`StepRanges` requires the sign of `step` to match the direction of the
+  range.** Mismatched inputs produce no calls, rather than an infinite loop.
+- **No `error`-returning variant.** Callers that need early exit should use a
+  plain `for` loop.
+
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
+Apache License 2.0

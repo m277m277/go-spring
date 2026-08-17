@@ -1,0 +1,17 @@
+name: gs-influxdb-example
+
+services:
+  influxdb:
+    image: influxdb:2.7
+    container_name: influxdb-example
+    environment:
+      # One-shot setup: creates the admin user, org, bucket and token the
+      # example config expects.
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: admin
+      DOCKER_INFLUXDB_INIT_PASSWORD: password12345
+      DOCKER_INFLUXDB_INIT_ORG: go-spring
+      DOCKER_INFLUXDB_INIT_BUCKET: example
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: go-spring-example-token
+    ports:
+      - "127.0.0.1:8086:8086"

@@ -11,9 +11,10 @@ logger with per-event zero-allocation goals in the hot path.
 
 - Emit structured events with levels (`Trace` … `Fatal`), tags, contextual
   fields, and pluggable output formatting.
-- Load configuration from a flat property map (`RefreshConfig`) or a file
-  (`RefreshFile`) so applications can hot-reload logger topology without
-  restarting.
+- Load configuration from a flat property map (`RefreshConfig`) so
+  applications can hot-reload logger topology without restarting; reading
+  and parsing configuration files is left to the caller (e.g. via
+  `stdlib/flatten`).
 - Do **not** own log transport (Kafka, ES, Loki). Sinks are limited to
   console / file / rolling-file appenders shipped in-tree; anything else
   registers its own `Appender` plugin.
@@ -36,7 +37,8 @@ logger with per-event zero-allocation goals in the hot path.
   `*Tag` whose `Logger` is swapped atomically at refresh time. Tags are
   the caller-side API — code writes `log.Infof(ctx, TagRequestIn, ...)`
   without ever holding a `Logger` value. Refresh maps tag names to
-  configured loggers by regex.
+  configured loggers by exact name, falling back hierarchically to
+  `_*` suffix-wildcard patterns.
 - **Refresh pipeline.** `RefreshConfig(map)` → `parseExpr` (expands `!`
   inline map expressions) → `flatten.NewProperties` → `Refresh(storage)`.
   Refresh atomically replaces the global logger/appender set behind
@@ -49,7 +51,7 @@ logger with per-event zero-allocation goals in the hot path.
   the sanctioned integration point for cross-cutting context data.
 - **Field encoding.** `Field` (`log/field.go`) is a value type carrying
   `Key`, `Type` (`ValueType`), `Num` (numeric payload), `Any` (pointer /
-  slice payload). Primitive helpers (`Bool`, `Int64`, `String`, `Msg`,
+  slice payload). Primitive helpers (`Bool`, `Int`, `String`, `Msg`,
   `Msgf`, `Reflect`, `Array`, `Object`, `FieldsFromMap`) build fields
   without allocating a slice per call. `Event` and encoder buffers come
   from `sync.Pool` (`plugin_appender.go` `bufferPool`; buffers larger
@@ -75,7 +77,8 @@ logger with per-event zero-allocation goals in the hot path.
 ## 4. Trade-offs & Alternatives Rejected
 
 - **XML-style Log4j2 config not adopted.** Go-Spring uses a flat property
-  map + inline `!` expressions (`db!: "{host: localhost, port: 5432}"`)
+  map + inline `!` expressions
+  (`db!: "DbConfig { host = localhost, port = 5432 }"`)
   because `flatten.Storage` is the shared config primitive. Layout and
   logger plugins get injected the same way as any framework bean.
 - **Global logger singleton not exposed.** `GetLogger(name)` exists only

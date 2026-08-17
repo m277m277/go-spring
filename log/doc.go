@@ -23,10 +23,11 @@ logging configuration, and multiple output options, making it ideal for server-s
 
 Tag:
 
-Tag is a core concept in the log package used to categorize logs. By registering a tag via the `RegisterTag`
-function, you can use regular expressions to match the user-defined tags. This approach allows for a unified API
-for logging without explicitly creating logger instances. Even third-party libraries can write logs without
-setting up a logger object.
+Tag is a core concept in the log package used to categorize logs. Tags are registered via the `RegisterTag`
+function. In the logging configuration, a logger binds to tags either by exact name or with a hierarchical
+"_*" suffix wildcard (e.g. `_app_request_*` matches every tag starting with `_app_request_`). This approach
+allows for a unified API for logging without explicitly creating logger instances. Even third-party libraries
+can write logs without setting up a logger object.
 
 Loggers:
 
@@ -40,9 +41,12 @@ Contextual data can be extracted and included in log entries via configurable fu
 - `log.StringFromContext`: Extracts a string value (e.g., a request ID) from the context.
 - `log.FieldsFromContext`: Returns a list of structured fields from the context, such as trace IDs or user IDs.
 
-Configuration from File:
+Configuration Refresh:
 
-The `log.RefreshFile` function allows loading the logger's configuration from an external file (e.g., yaml or JSON).
+The `log.RefreshConfig` function (or `log.Refresh` with any `flatten.Storage`) rebuilds all loggers and
+appenders at runtime from a flat property map. Reading and parsing a configuration file (e.g., YAML or JSON)
+is the caller's job — for example by decoding the file into a map and flattening it with
+`go-spring.org/stdlib/flatten` — before handing the result to `log.RefreshConfig`.
 
 Logger Initialization and Logging:
 

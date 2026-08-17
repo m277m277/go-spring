@@ -86,7 +86,7 @@ efficiently build modern Go applications:
 
 6. ⚙️ **Layered configuration system**
    - Supports multi-source (command line, environment variables, configuration files, memory) and
-     multi-format (YAML, TOML, Properties) configuration loading;
+     multi-format (YAML, TOML, Properties, JSON) configuration loading;
    - Clear configuration priority layering, automatic overriding,
      natively supports multi-environment isolation;
    - Supports configuration import, can integrate remote configuration centers to
@@ -325,15 +325,17 @@ func init() {
 // Register Bean in application configuration
 gs.Configure(func(app gs.App) {
 	app.Provide(&MyService{})
-	app.Root(&Bootstrap{}) // Mark as root Bean, triggers dependency injection
+	app.Provide(&Bootstrap{}).Export(gs.As[gs.Rooter]()) // Mark as a root bean
 })
 ```
 
-> **💡 On-demand instantiation and `Root`**
-> Go-Spring defaults to an **on-demand instantiation** strategy —
-> only beans that are depended on or marked as `Root` will be instantiated.
-> Beans marked via `app.Root()` serve as entry points to the application,
-> and the framework automatically completes their dependency injection and instantiation.
+> **💡 Root-reachable beans and `Rooter`**
+> Go-Spring wires an **on-demand instantiation** strategy — only beans that
+> are depended on, or that are themselves graph roots, are instantiated.
+> Export a bean as `gs.Rooter` (the same way you export `gs.Runner` or
+> `gs.Server`) to mark it as an entry point of the application: the framework
+> instantiates it and completes dependency injection for it and everything it
+> (transitively) depends on.
 
 ### 2️⃣ Injection Methods
 
@@ -502,8 +504,9 @@ The framework automatically merges configuration items from different sources at
 and automatically overrides according to **priority rules**,
 so you don't need to manually handle configuration merging logic.
 
-Go-Spring supports three mainstream configuration formats out of the box:
-**YAML** (`.yaml`/`.yml`, recommended), **Properties** (`.properties`), and **TOML** (`.toml`).
+Go-Spring supports four mainstream configuration formats out of the box:
+**YAML** (`.yaml`/`.yml`, recommended), **Properties** (`.properties`),
+**TOML** (`.toml`), and **JSON** (`.json`).
 The framework automatically recognizes the format based on the file extension.
 
 ### 1️⃣ 🔖 Configuration Binding
@@ -578,7 +581,7 @@ Achieves environment isolation by activating different profiles,
 file naming format is `app-{profile}.{ext}`:
 ```bash
 # Activate dev environment
-export SPRING_PROFILES_ACTIVE=dev
+export GS_SPRING_PROFILES_ACTIVE=dev
 ```
 The framework automatically loads `app-dev.yaml` (or other formats),
 which has higher priority than base configuration.
@@ -618,7 +621,7 @@ commonly used for testing or dynamic scenarios:
 ```go
 gs.Configure(func(app gs.App) {
     app.Property("app.name", "test-app")
-    app.Property("feature.enabled", true)
+    app.Property("feature.enabled", "true")
 })
 ```
 
@@ -777,8 +780,8 @@ with the map key as the bean name. Usage example:
 ```go
 // Batch create multiple HTTP clients from configuration
 gs.Group(
-	"${http.clients}",           // Path to map-type configuration in configuration
-	func(cfg HTTPClientConfig) (*HTTPClient, error) {
+	"${http.clients}",           // Path to the map-type configuration
+	func(cp *gs.ContextProvider, name string, cfg HTTPClientConfig) (*HTTPClient, error) {
 		return NewHTTPClient(cfg) // Create a client instance for each configuration entry
 	},
 	func(c *HTTPClient) error {
@@ -846,7 +849,8 @@ and call its method to trigger the refresh:
 ```go
 func RefreshHandler(w http.ResponseWriter, r *http.Request, refresher *gs.PropertiesRefresher) {
 	// Simulate configuration change (in real scenarios it's usually pushed by configuration center)
-	os.Setenv("APP_VERSION", "v2.0.1")
+	// GS_-prefixed env vars map into the property namespace: GS_APP_VERSION -> app.version
+	os.Setenv("GS_APP_VERSION", "v2.0.1")
 	// Trigger refresh, all gs.Dync[T] fields will update automatically
 	_ = refresher.RefreshProperties()
 	fmt.Fprintln(w, "Version updated!")

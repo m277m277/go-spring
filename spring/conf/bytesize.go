@@ -50,10 +50,7 @@ func (b ByteSize) Bytes() int64 { return int64(b) }
 // ...) so the binary meaning is unambiguous.
 func (b ByteSize) String() string {
 	const unit = 1024
-	if b < 0 {
-		return fmt.Sprintf("%dB", b)
-	}
-	if b < unit {
+	if b < unit { // negative values pass through here, e.g. -3 renders as "-3B"
 		return fmt.Sprintf("%dB", b)
 	}
 	units := "KMGTPE"
@@ -74,7 +71,6 @@ func ParseByteSize(s string) (ByteSize, error) {
 	if s == "" {
 		return 0, fmt.Errorf("conf: empty byte size")
 	}
-	// Split the leading numeric part (digits and at most dots) from the unit
 	// Split the leading numeric part (an optional sign, then digits and dots)
 	// from the unit suffix; anything else ends the number.
 	i := 0
@@ -103,7 +99,7 @@ func ParseByteSize(s string) (ByteSize, error) {
 	suffix := strings.ToUpper(strings.TrimSpace(s[i:]))
 	factor, ok := sizeFactors[suffix]
 	if !ok {
-		return 0, fmt.Errorf("conf: invalid byte size %q (unknown suffix %q; want one of B, K/KB, M/MB, G/GB, T/TB, P/PB)", s, suffix)
+		return 0, fmt.Errorf("conf: invalid byte size %q (unknown suffix %q; want one of B, K/KB/KiB, M/MB/MiB, G/GB/GiB, T/TB/TiB, P/PB/PiB)", s, suffix)
 	}
 	val := f * factor
 	if val > math.MaxInt64 {

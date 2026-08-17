@@ -1,0 +1,12 @@
+name: gs-cassandra-example
+
+services:
+  cassandra:
+    image: cassandra:5.0
+    container_name: cassandra-example
+    environment:
+      # Keep the heap modest so the stack fits Docker Desktop VMs.
+      MAX_HEAP_SIZE: 512M
+      HEAP_NEWSIZE: 100M
+    ports:
+      - "127.0.0.1:9042:9042"

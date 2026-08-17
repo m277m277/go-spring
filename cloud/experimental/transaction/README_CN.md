@@ -16,7 +16,7 @@ TCC / AT 见子包 [`transaction/tcc`](tcc/README.md) 与
   bean。
 - `Recover(ctx, s)` 后向恢复:重放崩溃进程可能已副作用的补偿。
 - `Observer` 缝隙——otel 不进 stdlib。
-- `StepRegistry` + `GlobalTransactional(coord, reg)`——切面级的
+- `StepRegistry` + `GlobalTransactional(coord, reg)`——装饰器级的
   `@GlobalTransactional` 等价物,按方法名匹配。
 - 步骤级 `RetryPolicy`(等价 `resilience.Policy`)复用出站韧性的同一套配置。
 
@@ -57,7 +57,7 @@ func main() {
 }
 ```
 
-## 切面(`@GlobalTransactional`)形态
+## 装饰器(`@GlobalTransactional`)形态
 
 ```go
 reg := transaction.NewStepRegistry()
@@ -66,6 +66,6 @@ reg.Register("PlaceOrder",
     transaction.Step{Name: "charge-card",   Action: charge,       Compensate: refund},
 )
 gtx := transaction.GlobalTransactional(coord, reg)
-// 把 gtx 装进切面链(见 spring/aspect):joinpoint 方法名命中就跑 saga,否则
+// 用装饰器包业务方法:方法名命中注册表就跑 saga,否则
 // 透明放行。
 ```

@@ -32,6 +32,18 @@ assembled `*http.Client` with discovery, load balancing and resilience wired in.
 | --- | --- | --- |
 | `starter-http-client` | Go `net/http` + [`gs-http-gen`](../gs/gs-http-gen) | Declarative HTTP client (OpenFeign / `@HttpExchange` equivalent): discovery + load balancing + resilience + trace propagation behind one `*http.Client` |
 
+## Config Providers
+
+| Starter | Underlying library | Domain |
+| --- | --- | --- |
+| `starter-config-apollo` | [apolloconfig/agollo/v4](https://github.com/apolloconfig/agollo) | Apollo config center |
+| `starter-config-nacos` | [nacos-sdk-go/v2](https://github.com/nacos-group/nacos-sdk-go) | Nacos config center |
+| `starter-config-consul` | [consul/api](https://github.com/hashicorp/consul) | Consul KV |
+| `starter-config-etcd` | [etcd/client/v3](https://go.etcd.io/etcd) | etcd KV |
+| `starter-config-vault` | [vault/api](https://github.com/hashicorp/vault) | Vault secret/config |
+| `starter-config-k8s` | [client-go](https://github.com/kubernetes/client-go) | K8s ConfigMap/Secret |
+| `starter-config-bus` | [nats.go](https://github.com/nats-io/nats.go) | Config bus (multi-instance broadcast) |
+
 ## RPC Frameworks
 
 Register a service and let the starter handle listener/server setup, lifecycle,
@@ -64,13 +76,18 @@ HTTP server the application already runs (no own port).
 
 | Starter | Underlying library | Domain |
 | --- | --- | --- |
-| `starter-gorm-mysql` | [gorm](https://gorm.io/) | MySQL relational database |
+| `starter-gorm-mysql` | [gorm](https://gorm.io/) | MySQL relational database (also TiDB and OceanBase MySQL mode — both speak the MySQL wire protocol) |
 | `starter-gorm-postgres` | [gorm](https://gorm.io/) | PostgreSQL relational database |
 | `starter-gorm-sqlserver` | [gorm](https://gorm.io/) | Microsoft SQL Server relational database |
 | `starter-gorm-clickhouse` | [gorm](https://gorm.io/) | ClickHouse OLAP columnar database |
 | `starter-mongodb` | [mongo-driver/v2](https://go.mongodb.org/mongo-driver/v2) | MongoDB document database |
 | `starter-neo4j` | [neo4j-go-driver](https://github.com/neo4j/neo4j-go-driver) | Neo4j graph database |
 | `starter-elasticsearch` | [go-elasticsearch](https://github.com/elastic/go-elasticsearch) | Elasticsearch search engine |
+| `starter-gorm-sqlite` | [glebarez/sqlite](https://github.com/glebarez/sqlite) | SQLite (pure Go, in-process) via the gorm dialect family |
+| `starter-milvus` | [milvus-sdk-go/v2](https://github.com/milvus-io/milvus-sdk-go) | Milvus vector database |
+| `starter-influxdb` | [influxdb-client-go/v2](https://github.com/influxdata/influxdb-client-go) | InfluxDB 2.x time-series database |
+| `starter-tdengine` | [driver-go/v3 (taosWS)](https://github.com/taosdata/driver-go) | TDengine time-series database (websocket, zero CGO) |
+| `starter-cassandra` | [gocql](https://github.com/gocql/gocql) | Cassandra / ScyllaDB wide-column database |
 | `starter-repository-gorm` | [gorm](https://gorm.io/) | Generic `repository.Repository[T,ID]` (CRUD + paging + audit) over any gorm `*gorm.DB` |
 
 ## Cache
@@ -82,6 +99,12 @@ HTTP server the application already runs (no own port).
 | `starter-memcached` | [gomemcache](https://github.com/bradfitz/gomemcache) | Memcached client |
 | `starter-bigcache` | [BigCache](https://github.com/allegro/bigcache) | In-process, GC-friendly in-memory cache |
 
+## Object Storage
+
+| Starter | Underlying library | Notes |
+| --- | --- | --- |
+| `starter-s3` | [minio-go](https://github.com/minio/minio-go) | S3 protocol — MinIO/AWS natively, Aliyun OSS & Tencent COS S3-compatible endpoints (`bucket-lookup=path`) |
+
 ## Message Queues
 
 | Starter | Underlying library | Domain |
@@ -89,9 +112,17 @@ HTTP server the application already runs (no own port).
 | `starter-kafka` | [twmb/franz-go](https://github.com/twmb/franz-go) | Kafka |
 | `starter-kafka-sarama` | [IBM/sarama](https://github.com/IBM/sarama) | Kafka (alternative driver, shares the `spring.kafka` prefix) |
 | `starter-pulsar` | [apache/pulsar-client-go](https://github.com/apache/pulsar-client-go) | Apache Pulsar |
+| `starter-rocketmq` | [rocketmq-client-go/v2](https://github.com/apache/rocketmq-client-go) | Apache RocketMQ 4.x/5.x via the NameServer protocol; ships a `messaging.Binder` |
 | `starter-rabbitmq` | [amqp091-go](https://github.com/rabbitmq/amqp091-go) | RabbitMQ |
 | `starter-nats` | [nats.go](https://github.com/nats-io/nats.go) | NATS core messaging + JetStream (pure Go) |
 | `starter-mqtt` | [paho.mqtt.golang](https://github.com/eclipse/paho.mqtt.golang) | MQTT |
+
+## Task Queues / Scheduling
+
+| Starter | Underlying library | Domain |
+| --- | --- | --- |
+| `starter-asynq` | [hibiken/asynq](https://github.com/hibiken/asynq) | Redis-backed task queue (producer + opt-in worker) |
+| `starter-xxljob` | stdlib only | xxl-job executor (registry/run/kill/log protocol, hand-rolled) |
 
 ## Security / Authorization
 
@@ -112,11 +143,12 @@ HTTP server the application already runs (no own port).
 | --- | --- | --- |
 | `starter-ants` | [ants](https://github.com/panjf2000/ants) | In-process, resource-bounded goroutine pool |
 
-## Mail
+## Mail / Notification
 
 | Starter | Underlying library | Notes |
 | --- | --- | --- |
 | `starter-mail` | [wneessen/go-mail](https://github.com/wneessen/go-mail) | SMTP mailer (HTML/attachments/multi-recipient); send-only, no template engine |
+| `starter-webhook` | stdlib only | Chat webhooks: generic + DingTalk/Feishu/WeCom/Slack payload formats, HMAC signing, zero dependencies |
 
 ## Observability / Diagnostics
 

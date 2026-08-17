@@ -17,6 +17,7 @@
 package log
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -72,7 +73,7 @@ func isValidTag(tag string) bool {
 		}
 	}
 	ss := strings.Split(strings.TrimPrefix(tag, "_"), "_")
-	if len(ss) < 1 || len(ss) > 4 {
+	if len(ss) > 4 {
 		return false
 	}
 	return !slices.Contains(ss, "")
@@ -89,7 +90,7 @@ func isValidTag(tag string) bool {
 // or RegisterRPCTag should be used to enforce semantic consistency.
 func RegisterTag(tag string) *Tag {
 	if !isValidTag(tag) {
-		panic("invalid log tag")
+		panic(fmt.Sprintf("invalid log tag %q", tag))
 	}
 	if global.refreshed {
 		panic("log refresh already done")

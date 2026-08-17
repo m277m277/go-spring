@@ -93,12 +93,13 @@ covering the commit path, the rollback path and the write-write conflict.
 
 ### 4. Or declare it as `@GlobalTransactional`
 
-Wire `at.GlobalAT` into an aspect chain — the no-reflection equivalent of
+Wrap the call with `at.GlobalAT` — the no-reflection equivalent of
 `@GlobalTransactional(AT)`. It begins a global transaction, injects the xid, and
 commits on success or rolls back on error:
 
 ```go
-chain := aspect.NewChain(at.GlobalAT(coord))
+place := at.GlobalAT(coord)
+// err := place(ctx, "OrderService.Place", func(ctx context.Context) error { ... })
 ```
 
 Unlike Saga and TCC, AT needs **no method registry**: branches are discovered

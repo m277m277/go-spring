@@ -122,7 +122,7 @@ func ResponseCapture(payloadEnabled bool, payloadLimit int, sseDistributions boo
 			accessLog:      accessLog,
 		}
 		if payloadEnabled {
-			cw.capture = bufutil.New(payloadLimit)
+			cw.capture = bufutil.NewLimitedBuffer(payloadLimit)
 		}
 
 		c.Set(respCaptureKey, cw)
@@ -366,7 +366,7 @@ func newSSEAccessLog(payloadEnabled bool, payloadLimit int) *sseAccessLog {
 
 // newBuffer returns a per-stream capture buffer sized to the payload limit.
 func (l *sseAccessLog) newBuffer() *bufutil.LimitedBuffer {
-	return bufutil.New(l.limit)
+	return bufutil.NewLimitedBuffer(l.limit)
 }
 
 // Emit emits one access-log record for the events written since the last flush,

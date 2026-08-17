@@ -58,4 +58,4 @@
 - **不自动生成 compensation。** SQL undo log(AT)会把包拉进数据库驱动,而
   非 SQL 下游还是要手写补偿——干脆把 `Compensate` 摆到前台。
 - **显式 `StepRegistry` > 反射扫注解。** Java 走字节码,Go 一行 wiring 就
-  注册完。aspect 就是普通 map lookup,不反射业务代码。
+  注册完。装饰器就是普通 map lookup,不反射业务代码。

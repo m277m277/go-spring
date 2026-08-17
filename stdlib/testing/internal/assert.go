@@ -81,23 +81,26 @@ func Fail(t TestingT, fatalOnFailure bool, str string, msg ...string) {
 	}
 }
 
-// recovery executes the given function and recovers from any panic.
-// Returns the recovered value as a string if a panic occurs.
-func recovery(fn func()) (str string) {
+// recoverString executes the given function and recovers from any panic,
+// returning the recovered value formatted as a string. The boolean reports
+// whether fn panicked, so even a panic carrying an arbitrary string cannot be
+// confused with a normal return.
+func recoverString(fn func()) (str string, panicked bool) {
 	defer func() {
 		if r := recover(); r != nil {
 			str = fmt.Sprint(r)
+			panicked = true
 		}
 	}()
 	fn()
-	return "<<SUCCESS>>"
+	return "", false
 }
 
 // Panic asserts that fn panics and the panic message matches expr.
 // It reports an error if fn does not panic or if the recovered message does not satisfy expr.
 func Panic(t TestingT, fatalOnFailure bool, fn func(), expr string, msg ...string) {
 	t.Helper()
-	if got := recovery(fn); got == "<<SUCCESS>>" {
+	if got, panicked := recoverString(fn); !panicked {
 		Fail(t, fatalOnFailure, "did not panic", msg...)
 	} else {
 		if ok, err := regexp.MatchString(expr, got); err != nil {
@@ -170,6 +173,9 @@ func That(t TestingT, v any, fatalOnFailure bool) *Assertion {
 }
 
 // True asserts that got is true. It reports an error if the value is false.
+// Non-bool values always fail: the value is coerced with a failed type
+// assertion, which yields false, so a non-bool reports "false" with the
+// misleading message below rather than panicking.
 func (a *Assertion) True(msg ...string) *Assertion {
 	a.t.Helper()
 	if b, _ := a.v.(bool); !b {
@@ -180,6 +186,8 @@ func (a *Assertion) True(msg ...string) *Assertion {
 }
 
 // False asserts that got is false. It reports an error if the value is true.
+// Non-bool values silently pass: the value is coerced with a failed type
+// assertion, which yields false, so callers must pass a real bool expression.
 func (a *Assertion) False(msg ...string) *Assertion {
 	a.t.Helper()
 	if b, _ := a.v.(bool); b {

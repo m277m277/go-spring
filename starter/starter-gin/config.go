@@ -134,7 +134,10 @@ type PayloadConfig struct {
 	// single access record is therefore bounded to ~2x Limit. Defaults to 512 KiB,
 	// enough for typical JSON/form payloads without letting a runaway body exhaust
 	// memory. Set higher only if you need to capture large bodies for debugging.
-	Limit int `value:"${limit:=524288}"`
+	// Must be positive: a zero/negative limit fails at startup rather than
+	// reaching bufutil.NewLimitedBuffer as a per-request panic or a silently
+	// disabled capture.
+	Limit int `value:"${limit:=524288}" expr:"$ > 0"`
 }
 
 // MetricsConfig toggles optional metrics emitted by the Observe and

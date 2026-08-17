@@ -19,31 +19,64 @@
 It provides carefully crafted tools that complement the Go standard library,
 making everyday Go development more convenient and enjoyable.
 
-Each module is independent and can be used separately. Detailed documentation is available in each module's directory.
+Each module is independent and can be used separately — the whole module graph
+pulls only the Go standard library. Every package directory holds a single
+README covering its positioning, usage and key design decisions.
 
 ## Available Modules
 
+### Web & Network
+
 | Module | Description |
 |--------|-------------|
-| [ctxcache](./ctxcache/) | Context-based caching utilities |
-| [errutil](./errutil/) | Error handling utilities, provides error wrapping, stack trace capture and more |
-| [fileutil](./fileutil/) | File system utilities |
-| [flatten](./flatten/) | Flatten nested data structures |
-| [formutil](./formutil/) | Form processing utilities |
-| [funcutil](./funcutil/) | Function utilities, lazy evaluation, partial application and more |
-| [goutil](./goutil/) | Generic Go language utilities, context cancellation control and more |
-| [hashutil](./hashutil/) | Hashing utilities |
-| [iterutil](./iterutil/) | Iterator and loop processing utilities |
-| [jsonflow](./jsonflow/) | JSON streaming processing toolkit |
-| [listutil](./listutil/) | List and linked list utilities |
-| [mathutil](./mathutil/) | Math and numeric utilities |
-| [md5util](./md5util/) | MD5 hashing convenience utilities |
+| [httpclt](./httpclt/) | Runtime toolkit for declarative HTTP clients: metadata, request options and streaming JSON helpers |
+| [httpsvr](./httpsvr/) | Thin HTTP server toolkit: `ServeMux`-based server seam, request context, JSON and SSE handler wrappers |
+| [httputil](./httputil/) | OTel-free HTTP semantic-convention attributes derived from an inbound request, shared by server starters |
+| [formutil](./formutil/) | Form processing utilities: decode form values into typed structs |
 | [netutil](./netutil/) | Network related utilities |
-| [ordered](./ordered/) | Ordered map and set data structures |
+
+### JSON & Data Shaping
+
+| Module | Description |
+|--------|-------------|
+| [jsonflow](./jsonflow/) | JSON streaming processing toolkit |
+| [flatten](./flatten/) | Flatten nested data structures into flat key paths |
 | [patchutil](./patchutil/) | Patch processing utilities |
-| [testing](./testing/) | Elegant fluent-style assertion library for unit testing, supports `assert` and `require` modes with type-specific assertions |
+
+### Collections & Generics
+
+| Module | Description |
+|--------|-------------|
+| [goutil](./goutil/) | Generic Go utilities, context cancellation control and more |
+| [iterutil](./iterutil/) | Iterator and loop processing utilities |
+| [listutil](./listutil/) | Generic, type-safe skin over `container/list` plus slice helpers |
+| [ordered](./ordered/) | Ordered map and set data structures |
+
+### Errors, Context & Files
+
+| Module | Description |
+|--------|-------------|
+| [errutil](./errutil/) | Error handling utilities: error wrapping, stack trace capture, constructor preconditions |
+| [ctxcache](./ctxcache/) | Context-based request-scoped caching utilities |
+| [fileutil](./fileutil/) | File system utilities |
+| [funcutil](./funcutil/) | Function utilities: lazy evaluation, partial application and more |
+
+### Text, Hash & Math
+
+| Module | Description |
+|--------|-------------|
 | [textstyle](./textstyle/) | Text style and formatting utilities |
+| [hashutil](./hashutil/) | Hashing utilities |
+| [md5util](./md5util/) | MD5 hashing convenience utilities |
+| [mathutil](./mathutil/) | Math and numeric utilities, including overflow-safe arithmetic |
+| [bufutil](./bufutil/) | Bounded buffers for side-channel copying that never backpressure the primary flow |
 | [typeutil](./typeutil/) | Type reflection and conversion utilities |
+
+### Testing
+
+| Module | Description |
+|--------|-------------|
+| [testing](./testing/) | Fluent assertion library with `assert` (fail-continue) and `require` (fail-fast) modes and type-specific assertions |
 
 ## License
 

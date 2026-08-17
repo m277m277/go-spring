@@ -1,0 +1,73 @@
+/*
+ * Copyright 2025 The Go-Spring Authors.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package log
+
+import (
+	"encoding/json"
+
+	"go-spring.org/stdlib/flatten"
+)
+
+// ReadTestConfig returns the sample logging configuration shared by tests in
+// both the internal (log) and external (log_test) test packages. It is
+// exported through this test-only file so the two packages can reuse a
+// single copy.
+func ReadTestConfig() map[string]string {
+	s := `
+{
+  "bufferCap": "1KB",
+  "bufferSize": 1000,
+  "appender": {
+    "file": {
+      "type": "FileAppender",
+      "file": "log.txt",
+      "layout!": "JSONLayout{}"
+    },
+    "console!": "ConsoleAppender{layout=TextLayout{}}",
+    "sample!": "SampleAppender{layout.type=TextLayout}"
+  },
+  "logger": {
+    "root": {
+      "type": "Logger",
+      "level": "warn",
+      "appenderRef": {
+        "ref": "console"
+      }
+    },
+    "myLogger": {
+      "type": "AsyncLogger",
+      "level": "trace",
+      "tag": "_com_request_in,_com_request_*",
+      "bufferSize": "${bufferSize}",
+      "appenderRef": [
+        {
+          "ref": "file"
+        },
+        {
+          "ref": "sample"
+        }
+      ]
+    }
+  }
+}`
+
+	var m map[string]any
+	if err := json.Unmarshal([]byte(s), &m); err != nil {
+		panic(err)
+	}
+	return flatten.Flatten(m)
+}

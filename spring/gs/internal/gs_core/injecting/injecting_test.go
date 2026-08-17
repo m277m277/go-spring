@@ -18,6 +18,7 @@ package injecting
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"reflect"
 	"runtime"
@@ -577,7 +578,7 @@ func TestInjecting(t *testing.T) {
 		assert.Error(t, err).Matches("wire .* returned nil")
 	})
 
-	t.Run("wire error - primitive type", func(t *testing.T) {
+	t.Run("no beans", func(t *testing.T) {
 		r := New(flatten.NewPropertiesStorage(flatten.NewProperties(nil)))
 		err := r.Refresh(extractBeans(nil))
 		assert.That(t, err).Nil()
@@ -849,7 +850,7 @@ func TestCircularBean(t *testing.T) {
 		assert.Error(t, err).Matches("circular autowire dependency detected")
 	})
 
-	t.Run("found circular - indirect", func(t *testing.T) {
+	t.Run("circular resolved via lazy", func(t *testing.T) {
 		r := New(flatten.NewPropertiesStorage(flatten.NewProperties(nil)))
 		beans := []*gs_bean.BeanDefinition{
 			provideBean(NewH),
@@ -995,8 +996,6 @@ func TestDyncValue(t *testing.T) {
 		err := r.Refresh(extractBeans(beans))
 		assert.That(t, err).Nil()
 		assert.That(t, r.props).Nil()
-		//assert.That(t, r.beansByName).Nil()
-		//assert.That(t, r.beansByType).Nil()
 
 		runtime.GC()
 		released := make(map[string]struct{})
@@ -1024,8 +1023,6 @@ func TestDyncValue(t *testing.T) {
 		err := r.Refresh(extractBeans(beans))
 		assert.That(t, err).Nil()
 		assert.That(t, r.props).NotNil()
-		//assert.That(t, r.beansByName).Nil()
-		//assert.That(t, r.beansByType).Nil()
 	})
 }
 
@@ -1048,4 +1045,12 @@ func TestInjectionErrorFormat(t *testing.T) {
 	r := New(flatten.NewPropertiesStorage(flatten.NewProperties(nil)))
 	err := r.Refresh(roots, beans)
 	assert.That(t, err).NotNil()
+
+	// The failure is reported as an InjectionError carrying the bean whose
+	// field could not be wired (Service, the direct parent of the lookup).
+	var e *gs.InjectionError
+	assert.That(t, errors.As(err, &e)).True()
+	assert.String(t, err.Error()).Matches(`wire bean service\(\), err cannot find bean for tag "" and type "\*injecting\.Repo"`)
+	assert.That(t, e.Bean).Equal("service()")
+	assert.That(t, e.Unwrap()).NotNil()
 }

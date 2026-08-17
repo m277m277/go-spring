@@ -31,6 +31,14 @@ func TestFuncName(t *testing.T) {
 	assert.That(t, funcutil.FuncName(fnWithArgs)).Equal("funcutil_test.fnWithArgs")
 	assert.That(t, funcutil.FuncName((*receiver).ptrFnNoArgs)).Equal("funcutil_test.(*receiver).ptrFnNoArgs")
 	assert.That(t, funcutil.FuncName((*receiver).ptrFnWithArgs)).Equal("funcutil_test.(*receiver).ptrFnWithArgs")
+
+	// regression: names ending in '-', 'f' or 'm' must not be truncated.
+	assert.That(t, funcutil.FuncName(fnTransform)).Equal("funcutil_test.fnTransform")
+	assert.That(t, funcutil.FuncName(fnDiff)).Equal("funcutil_test.fnDiff")
+	assert.That(t, funcutil.FuncName(fnPlain)).Equal("funcutil_test.fnPlain")
+	assert.That(t, funcutil.FuncName((*receiver).ptrFnTransform)).Equal("funcutil_test.(*receiver).ptrFnTransform")
+	r := &receiver{}
+	assert.That(t, funcutil.FuncName(r.ptrFnTransform)).Equal("funcutil_test.(*receiver).ptrFnTransform")
 }
 
 // nolint: unused
@@ -47,6 +55,18 @@ func (r *receiver) ptrFnNoArgs() {}
 // nolint: unused
 func (r *receiver) ptrFnWithArgs(i int) {}
 
+// nolint: unused
+func fnTransform() {}
+
+// nolint: unused
+func fnDiff() {}
+
+// nolint: unused
+func fnPlain() {}
+
+// nolint: unused
+func (r *receiver) ptrFnTransform() {}
+
 func TestFileLine(t *testing.T) {
 	testcases := []struct {
 		fn     any
@@ -57,25 +77,25 @@ func TestFileLine(t *testing.T) {
 		{
 			fnNoArgs,
 			"funcutil/funcutil_test.go",
-			37,
+			45,
 			"funcutil_test.fnNoArgs",
 		},
 		{
 			fnWithArgs,
 			"funcutil/funcutil_test.go",
-			40,
+			48,
 			"funcutil_test.fnWithArgs",
 		},
 		{
 			(*receiver).ptrFnNoArgs,
 			"funcutil/funcutil_test.go",
-			45,
+			53,
 			"funcutil_test.(*receiver).ptrFnNoArgs",
 		},
 		{
 			(*receiver).ptrFnWithArgs,
 			"funcutil/funcutil_test.go",
-			48,
+			56,
 			"funcutil_test.(*receiver).ptrFnWithArgs",
 		},
 	}

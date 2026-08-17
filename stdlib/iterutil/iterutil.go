@@ -16,16 +16,19 @@
 
 package iterutil
 
-// Times executes the function 'fn' exactly 'count' times.
-// Used to eliminate deferred execution under standard for loops.
+// Times executes the function 'fn' exactly 'count' times. The loop body runs
+// in a callback, so deferred calls inside it execute at the end of each
+// iteration rather than when the enclosing function returns.
 func Times(count int, fn func(i int)) {
 	for i := range count {
 		fn(i)
 	}
 }
 
-// Ranges iterates from 'start' to 'end' (exclusive) and applies 'fn' to each index.
-// Used to eliminate deferred execution under standard for loops.
+// Ranges iterates from 'start' to 'end' (exclusive) and applies 'fn' to each
+// index, going forward when start < end and backward otherwise. The loop body
+// runs in a callback, so deferred calls inside it execute at the end of each
+// iteration rather than when the enclosing function returns.
 func Ranges(start, end int, fn func(i int)) {
 	if start < end {
 		stepRangesForward(start, end, 1, fn)
@@ -34,8 +37,11 @@ func Ranges(start, end int, fn func(i int)) {
 	}
 }
 
-// StepRanges iterates from 'start' to 'end' using a step size and applies 'fn' to each index.
-// Used to eliminate deferred execution under standard for loops.
+// StepRanges iterates from 'start' to 'end' using a step size and applies
+// 'fn' to each index; it goes forward when step is positive and start < end,
+// and backward when step is negative and start > end. The loop body runs in
+// a callback, so deferred calls inside it execute at the end of each
+// iteration rather than when the enclosing function returns.
 func StepRanges(start, end, step int, fn func(i int)) {
 	if step > 0 && start < end {
 		stepRangesForward(start, end, step, fn)

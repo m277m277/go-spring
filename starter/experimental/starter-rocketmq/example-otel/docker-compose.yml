@@ -1,0 +1,31 @@
+name: gs-rocketmq-example
+
+services:
+  namesrv:
+    image: apache/rocketmq:5.3.1
+    container_name: rmqnamesrv-otel
+    command: sh mqnamesrv
+    ports:
+      - "127.0.0.1:9876:9876"
+
+  broker:
+    image: apache/rocketmq:5.3.1
+    container_name: rmqbroker-otel
+    command: sh mqbroker -n namesrv:9876 -c /home/rocketmq/broker.conf
+    depends_on:
+      namesrv:
+        condition: service_started
+    volumes:
+      - ./broker.conf:/home/rocketmq/broker.conf:ro
+    ports:
+      - "127.0.0.1:10911:10911"
+      - "127.0.0.1:10909:10909"
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.60
+    container_name: jaeger-rocketmq
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "127.0.0.1:16686:16686"
+      - "127.0.0.1:4317:4317"

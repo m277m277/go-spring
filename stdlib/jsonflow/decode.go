@@ -61,12 +61,9 @@ func DecodeBoolPtr(d Decoder) (*bool, error) {
 	return DecodeValuePtr(ParseBool, errFormatBoolean)(d)
 }
 
-// ParseInt parses a JSON number token into an integer type T.
-// Returns an error if the token is not a number or if the value overflows.
-func ParseInt[T ~int | ~int8 | ~int16 | ~int32 | ~int64](token string, k json.Kind) (T, error) {
-	if k != '0' {
-		return 0, errutil.Explain(nil, errFormatNumber, token)
-	}
+// parseInt parses a decimal integer token into an integer type T.
+// Returns an error if the token is not a valid integer or if the value overflows.
+func parseInt[T ~int | ~int8 | ~int16 | ~int32 | ~int64](token string) (T, error) {
 	v, err := strconv.ParseInt(token, 10, 64)
 	if err != nil {
 		return 0, err
@@ -75,6 +72,15 @@ func ParseInt[T ~int | ~int8 | ~int16 | ~int32 | ~int64](token string, k json.Ki
 		return 0, errutil.Explain(nil, "invalid JSON: number out of range, got `%s`", token)
 	}
 	return T(v), nil
+}
+
+// ParseInt parses a JSON number token into an integer type T.
+// Returns an error if the token is not a number or if the value overflows.
+func ParseInt[T ~int | ~int8 | ~int16 | ~int32 | ~int64](token string, k json.Kind) (T, error) {
+	if k != '0' {
+		return 0, errutil.Explain(nil, errFormatNumber, token)
+	}
+	return parseInt[T](token)
 }
 
 // DecodeInt reads the next JSON value and parses it into an integer type T.
@@ -95,14 +101,7 @@ func ParseIntKey[T ~int | ~int8 | ~int16 | ~int32 | ~int64](token string, k json
 	if k != '"' && k != '0' {
 		return 0, errutil.Explain(nil, errFormatNumber, token)
 	}
-	v, err := strconv.ParseInt(token, 10, 64)
-	if err != nil {
-		return 0, err
-	}
-	if mathutil.OverflowInt[T](v) {
-		return 0, errutil.Explain(nil, "invalid JSON: number out of range, got `%s`", token)
-	}
-	return T(v), nil
+	return parseInt[T](token)
 }
 
 // DecodeIntKey reads the next map key token and parses it as an integer type T.
@@ -110,11 +109,9 @@ func DecodeIntKey[T ~int | ~int8 | ~int16 | ~int32 | ~int64](d Decoder) (T, erro
 	return DecodeValue(ParseIntKey[T], errFormatNumber)(d)
 }
 
-// ParseUint parses a JSON number token into an unsigned integer type T.
-func ParseUint[T ~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64](token string, k json.Kind) (T, error) {
-	if k != '0' {
-		return 0, errutil.Explain(nil, errFormatNumber, token)
-	}
+// parseUint parses a decimal integer token into an unsigned integer type T.
+// Returns an error if the token is not a valid integer or if the value overflows.
+func parseUint[T ~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64](token string) (T, error) {
 	v, err := strconv.ParseUint(token, 10, 64)
 	if err != nil {
 		return 0, err
@@ -123,6 +120,14 @@ func ParseUint[T ~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64](token string, k j
 		return 0, errutil.Explain(nil, "invalid JSON: number out of range, got `%s`", token)
 	}
 	return T(v), nil
+}
+
+// ParseUint parses a JSON number token into an unsigned integer type T.
+func ParseUint[T ~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64](token string, k json.Kind) (T, error) {
+	if k != '0' {
+		return 0, errutil.Explain(nil, errFormatNumber, token)
+	}
+	return parseUint[T](token)
 }
 
 // DecodeUint reads the next JSON value and parses it as an unsigned integer type T.
@@ -141,14 +146,7 @@ func ParseUintKey[T ~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64](token string, 
 	if k != '"' && k != '0' {
 		return 0, errutil.Explain(nil, errFormatNumber, token)
 	}
-	v, err := strconv.ParseUint(token, 10, 64)
-	if err != nil {
-		return 0, err
-	}
-	if mathutil.OverflowUint[T](v) {
-		return 0, errutil.Explain(nil, "invalid JSON: number out of range, got `%s`", token)
-	}
-	return T(v), nil
+	return parseUint[T](token)
 }
 
 // DecodeUintKey reads the next map key token and parses it as an unsigned integer type T.

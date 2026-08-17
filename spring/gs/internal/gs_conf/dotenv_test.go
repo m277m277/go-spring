@@ -193,6 +193,25 @@ func TestParseDotEnv(t *testing.T) {
 		assert.That(t, v).Equal("${spring.app.name}")
 	})
 
+	t.Run("unclosed brace reference stays literal", func(t *testing.T) {
+		data := []byte("KEY=${unclosed\n")
+		pairs, err := parseDotEnv(data)
+		assert.That(t, err).Nil()
+		v, ok := pairOf(pairs, "KEY")
+		assert.That(t, ok).True()
+		assert.That(t, v).Equal("${unclosed")
+	})
+
+	t.Run("expand var at end of file", func(t *testing.T) {
+		// '$' as the very last byte: no name follows, stays literal.
+		data := []byte("KEY=cost is $")
+		pairs, err := parseDotEnv(data)
+		assert.That(t, err).Nil()
+		v, ok := pairOf(pairs, "KEY")
+		assert.That(t, ok).True()
+		assert.That(t, v).Equal("cost is $")
+	})
+
 	t.Run("escaped dollar is literal", func(t *testing.T) {
 		data := []byte(`KEY="cost is \$5"`)
 		pairs, err := parseDotEnv(data)
@@ -477,4 +496,13 @@ func TestAppConfigDotEnv(t *testing.T) {
 		assert.That(t, config.APIKey).Equal("top-secret")
 		assert.That(t, config.SpringAppName).Equal("from-file")
 	})
+}
+
+func TestIsValidEnvName(t *testing.T) {
+	assert.That(t, isValidEnvName("")).False()
+	assert.That(t, isValidEnvName("a")).True()
+	assert.That(t, isValidEnvName("_A1")).True()
+	assert.That(t, isValidEnvName("1a")).False()
+	assert.That(t, isValidEnvName("a.b")).False()
+	assert.That(t, isValidEnvName("a-b")).False()
 }

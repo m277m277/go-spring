@@ -2,17 +2,13 @@
 
 [English](README.md) | [中文](README_CN.md)
 
-安全地运行 goroutine，内置 panic 恢复机制。
+`goutil` 以内置 panic 恢复的方式启动 goroutine，goroutine 内的 panic 不再拖垮进程；
+被 recover 的 panic 通过全局 `OnPanic` 回调上报，用于记录日志、上报监控或触发告警。
+包内覆盖 `func(ctx)`（`Go`）与 `func(ctx) (T, error)`（`GoValue`）两种签名，每次启动都
+返回带 `Wait()` 的句柄，无需手写 channel 或维护 `sync.WaitGroup`。它不是 worker 池、
+信号量或取消框架 —— `errgroup`、`semaphore` 之类留在 `golang.org/x/sync`。
 
-## 功能特性
-
-- **Panic 恢复**：自动捕获 goroutine 中的 panic，防止程序崩溃
-- **全局回调**：提供 `OnPanic` 回调函数，用于记录日志、上报监控或触发告警
-- **Context 控制**：支持灵活的 context 取消模式（继承/分离）
-- **返回值支持**：支持获取 goroutine 的返回值和错误
-- **同步等待**：提供 `Wait()` 方法等待 goroutine 完成
-
-## 使用示例
+## 使用方式
 
 ### 基本用法
 
@@ -23,7 +19,7 @@ import (
     "context"
     "fmt"
     "time"
-    
+
     "go-spring.org/stdlib/goutil"
 )
 
@@ -34,7 +30,7 @@ func main() {
         time.Sleep(100 * time.Millisecond)
         fmt.Println("goroutine 完成")
     }, goutil.InheritCancel)
-    
+
     // 等待 goroutine 完成
     status.Wait()
 }
@@ -120,13 +116,11 @@ value, err := goutil.GoValue(context.Background(), func(ctx context.Context) (st
 fmt.Printf("value: %q, error: %v\n", value, err)
 ```
 
-## 重要提示
+### 重要提示
 
-### 1. Context 取消是协作式的
+**1. Context 取消是协作式的** —— goroutine 不会自动响应取消，需要在函数内部主动检查。
 
-goroutine 不会自动响应 context 取消，需要在函数内部主动检查。
-
-**错误示范**：不会响应取消
+错误示范（不会响应取消）：
 
 ```go
 goutil.Go(ctx, func(ctx context.Context) {
@@ -134,7 +128,7 @@ goutil.Go(ctx, func(ctx context.Context) {
 }, goutil.InheritCancel)
 ```
 
-**正确示范**：主动检查取消
+正确示范（主动检查取消）：
 
 ```go
 goutil.Go(ctx, func(ctx context.Context) {
@@ -148,22 +142,20 @@ goutil.Go(ctx, func(ctx context.Context) {
 }, goutil.InheritCancel)
 ```
 
-### 2. Defer 始终执行
-
-即使发生 panic，defer 语句仍会正常执行：
+**2. Defer 始终执行** —— 即使发生 panic：
 
 ```go
 goutil.Go(context.Background(), func(ctx context.Context) {
     file, _ := os.Open("data.txt")
     defer file.Close() // panic 时也会执行
-    
+
     processData(file) // 可能 panic
 }, goutil.InheritCancel)
 ```
 
-## 典型应用场景
+### 典型应用场景
 
-### 1. Web 服务器后台任务
+Web 服务器后台任务：
 
 ```go
 http.HandleFunc("/upload", func(w http.ResponseWriter, r *http.Request) {
@@ -172,12 +164,12 @@ http.HandleFunc("/upload", func(w http.ResponseWriter, r *http.Request) {
         // 处理文件...
         // 即使 panic 也不会导致服务器崩溃
     }, goutil.DetachCancel)
-    
+
     w.WriteHeader(http.StatusAccepted)
 })
 ```
 
-### 2. 定时任务
+定时任务：
 
 ```go
 go func() {
@@ -190,13 +182,13 @@ go func() {
 }()
 ```
 
-### 3. 批量并发处理
+批量并发处理：
 
 ```go
 func ProcessBatch(items []Item) error {
     var wg sync.WaitGroup
     results := make(chan Result, len(items))
-    
+
     for _, item := range items {
         wg.Add(1)
         go func(it Item) {
@@ -204,7 +196,7 @@ func ProcessBatch(items []Item) error {
             res, err := goutil.GoValue(context.Background(), func(ctx context.Context) (Result, error) {
                 return processItem(it), nil
             }, goutil.InheritCancel).Wait()
-            
+
             if err != nil {
                 log.Printf("处理失败：%v", err)
                 return
@@ -212,20 +204,37 @@ func ProcessBatch(items []Item) error {
             results <- res
         }(item)
     }
-    
+
     wg.Wait()
     close(results)
     return nil
 }
 ```
 
-## 与其他方案的对比
+### 与其他方案的对比
 
 | 方案 | Panic 恢复 | Context 控制 | 返回值 | 同步等待 |
 |------|-----------|-------------|--------|---------|
 | go func() | ❌ | ✅ | ✅ | ❌ |
 | errgroup.Group | ❌ | ✅ | ✅ | ✅ |
 | **goutil** | ✅ | ✅ | ✅ | ✅ |
+
+## 关键设计
+
+`goutil` 属于零依赖的 `stdlib` 层 —— 是 goroutine 启动的薄封装，不是并发框架。
+
+- **全局 `OnPanic` 缝隙**：一个包级 `var`，应用在初始化时覆盖它以接入日志 / 监控栈。
+  刻意选择"变量"而不是 getter/setter：整个进程只有一个配置点，set-once 已经够用。
+- **显式 `CancelMode`**：`InheritCancel` 透传原 context；`DetachCancel` 用
+  `context.WithoutCancel` 包装，让 goroutine 生命周期超过发起者。每个调用点必须显式
+  指定，不设"默认"，避免行为默默改变。
+- **`Status` / `ValueStatus[T]`**：两个句柄都基于单次 `close(chan)` 完成同步。
+  `ValueStatus[T].Wait` 还会把恢复到的 panic 转成 error 返回，所以 `GoValue` 调用方
+  只需要看一个错误通道，无论失败来自 `return err` 还是 `panic`。
+
+约束：`OnPanic` 在 recover 后的同一个 goroutine 内执行，慢钩子或钩子本身 panic 都会
+挡住它本应观察的关停路径 —— 保持它简短，且绝不能 panic。默认 `OnPanic` 通过
+`fmt.Printf` 直接打印到 stdout（给测试和小程序用的零配置行为），正式服务必须覆盖。
 
 ## 许可证
 

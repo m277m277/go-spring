@@ -85,7 +85,7 @@ covering both the commit and rollback paths.
 
 ### 4. Or declare it as `@GlobalTransactional`
 
-Register participants under a method name and wire `GlobalTCC` into an aspect
+Register participants under a method name and wrap the call with `GlobalTCC`
 chain — the no-reflection equivalent of `@GlobalTransactional(TCC)`:
 
 ```go
@@ -93,7 +93,8 @@ func RegisterOrder(reg *tcc.ParticipantRegistry) {
     reg.Register("OrderService.Place", reserveStock, freezeBalance)
 }
 
-chain := aspect.NewChain(tcc.GlobalTCC(coord, reg))
+place := tcc.GlobalTCC(coord, reg)
+// err := place(ctx, "OrderService.Place", func(ctx context.Context) error { ... })
 ```
 
 Set the transaction id at the edge with `tcc.WithTransactionID(ctx, id)` so it

@@ -34,10 +34,13 @@ type QueryStringer interface {
 
 // Metadata holds contextual information for an HTTP request.
 type Metadata struct {
-	Target  string            // Service name or IP:PORT
-	Schema  string            // HTTP protocol (e.g., http, https)
-	Method  string            // HTTP method (GET, POST, etc.)
-	Pattern string            // Request path, usually with placeholders (for REST)
+	Target string // Service name or IP:PORT
+	Schema string // HTTP protocol (e.g., http, https)
+	Method string // HTTP method (GET, POST, etc.)
+	// Pattern is the request path with placeholders (for REST). It is part of
+	// the gs-http-gen output contract, so it must stay even though the runtime
+	// only reads RawPath (the path with placeholders already processed).
+	Pattern string
 	RawPath string            // Request path with placeholders processed
 	Query   QueryStringer     // Query string after the '?' part
 	Body    any               // Request body
@@ -46,7 +49,7 @@ type Metadata struct {
 
 	// Client is the HTTP client used to send this request. When nil the request
 	// falls back to http.DefaultClient. A declarative client (see
-	// go-spring.org/spring/httpx and starter-http-client) sets it to an
+	// go-spring.org/cloud/experimental/httpx and starter-http-client) sets it to an
 	// *http.Client whose Transport carries service discovery, load balancing and
 	// resilience, so the same generated call site works for a direct address or
 	// a discovered service without touching the generated code.
@@ -107,10 +110,12 @@ var DoRequest = func(req *http.Request, meta Metadata, fn func(io.Reader) error)
 // doRequest executes the HTTP request, preparing the body and metadata before sending the request.
 func doRequest(ctx context.Context, meta Metadata, fn func(io.Reader) error) (*http.Response, error) {
 
-	if s, err := meta.Query.QueryForm(); err != nil {
-		return nil, err
-	} else if s != "" {
-		meta.RawPath += "?" + s
+	if meta.Query != nil {
+		if s, err := meta.Query.QueryForm(); err != nil {
+			return nil, err
+		} else if s != "" {
+			meta.RawPath += "?" + s
+		}
 	}
 
 	buf := bytes.NewBuffer(nil)

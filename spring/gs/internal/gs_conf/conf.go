@@ -102,7 +102,7 @@ func (c *AppConfig) Refresh() (flatten.Storage, error) {
 	if err != nil {
 		return nil, errutil.Explain(err, "resolve spring.profiles.active failed")
 	}
-	activeProfiles := checkDuplicates(strings.Split(strActiveProfiles, ","))
+	activeProfiles := dedupe(strings.Split(strActiveProfiles, ","))
 	if len(activeProfiles) > 0 {
 		log.Debugf(context.Background(), configTag, "active profiles: %v", activeProfiles)
 		if err = loadFiles(l, confDir, activeProfiles); err != nil {
@@ -113,9 +113,9 @@ func (c *AppConfig) Refresh() (flatten.Storage, error) {
 	return l, nil
 }
 
-// checkDuplicates removes duplicate strings while preserving the
-// original order. Empty items are ignored.
-func checkDuplicates(arr []string) []string {
+// dedupe trims whitespace around each item, drops empty items, and removes
+// duplicate strings while preserving the original order.
+func dedupe(arr []string) []string {
 	var result []string
 	temp := make(map[string]struct{})
 	for _, s := range arr {
@@ -192,8 +192,9 @@ func loadFiles(l *flatten.LayeredStorage, dir string, activeProfiles []string) e
 // loadFileImports loads additional configuration files declared by
 // the property `spring.app.imports`.
 //
-// Only one level of import is supported; imported files are not allowed
-// to declare further imports.
+// Only one level of import is processed: imports declared inside an
+// imported file are silently ignored (the imported file's own
+// spring.app.imports key is never read).
 func loadFileImports(l *flatten.LayeredStorage, p *flatten.Properties, activeProfiles []string) error {
 	var i struct {
 		Imports []string `value:"${spring.app.imports:=}"`
@@ -201,7 +202,7 @@ func loadFileImports(l *flatten.LayeredStorage, p *flatten.Properties, activePro
 	if err := conf.Bind(flatten.NewPropertiesStorage(p), &i); err != nil {
 		return errutil.Explain(err, "bind imports config failed")
 	}
-	for _, source := range checkDuplicates(i.Imports) {
+	for _, source := range dedupe(i.Imports) {
 		str, err := conf.Resolve(l, source)
 		if err != nil {
 			return errutil.Explain(err, "resolve import path %s failed", source)

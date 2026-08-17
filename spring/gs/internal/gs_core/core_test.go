@@ -52,6 +52,12 @@ func TestContainer(t *testing.T) {
 		}
 		err := c.Refresh(flatten.NewPropertiesStorage(flatten.NewProperties(nil)), roots)
 		assert.Error(t, err).Matches("condition error")
+
+		// A failed refresh rolls the container's State back (it does not linger
+		// in Refreshing), and Close is safe even though the injecting phase
+		// never started (the embedded Injecting is still nil).
+		assert.That(t, c.State == gs.RefreshDefault).True("failed refresh rolls State back")
+		c.Close()
 	})
 
 	t.Run("inject error", func(t *testing.T) {
@@ -61,6 +67,10 @@ func TestContainer(t *testing.T) {
 		}
 		err := c.Refresh(flatten.NewPropertiesStorage(flatten.NewProperties(nil)), roots)
 		assert.Error(t, err).Matches(`property "" does not exist`)
+
+		// Same rollback contract on the injecting-phase failure path.
+		assert.That(t, c.State == gs.RefreshDefault).True("failed refresh rolls State back")
+		c.Close()
 	})
 
 	t.Run("duplicate object registration", func(t *testing.T) {

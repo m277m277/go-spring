@@ -12,7 +12,7 @@ JWT `TokenValidator`(无自有端口);`starter-oauth2-server` 负责签发令牌
 - 不是密码学库。`TokenValidator` 是缝隙;JWT / opaque-token / session-cookie
   的具体实现在 starter 或调用方应用中。
 - Web filter 链放在本包内,因为它只是普通 net/http 胶水且无外部依赖,并与
-  aspect 侧的 `Require` 相对应,共同覆盖传输与方法两层。
+  装饰器侧的 `Require` 相对应,共同覆盖传输与方法两层。
 - 不是 session 库(见 `spring/session`),不是 OAuth2 授权服务器(见
   `starter-oauth2-server`)。
 
@@ -26,9 +26,9 @@ JWT `TokenValidator`(无自有端口);`starter-oauth2-server` 负责签发令牌
   `resilience.RegisterDriver` 同构。
 - `WithAuthentication` / `FromContext`——用未导出 key 类型的 ctx 传递,防碰
   撞。
-- `Require(authorities...)`——`aspect.Interceptor`;读 `FromContext(jp.Context)`,
+- `Require(authorities...)`——普通装饰器;读 `FromContext(ctx)`,
   缺失时返 `ErrUnauthenticated`,认证但缺权限时返 `ErrForbidden`,否则
-  `Proceed`。这是**AOP 等价**的方法守卫,走 aspect 拦截链,而非字节码/注解
+  `Proceed`。这是**AOP 等价**的方法守卫,走普通函数装饰器,而非字节码/注解
   移植。
 - `Middleware = func(http.Handler) http.Handler`,`Chain(a,b,c)(h) ==
   a(b(c(h)))`——最外层优先。资源服务器规范顺序:`Chain(CORS, CSRF,
@@ -56,8 +56,8 @@ JWT `TokenValidator`(无自有端口);`starter-oauth2-server` 负责签发令牌
 - **不复刻 Spring Security filter 注册表**。顺序 = `Chain(...)` 的顺序;推理
   显式,没有看不见的优先级。
 - **`Authorize` 覆盖 HTTP 层、`Require` 覆盖方法层**——同一权限集,两道闸。
-  HTTP 层管路由,aspect 层管服务方法。都放本包保一致。
+  HTTP 层管路由,装饰器层管服务方法。都放本包保一致。
 - **注册表不在请求路径解析 validator**。`Authenticate` 直接接 `TokenValidator`
   值;注册表用于装配期**查找** validator,不是每个请求都查。
-- **无注解扫描**。`@PreAuthorize` 由显式的 `aspect.NewChain(security.Require(...))`
+- **无注解扫描**。`@PreAuthorize` 由显式的 `security.Require(...)` 装饰器
   取代——AOP 等价链。

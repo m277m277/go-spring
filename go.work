@@ -48,11 +48,17 @@ use (
 	./starter/experimental/starter-admin-ui/example
 	./starter/experimental/starter-ants
 	./starter/experimental/starter-ants/example
+	./starter/experimental/starter-asynq
+	./starter/experimental/starter-asynq/example
 	./starter/experimental/starter-batch
 	./starter/experimental/starter-batch-redis
 	./starter/experimental/starter-batch/example
+	./starter/experimental/starter-cassandra
+	./starter/experimental/starter-cassandra/example
 	./starter/experimental/starter-casbin
 	./starter/experimental/starter-casbin/example
+	./starter/experimental/starter-config-apollo
+	./starter/experimental/starter-config-apollo/example
 	./starter/experimental/starter-config-bus
 	./starter/experimental/starter-config-bus/example
 	./starter/experimental/starter-config-consul
@@ -85,6 +91,8 @@ use (
 	./starter/starter-gorm-sqlserver/example
 	./starter/starter-gorm-sqlserver/example-load
 	./starter/starter-gorm-sqlserver/example-otel
+	./starter/starter-gorm-sqlite
+	./starter/starter-gorm-sqlite/example
 	./starter/experimental/starter-grpc
 	./starter/experimental/starter-grpc/example
 	./starter/experimental/starter-grpc/example-otel
@@ -95,6 +103,8 @@ use (
 	./starter/experimental/starter-http-client/example
 	./starter/experimental/starter-http-client/example-load
 	./starter/experimental/starter-http-client/example-otel
+	./starter/experimental/starter-influxdb
+	./starter/experimental/starter-influxdb/example
 	./starter/experimental/starter-kafka
 	./starter/experimental/starter-kafka-sarama
 	./starter/experimental/starter-kafka-sarama/example
@@ -129,6 +139,8 @@ use (
 	./starter/experimental/starter-mongodb/example-cloudnative
 	./starter/experimental/starter-mongodb/example-load
 	./starter/experimental/starter-mongodb/example-otel
+	./starter/experimental/starter-milvus
+	./starter/experimental/starter-milvus/example
 	./starter/experimental/starter-mqtt
 	./starter/experimental/starter-mqtt/example
 	./starter/experimental/starter-nats
@@ -150,6 +162,13 @@ use (
 	./starter/experimental/starter-rabbitmq
 	./starter/experimental/starter-rabbitmq/example
 	./starter/experimental/starter-rabbitmq/example-otel
+	./starter/experimental/starter-rocketmq
+	./starter/experimental/starter-rocketmq/example
+	./starter/experimental/starter-rocketmq/example-otel
+	./starter/experimental/starter-s3
+	./starter/experimental/starter-s3/example
+	./starter/experimental/starter-tdengine
+	./starter/experimental/starter-tdengine/example
 	./starter/experimental/starter-registry-consul
 	./starter/experimental/starter-registry-consul/example
 	./starter/experimental/starter-registry-nacos
@@ -185,6 +204,10 @@ use (
 	./starter/experimental/starter-trpc/example-otel
 	./starter/experimental/starter-validation
 	./starter/experimental/starter-validation/example
+	./starter/experimental/starter-webhook
+	./starter/experimental/starter-webhook/example
+	./starter/experimental/starter-xxljob
+	./starter/experimental/starter-xxljob/example
 	./starter/starter-bigcache
 	./starter/starter-bigcache/example
 	./starter/starter-bigcache/example-cloudnative

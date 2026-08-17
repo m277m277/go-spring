@@ -8,14 +8,15 @@ grammar Expr;
 // Examples: MyType, field_name, CONSTANT
 IDENT : [a-zA-Z_][a-zA-Z0-9_]* ;
 
-// String literal: double-quoted string with optional escape sequences
-// Examples: "hello", "line\nbreak"
+// String literal: double-quoted string with optional escape sequences.
+// Go escape sequences plus JSON's "\/" (unquoted as "/") are accepted.
+// Examples: "hello", "line\nbreak", "a\/b"
 STRING
     : '"' ( ~["\\] | '\\' ["\\/bfnrt] )* '"'
     ;
 
 // Integer literal: optional sign, decimal or hexadecimal
-// Examples: 42, -17, +0xFF
+// Examples: 42, -17, 0xFF
 INTEGER
     : ('+' | '-')? DIGIT+ | '0x' HEX_DIGIT+
     ;

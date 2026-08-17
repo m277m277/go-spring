@@ -16,8 +16,9 @@ do this?" (`HasAnyAuthority`, `Require`, `Authorize`).
 - Pluggable `TokenValidator` seam with a driver registry
   (`RegisterValidator` / `GetValidator` / `MustGetValidator`) mirroring
   `discovery.Register` / `resilience.RegisterDriver`.
-- Method-level guard: `Require(authorities...)` is an `aspect.Interceptor`
-  that plugs into the aspect chain — the `@PreAuthorize` equivalent.
+- Method-level guard: `Require(authorities...)` returns a plain decorator —
+  the `@PreAuthorize` equivalent, composed with anything else by ordinary
+  function nesting.
 - HTTP middleware chain: `Chain`, `Authenticate`, `Authorize`, `CORS`,
   `CSRF` (double-submit-cookie) — plain `func(http.Handler) http.Handler`
   decorators, not a bespoke filter registry.
@@ -70,14 +71,11 @@ func main() {
 }
 ```
 
-For method-level checks inside a service, wrap the call with the aspect
+For method-level checks inside a service, wrap the call with the decorator
 chain and `security.Require`:
 
 ```go
-import "go-spring.org/spring/aspect"
-
-chain := aspect.NewChain(security.Require("orders:write"))
-_, err := aspect.Around(chain, ctx, "PlaceOrder", svc.placeOrder)
+err := security.Require("orders:write")(ctx, svc.placeOrder)
 ```
 
 A JWT resource-server starter (`starter-security-jwt`) contributes a

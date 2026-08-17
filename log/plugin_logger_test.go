@@ -17,6 +17,7 @@
 package log
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -43,6 +44,7 @@ func TestParseBufferFullPolicy(t *testing.T) {
 	assert.That(t, p).Equal(BufferFullPolicyDropOldest)
 }
 
+// CountAppender wraps an Appender and counts the events it receives.
 type CountAppender struct {
 	Appender
 	// count is read by the test goroutine while the async logger's background
@@ -58,29 +60,6 @@ func (c *CountAppender) Append(e *Event) {
 }
 
 func TestLoggerConfig(t *testing.T) {
-
-	//t.Run("write", func(t *testing.T) {
-	//	a := &CountAppender{
-	//		Appender: &DiscardAppender{},
-	//	}
-	//
-	//	err := a.Start()
-	//	assert.Error(t, err).Nil()
-	//
-	//	l := &SyncLogger{
-	//		AppenderRefs: AppenderRefs{
-	//			AppenderRefs: []*AppenderRef{
-	//				{Appender: a},
-	//			},
-	//		},
-	//	}
-	//
-	//	l.Write(InfoLevel, []byte("test"))
-	//	assert.That(t, a.count).Equal(0)
-	//
-	//	l.Stop()
-	//	a.Stop()
-	//})
 
 	t.Run("success", func(t *testing.T) {
 		a := &CountAppender{
@@ -129,6 +108,61 @@ func TestLoggerConfig(t *testing.T) {
 		l.Stop()
 		a.Stop()
 	})
+
+	t.Run("SetLevel override", func(t *testing.T) {
+		a := &CountAppender{
+			Appender: &DiscardAppender{},
+		}
+
+		err := a.Start()
+		assert.Error(t, err).Nil()
+
+		l := &SyncLogger{
+			LoggerBase: LoggerBase{
+				Level: LevelRange{
+					MinLevel: InfoLevel,
+					MaxLevel: MaxLevel,
+				},
+			},
+			AppenderRefs: []*AppenderRef{
+				{
+					Appender: a,
+					Level: LevelRange{
+						MinLevel: NoneLevel,
+						MaxLevel: MaxLevel,
+					},
+				},
+			},
+		}
+
+		err = l.Start()
+		assert.Error(t, err).Nil()
+
+		l.Append(&Event{Level: InfoLevel})
+		assert.That(t, a.count.Load()).Equal(int64(1))
+
+		r := LevelRange{
+			MinLevel: WarnLevel,
+			MaxLevel: MaxLevel,
+		}
+		l.SetLevel(r)
+		assert.That(t, l.GetLevel()).Equal(r)
+
+		// Info is filtered out on the hot path, Warn still passes.
+		l.Append(&Event{Level: InfoLevel})
+		l.Append(&Event{Level: WarnLevel})
+		assert.That(t, a.count.Load()).Equal(int64(2))
+
+		// The zero LevelRange still installs an override instead of
+		// reverting to the configured level.
+		l.SetLevel(LevelRange{})
+		assert.That(t, l.GetLevel()).Equal(LevelRange{})
+		l.Append(&Event{Level: FatalLevel})
+		assert.That(t, a.count.Load()).Equal(int64(2))
+
+		l.Stop()
+		a.Stop()
+	})
 }
 
 func TestAsyncLoggerConfig(t *testing.T) {
@@ -161,7 +195,7 @@ func TestAsyncLoggerConfig(t *testing.T) {
 		}
 
 		err := l.Start()
-		assert.Error(t, err).Matches("bufferSize is too small")
+		assert.Error(t, err).Matches("bufferSize 10 is too small, it must be at least 100")
 	})
 
 	t.Run("buffer full - discard", func(t *testing.T) {
@@ -196,12 +230,6 @@ func TestAsyncLoggerConfig(t *testing.T) {
 		err = l.Start()
 		assert.Error(t, err).Nil()
 
-		//go func() {
-		//	for range 100 {
-		//		l.Write(InfoLevel, []byte("hello"))
-		//	}
-		//}()
-
 		for range 5000 {
 			e := &Event{}
 			e.Level = InfoLevel
@@ -213,6 +241,9 @@ func TestAsyncLoggerConfig(t *testing.T) {
 		l.Stop()
 		a.Stop()
 
+		// Every event is either delivered to the appender or counted
+		// as discarded; none is lost silently.
+		assert.That(t, a.count.Load()+l.GetDiscardCounter()).Equal(int64(5000))
 		assert.That(t, l.GetDiscardCounter() > 0).True()
 	})
 
@@ -248,12 +279,6 @@ func TestAsyncLoggerConfig(t *testing.T) {
 		err = l.Start()
 		assert.Error(t, err).Nil()
 
-		//go func() {
-		//	for range 100 {
-		//		l.Write(InfoLevel, []byte("hello"))
-		//	}
-		//}()
-
 		for range 5000 {
 			e := &Event{}
 			e.Level = InfoLevel
@@ -265,6 +290,9 @@ func TestAsyncLoggerConfig(t *testing.T) {
 		l.Stop()
 		a.Stop()
 
+		// Every event is either delivered to the appender or counted
+		// as discarded; none is lost silently.
+		assert.That(t, a.count.Load()+l.GetDiscardCounter()).Equal(int64(5000))
 		assert.That(t, l.GetDiscardCounter() > 0).True()
 	})
 
@@ -285,7 +313,13 @@ func TestAsyncLoggerConfig(t *testing.T) {
 				Tags: []string{"_com_*"},
 			},
 			AppenderRefs: []*AppenderRef{
-				{Appender: a},
+				{
+					Appender: a,
+					Level: LevelRange{
+						MinLevel: NoneLevel,
+						MaxLevel: MaxLevel,
+					},
+				},
 			},
 			BufferSize:   100,
 			OnBufferFull: BufferFullPolicyBlock,
@@ -294,21 +328,17 @@ func TestAsyncLoggerConfig(t *testing.T) {
 		err = l.Start()
 		assert.Error(t, err).Nil()
 
-		//go func() {
-		//	for range 100 {
-		//		l.Write(InfoLevel, []byte("hello"))
-		//	}
-		//}()
-
 		for range 5000 {
-			l.Append(&Event{})
+			e := &Event{}
+			e.Level = InfoLevel
+			l.Append(e)
 		}
-
-		time.Sleep(200 * time.Millisecond)
 
 		l.Stop()
 		a.Stop()
 
+		// The block policy never discards: every event is delivered.
+		assert.That(t, a.count.Load()).Equal(int64(5000))
 		assert.That(t, l.GetDiscardCounter() == 0).True()
 	})
 
@@ -356,39 +386,284 @@ func TestAsyncLoggerConfig(t *testing.T) {
 		a.Stop()
 	})
 
-	//t.Run("write with discard policy", func(t *testing.T) {
-	//	a := &CountAppender{
-	//		Appender: &DiscardAppender{},
-	//	}
-	//
-	//	err := a.Start()
-	//	assert.Error(t, err).Nil()
-	//
-	//	l := &AsyncLogger{
-	//		AppenderRefs: AppenderRefs{
-	//			AppenderRefs: []*AppenderRef{
-	//				{Appender: a},
-	//			},
-	//		},
-	//		BufferSize:       100,
-	//		BufferFullPolicy: BufferFullPolicyDiscard,
-	//	}
-	//
-	//	err = l.Start()
-	//	assert.Error(t, err).Nil()
-	//
-	//	// Rapidly write large amount of data to fill the buffer
-	//	for range 500 {
-	//		l.Write(InfoLevel, []byte("test data"))
-	//	}
-	//
-	//	time.Sleep(100 * time.Millisecond)
-	//	l.Stop()
-	//	a.Stop()
-	//
-	//	// Some data should be discarded
-	//	assert.That(t, l.GetDiscardCounter() > 0).True()
-	//})
+	t.Run("SetLevel override", func(t *testing.T) {
+		a := &CountAppender{
+			Appender: &DiscardAppender{},
+		}
+
+		err := a.Start()
+		assert.Error(t, err).Nil()
+
+		l := &AsyncLogger{
+			LoggerBase: LoggerBase{
+				Level: LevelRange{
+					MinLevel: InfoLevel,
+					MaxLevel: MaxLevel,
+				},
+			},
+			AppenderRefs: []*AppenderRef{
+				{
+					Appender: a,
+					Level: LevelRange{
+						MinLevel: NoneLevel,
+						MaxLevel: MaxLevel,
+					},
+				},
+			},
+			BufferSize: 100,
+		}
+
+		err = l.Start()
+		assert.Error(t, err).Nil()
+
+		l.Append(&Event{Level: InfoLevel})
+		time.Sleep(100 * time.Millisecond)
+		assert.That(t, a.count.Load()).Equal(int64(1))
+
+		r := LevelRange{
+			MinLevel: ErrorLevel,
+			MaxLevel: MaxLevel,
+		}
+		l.SetLevel(r)
+		assert.That(t, l.GetLevel()).Equal(r)
+
+		// Info is dropped before enqueueing, Error still passes.
+		l.Append(&Event{Level: InfoLevel})
+		l.Append(&Event{Level: ErrorLevel})
+		time.Sleep(100 * time.Millisecond)
+		assert.That(t, a.count.Load()).Equal(int64(2))
+
+		l.Stop()
+		a.Stop()
+	})
+}
+
+func TestDiscardLogger(t *testing.T) {
+	l := &DiscardLogger{}
+	err := l.Start()
+	assert.Error(t, err).Nil()
+
+	assert.String(t, l.GetName()).Equal("")
+	assert.That(t, l.GetLevel()).Equal(LevelRange{})
+
+	l.Append(&Event{Level: InfoLevel})
+	l.Stop()
+}
+
+func TestFileLogger(t *testing.T) {
+
+	t.Run("Start error", func(t *testing.T) {
+		l := &FileLogger{
+			LoggerBase: LoggerBase{
+				Level: LevelRange{
+					MinLevel: InfoLevel,
+					MaxLevel: MaxLevel,
+				},
+			},
+			Layout:   &TextLayout{BaseLayout{FileLineMaxLength: 48}},
+			FileName: "/not-exist-dir/file.log",
+		}
+		err := l.Start()
+		assert.Error(t, err).Matches("open /not-exist-dir/file.log: no such file or directory")
+	})
+
+	t.Run("success", func(t *testing.T) {
+		file, err := os.CreateTemp(os.TempDir(), "")
+		assert.Error(t, err).Nil()
+		err = file.Close()
+		assert.Error(t, err).Nil()
+
+		l := &FileLogger{
+			LoggerBase: LoggerBase{
+				Level: LevelRange{
+					MinLevel: InfoLevel,
+					MaxLevel: MaxLevel,
+				},
+			},
+			Layout:   &TextLayout{BaseLayout{FileLineMaxLength: 48}},
+			FileName: file.Name(),
+		}
+		err = l.Start()
+		assert.Error(t, err).Nil()
+
+		l.Append(&Event{
+			Level:  InfoLevel,
+			Time:   time.Time{},
+			File:   "file.go",
+			Line:   100,
+			Tag:    "_def",
+			Fields: []Field{Msg("hello world")},
+		})
+		l.Append(&Event{ // below the configured level, dropped
+			Level:  DebugLevel,
+			Time:   time.Time{},
+			File:   "file.go",
+			Line:   100,
+			Tag:    "_def",
+			Fields: []Field{Msg("dropped")},
+		})
+
+		l.Stop()
+
+		b, err := os.ReadFile(file.Name())
+		assert.Error(t, err).Nil()
+		assert.String(t, string(b)).Equal("[INFO][0001-01-01T00:00:00.000][file.go:100] _def||msg=hello world\n")
+	})
+}
+
+func TestRollingFileLogger(t *testing.T) {
+
+	t.Run("separate mode", func(t *testing.T) {
+		dir := t.TempDir()
+		prefix := filepath.Join(dir, "app.log")
+		t.Cleanup(func() {
+			closeOpenFilesWithPrefix(prefix)
+		})
+
+		l := &RollingFileLogger{
+			LoggerBase: LoggerBase{
+				Level: LevelRange{
+					MinLevel: DebugLevel,
+					MaxLevel: MaxLevel,
+				},
+			},
+			Layout:     &TextLayout{BaseLayout{FileLineMaxLength: 48}},
+			FileDir:    dir,
+			FileName:   "app.log",
+			Interval:   time.Hour,
+			Separate:   true,
+			AsyncWrite: false,
+		}
+		err := l.Start()
+		assert.Error(t, err).Nil()
+
+		for _, lvl := range []Level{DebugLevel, InfoLevel, WarnLevel, ErrorLevel} {
+			l.Append(&Event{
+				Level:  lvl,
+				Time:   time.Time{},
+				File:   "file.go",
+				Line:   100,
+				Tag:    "_def",
+				Fields: []Field{Msg("hello " + lvl.LowerName())},
+			})
+		}
+
+		l.Stop()
+
+		// The normal file holds levels below WARN, the ".wf" file WARN and above.
+		normalFiles, err := filepath.Glob(filepath.Join(dir, "app.log.[0-9]*"))
+		assert.Error(t, err).Nil()
+		assert.That(t, len(normalFiles)).Equal(1)
+
+		wfFiles, err := filepath.Glob(filepath.Join(dir, "app.log.wf.[0-9]*"))
+		assert.Error(t, err).Nil()
+		assert.That(t, len(wfFiles)).Equal(1)
+
+		b, err := os.ReadFile(normalFiles[0])
+		assert.Error(t, err).Nil()
+		assert.String(t, string(b)).Equal(
+			"[DEBUG][0001-01-01T00:00:00.000][file.go:100] _def||msg=hello debug\n" +
+				"[INFO][0001-01-01T00:00:00.000][file.go:100] _def||msg=hello info\n")
+
+		b, err = os.ReadFile(wfFiles[0])
+		assert.Error(t, err).Nil()
+		assert.String(t, string(b)).Equal(
+			"[WARN][0001-01-01T00:00:00.000][file.go:100] _def||msg=hello warn\n" +
+				"[ERROR][0001-01-01T00:00:00.000][file.go:100] _def||msg=hello error\n")
+	})
+
+	t.Run("SetLevel propagates to the internal logger", func(t *testing.T) {
+		dir := t.TempDir()
+		prefix := filepath.Join(dir, "app.log")
+		t.Cleanup(func() {
+			closeOpenFilesWithPrefix(prefix)
+		})
+
+		l := &RollingFileLogger{
+			LoggerBase: LoggerBase{
+				Level: LevelRange{
+					MinLevel: DebugLevel,
+					MaxLevel: MaxLevel,
+				},
+			},
+			Layout:   &TextLayout{BaseLayout{FileLineMaxLength: 48}},
+			FileDir:  dir,
+			FileName: "app.log",
+			Interval: time.Hour,
+		}
+		err := l.Start()
+		assert.Error(t, err).Nil()
+
+		l.Append(&Event{
+			Level:  DebugLevel,
+			Time:   time.Time{},
+			File:   "file.go",
+			Line:   100,
+			Tag:    "_def",
+			Fields: []Field{Msg("before")},
+		})
+
+		r := LevelRange{
+			MinLevel: ErrorLevel,
+			MaxLevel: MaxLevel,
+		}
+		l.SetLevel(r)
+		assert.That(t, l.GetLevel()).Equal(r)
+		assert.That(t, l.logger.GetLevel()).Equal(r)
+
+		// Info is filtered out on the hot path, Error still passes.
+		l.Append(&Event{
+			Level:  InfoLevel,
+			Time:   time.Time{},
+			File:   "file.go",
+			Line:   100,
+			Tag:    "_def",
+			Fields: []Field{Msg("dropped")},
+		})
+		l.Append(&Event{
+			Level:  ErrorLevel,
+			Time:   time.Time{},
+			File:   "file.go",
+			Line:   100,
+			Tag:    "_def",
+			Fields: []Field{Msg("after")},
+		})
+
+		l.Stop()
+
+		files, err := filepath.Glob(filepath.Join(dir, "app.log.[0-9]*"))
+		assert.Error(t, err).Nil()
+		assert.That(t, len(files)).Equal(1)
+
+		b, err := os.ReadFile(files[0])
+		assert.Error(t, err).Nil()
+		assert.String(t, string(b)).Equal(
+			"[DEBUG][0001-01-01T00:00:00.000][file.go:100] _def||msg=before\n" +
+				"[ERROR][0001-01-01T00:00:00.000][file.go:100] _def||msg=after\n")
+	})
+
+	t.Run("SetLevel before Start", func(t *testing.T) {
+		l := &RollingFileLogger{
+			LoggerBase: LoggerBase{
+				Level: LevelRange{
+					MinLevel: InfoLevel,
+					MaxLevel: MaxLevel,
+				},
+			},
+			Layout:   &TextLayout{BaseLayout{FileLineMaxLength: 48}},
+			FileDir:  t.TempDir(),
+			FileName: "app.log",
+			Interval: time.Hour,
+		}
+
+		// The internal logger doesn't exist yet; SetLevel must not panic.
+		r := LevelRange{
+			MinLevel: ErrorLevel,
+			MaxLevel: MaxLevel,
+		}
+		l.SetLevel(r)
+		assert.That(t, l.GetLevel()).Equal(r)
+	})
 }
 
 func TestRollingFileLoggerStartErrorCleansAppenders(t *testing.T) {
@@ -415,7 +690,7 @@ func TestRollingFileLoggerStartErrorCleansAppenders(t *testing.T) {
 	}
 
 	err := l.Start()
-	assert.Error(t, err).Matches("bufferSize is too small")
+	assert.Error(t, err).Matches("bufferSize 10 is too small, it must be at least 100")
 	assert.That(t, countOpenFilesWithPrefix(prefix)).Equal(0)
 }
 

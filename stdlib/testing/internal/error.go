@@ -77,7 +77,7 @@ expected: %v`, a.v, target)
 func (a *ErrorAssertion) NotIs(target error, msg ...string) *ErrorAssertion {
 	a.t.Helper()
 	if errors.Is(a.v, target) {
-		str := fmt.Sprintf(`expected error not to be target (according to errors.Is), but they are equal 
+		str := fmt.Sprintf(`expected error not to be target (according to errors.Is), but they are equal
   actual: %v
 expected: %v`, a.v, target)
 		Fail(a.t, a.fatalOnFailure, str, msg...)

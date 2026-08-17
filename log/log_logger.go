@@ -31,23 +31,23 @@ type LoggerWrapper struct {
 	logger atomic.Pointer[loggerValue]
 }
 
-func (m *LoggerWrapper) reset() {
-	m.logger.Store(&loggerValue{defaultLogger})
+func (w *LoggerWrapper) reset() {
+	w.logger.Store(&loggerValue{defaultLogger})
 }
 
 // Enable returns true if the given Level 'l' is enabled for this Logger.
 // The check is inclusive of MinLevel and exclusive of MaxLevel.
-func (m *LoggerWrapper) Enable(l Level) bool {
-	return m.logger.Load().GetLevel().Enable(l)
+func (w *LoggerWrapper) Enable(l Level) bool {
+	return w.logger.Load().GetLevel().Enable(l)
 }
 
 // Write forwards the given byte slice to the currently active Logger
 // with the specified level.
-func (m *LoggerWrapper) Write(level Level, b []byte) {
+func (w *LoggerWrapper) Write(level Level, b []byte) {
 	e := getEvent()
 	e.Level = level
 	e.RawBytes = b
-	m.logger.Load().Append(e)
+	w.logger.Load().Append(e)
 }
 
 // GetLogger retrieves an existing LoggerWrapper by name,

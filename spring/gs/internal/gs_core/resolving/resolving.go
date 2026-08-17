@@ -32,21 +32,11 @@ import (
 	"go-spring.org/stdlib/funcutil"
 )
 
-// RefreshState represents the current state of the container.
-type RefreshState int
-
-const (
-	RefreshDefault = RefreshState(iota)
-	RefreshPrepare
-	Refreshing
-	Refreshed
-)
-
 // Resolving is the core container managing BeanDefinitions.
 // It supports registering beans, applying modules, scanning configuration beans,
 // resolving conditional beans, and checking for duplicates.
 type Resolving struct {
-	state RefreshState              // current refresh state
+	state gs.RefreshState           // current refresh state, see gs.RefreshState
 	beans []*gs_bean.BeanDefinition // all beans managed by the container
 }
 
@@ -72,7 +62,7 @@ func (c *Resolving) Beans() []*gs_bean.BeanDefinition {
 // the container is already Refreshing or Refreshed. The returned BeanDefinition
 // has caller information populated.
 func (c *Resolving) Provide(objOrCtor any, args ...gs.Arg) *gs_bean.BeanDefinition {
-	if c.state >= Refreshing {
+	if c.state >= gs.Refreshing {
 		panic("container is already refreshing or refreshed")
 	}
 	b := gs_bean.NewBean(objOrCtor, args...)
@@ -87,10 +77,10 @@ func (c *Resolving) Provide(objOrCtor any, args ...gs.Arg) *gs_bean.BeanDefiniti
 // and checks for duplicates. Returns an error if the container is not in the
 // default state or if any step fails.
 func (c *Resolving) Refresh(p flatten.Storage) error {
-	if c.state != RefreshDefault {
+	if c.state != gs.RefreshDefault {
 		return errutil.Explain(nil, "container is already refreshing or refreshed")
 	}
-	c.state = RefreshPrepare
+	c.state = gs.RefreshPrepare
 
 	globalBeans := gs_init.Beans()
 	globalModules := gs_init.Modules()
@@ -101,7 +91,7 @@ func (c *Resolving) Refresh(p flatten.Storage) error {
 		return errutil.Explain(err, "apply modules failed")
 	}
 
-	c.state = Refreshing
+	c.state = gs.Refreshing
 	log.Debugf(context.Background(), gs_bean.TagBeanLifecycle, "resolving phase: %d beans after module application", len(c.beans))
 
 	if err := c.scanConfigurations(); err != nil {
@@ -118,7 +108,7 @@ func (c *Resolving) Refresh(p flatten.Storage) error {
 	}
 
 	active := len(c.Beans())
-	c.state = Refreshed
+	c.state = gs.Refreshed
 	log.Debugf(context.Background(), gs_bean.TagBeanLifecycle, "resolving phase complete: %d active beans", active)
 	return nil
 }

@@ -236,12 +236,12 @@ type Extra struct {
 	Int8     int8           `value:"${int8:=8}" expr:"$==8"`
 	Int16    int16          `value:"${int16:=16}" expr:"$==16"`
 	Int32    int32          `value:"${int32:=32}" expr:"$==32"`
-	Int64    int64          `value:"${int32:=64}" expr:"$==64"`
+	Int64    int64          `value:"${int64:=64}" expr:"$==64"`
 	Uint     uint           `value:"${uint:=4}" expr:"$==4"`
 	Uint8    uint8          `value:"${uint8:=8}" expr:"$==8"`
 	Uint16   uint16         `value:"${uint16:=16}" expr:"$==16"`
 	Uint32   uint32         `value:"${uint32:=32}" expr:"$==32"`
-	Uint64   uint64         `value:"${uint32:=64}" expr:"$==64"`
+	Uint64   uint64         `value:"${uint64:=64}" expr:"$==64"`
 	Float32  float32        `value:"${float32:=3.2}" expr:"abs($-3.2)<0.000001"`
 	Float64  float64        `value:"${float64:=6.4}" expr:"abs($-6.4)<0.000001"`
 	String   string         `value:"${str:=xyz}" expr:"$==\"xyz\""`
@@ -406,12 +406,16 @@ func TestProperties_Bind(t *testing.T) {
 		assert.Error(t, err).Matches("property \"v\" does not exist")
 	})
 
-	t.Run("missing converter for slice", func(t *testing.T) {
+	t.Run("slice of structs without converter", func(t *testing.T) {
+		// no converter is registered for image.Rectangle, so each element
+		// falls back to element-wise struct binding; the tag default is
+		// comma-split into three junk elements that bind as zero values
 		var s struct {
 			Value []image.Rectangle `value:"${v:={(1,2)(3,4)}"`
 		}
 		err := conf.Bind(flatten.NewPropertiesStorage(flatten.NewProperties(nil)), &s)
-		assert.Error(t, err).Nil()
+		assert.That(t, err).Nil()
+		assert.That(t, s.Value).Equal([]image.Rectangle{{}, {}, {}})
 	})
 
 	t.Run("map non empty default", func(t *testing.T) {
@@ -988,6 +992,20 @@ type ParentContainsValidator struct {
 	Name   string          `value:"${name:=default}"`
 }
 
+// ExprAndValidator composes per-field expr tags with the cross-field
+// Validator interface on the same struct.
+type ExprAndValidator struct {
+	Min int `value:"${min}" expr:"$ >= 0"`
+	Max int `value:"${max}" expr:"$ >= 0"`
+}
+
+func (s *ExprAndValidator) Validate() error {
+	if s.Min > s.Max {
+		return fmt.Errorf("min (%d) exceeds max (%d)", s.Min, s.Max)
+	}
+	return nil
+}
+
 func TestValidator(t *testing.T) {
 
 	t.Run("struct implements Validator — called on bind", func(t *testing.T) {
@@ -1116,19 +1134,23 @@ func TestValidator(t *testing.T) {
 	})
 
 	t.Run("Validator with expr tag — both compose", func(t *testing.T) {
-		// expr validates per-field, Validator validates cross-field
-		p := flatten.NewPropertiesStorage(flatten.MapProperties(map[string]any{
-			"host": "localhost",
-			"port": 8080,
-		}))
-		var s struct {
-			Host string `value:"${host}" expr:"len($) > 0"`
-			Port int    `value:"${port}" expr:"$ > 0"`
+		bind := func(m map[string]any) error {
+			p := flatten.NewPropertiesStorage(flatten.MapProperties(m))
+			var s ExprAndValidator
+			return conf.Bind(p, &s)
 		}
-		err := conf.Bind(p, &s)
+
+		// both pass
+		err := bind(map[string]any{"min": 1, "max": 10})
 		assert.That(t, err).Nil()
-		assert.That(t, s.Host).Equal("localhost")
-		assert.That(t, s.Port).Equal(8080)
+
+		// expr fires first: a negative field fails its own expr tag
+		err = bind(map[string]any{"min": -1, "max": 10})
+		assert.Error(t, err).Matches("expression evaluated to false")
+
+		// exprs pass, then the cross-field Validator rejects the combination
+		err = bind(map[string]any{"min": 10, "max": 1})
+		assert.Error(t, err).Matches("min \\(10\\) exceeds max \\(1\\)")
 	})
 
 	t.Run("Validator with embedded struct", func(t *testing.T) {

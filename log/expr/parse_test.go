@@ -20,6 +20,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"go-spring.org/stdlib/testing/assert"
 )
 
 func TestParse(t *testing.T) {
@@ -32,6 +34,11 @@ func TestParse(t *testing.T) {
 		{
 			name:  "empty input",
 			input: "",
+			want:  nil,
+		},
+		{
+			name:  "whitespace-only input",
+			input: "   \n\t ",
 			want:  nil,
 		},
 		{
@@ -162,6 +169,29 @@ func TestParse(t *testing.T) {
 			},
 		},
 		{
+			name:  "string with JSON solidus escape",
+			input: `Logger { path = "a\/b" }`,
+			want: map[string]string{
+				"type": "Logger",
+				"path": "a/b",
+			},
+		},
+		{
+			name:    "string with unsupported escape",
+			input:   `Logger { path = "a\qb" }`,
+			wantErr: true,
+		},
+		{
+			name:    "string with literal newline",
+			input:   "Logger { path = \"a\nb\" }",
+			wantErr: true,
+		},
+		{
+			name:    "duplicate top-level type key",
+			input:   `Logger { type = "x" }`,
+			wantErr: true,
+		},
+		{
 			name:  "trailing comma in field list",
 			input: `Logger { level = "info", output = "stdout", }`,
 			want: map[string]string{
@@ -266,4 +296,19 @@ func TestParse(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestParseUnquoteError(t *testing.T) {
+	// A literal newline inside the quotes passes the grammar's STRING rule
+	// but is rejected by strconv.Unquote, because Go string literals cannot
+	// contain unescaped newlines.
+	_, err := Parse("Logger { path = \"a\nb\" }")
+	assert.Error(t, err).Matches(`unquote string .* failed: invalid syntax`)
+}
+
+func TestParseDuplicateTypeKey(t *testing.T) {
+	// The expression's type name is stored under the reserved "type" key,
+	// so an inner field literally named "type" collides with it.
+	_, err := Parse(`Logger { type = "x" }`)
+	assert.Error(t, err).Matches(`duplicate key "type"`)
 }

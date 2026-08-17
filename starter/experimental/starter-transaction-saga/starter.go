@@ -27,12 +27,14 @@
 //   - a *transaction.StepRegistry — where application code registers each
 //     @GlobalTransactional-equivalent method's steps.
 //
-// Wire them into an aspect chain to get the @GlobalTransactional effect:
+// Wrap the business method with the decorator to get the @GlobalTransactional
+// effect:
 //
 //	func RegisterOrder(reg *transaction.StepRegistry) {
 //	    reg.Register("OrderService.Place", deductInventory, chargePayment, publishEvent)
 //	}
-//	chain := aspect.NewChain(transaction.GlobalTransactional(coord, reg))
+//	place := transaction.GlobalTransactional(coord, reg)
+//	err := place(ctx, "OrderService.Place", func(ctx context.Context) error { ... })
 //
 // This is a Contributor-archetype starter (see starter/DESIGN.md §2.3): it opens
 // no port and starts no server. By default the saga log is kept in memory only —

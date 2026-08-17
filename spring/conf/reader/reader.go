@@ -14,6 +14,11 @@
  * limitations under the License.
  */
 
+// Package reader provides a registry of configuration file parsers. Readers for
+// the built-in formats — JSON, Java Properties, YAML and TOML — are registered
+// at init time; additional formats plug in via Register. Each Reader parses raw
+// bytes into a nested map[string]any tree, which the caller (e.g. the provider
+// package) flattens into key-value properties.
 package reader
 
 import (

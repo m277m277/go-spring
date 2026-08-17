@@ -17,10 +17,10 @@
 package gs_test
 
 import (
-	"fmt"
 	"testing"
 
 	"go-spring.org/spring/gs"
+	"go-spring.org/stdlib/testing/assert"
 )
 
 func init() {
@@ -39,19 +39,48 @@ type App1Service struct {
 }
 
 func TestApp1(t *testing.T) {
-	gs.RunTest(t, func(s *App1Service) {
-		fmt.Println(s.Name, s.Svr.Name)
+	gs.Web(false).RunTest(t, func(s *App1Service) {
+		assert.That(t, s.Name).Equal("app1")
+		assert.That(t, s.Svr).NotNil()
+		assert.That(t, s.Svr.Name).Equal("global")
 	})
 }
 
 func TestApp2(t *testing.T) {
-	gs.Configure(func(g gs.App) {
+	gs.Web(false).Configure(func(g gs.App) {
 		g.Property("name", "myapp2")
 	}).RunTest(t, func(s *struct {
 		Name string         `value:"${name:=app2}"`
 		Svr  *GlobalService `autowire:""`
 		App1 *App1Service   `autowire:"?"`
 	}) {
-		fmt.Println(s.Name, s.Svr.Name, s.App1)
+		assert.That(t, s.Name).Equal("myapp2")
+		assert.That(t, s.Svr).NotNil()
+		assert.That(t, s.Svr.Name).Equal("myapp2")
+		assert.That(t, s.App1).Nil() // no App1Service bean in this app
+	})
+}
+
+// TestWeb proves Web(false) keeps the built-in HTTP server module from
+// registering its beans, and that the server is provided by default
+// (on an ephemeral port) when not disabled.
+func TestWeb(t *testing.T) {
+
+	t.Run("server disabled", func(t *testing.T) {
+		gs.Web(false).RunTest(t, func(s *struct {
+			Svr *gs.SimpleHttpServer `autowire:"?"`
+		}) {
+			assert.That(t, s.Svr).Nil()
+		})
+	})
+
+	t.Run("server enabled", func(t *testing.T) {
+		gs.Configure(func(app gs.App) {
+			app.Property("spring.http.server.addr", ":0")
+		}).RunTest(t, func(s *struct {
+			Svr *gs.SimpleHttpServer `autowire:""`
+		}) {
+			assert.That(t, s.Svr).NotNil()
+		})
 	})
 }

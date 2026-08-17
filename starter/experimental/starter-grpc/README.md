@@ -62,6 +62,13 @@ gs.Provide(func(c *Controller) StarterGrpc.ServiceRegister {
 
 ## Core Features
 
+**Panic recovery** — a `Recover` interceptor is always installed innermost: a
+handler panic is converted to `codes.Internal` and reported through the
+shared panic chain (structured log via `go-spring.org/log`), instead of
+crashing the whole process — grpc-go recovers handler panics nowhere by
+itself. Placed innermost, the converted error flows back through
+tracing/metrics/resilience and is fully observed.
+
 The [example](example/example.go) demonstrates three core gRPC building blocks,
 each asserted end-to-end by `runTest`:
 

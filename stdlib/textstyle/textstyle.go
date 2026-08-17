@@ -14,6 +14,10 @@
  * limitations under the License.
  */
 
+// Package textstyle wraps strings with ANSI escape codes for styled terminal
+// output. It always emits the codes and does not detect whether the output
+// is a terminal; callers decide (or let their log library decide) whether
+// styling is appropriate.
 package textstyle
 
 import (
@@ -77,13 +81,13 @@ func NewText(attributes ...Attribute) *Text {
 }
 
 // Sprint formats a string using the Text's attributes.
-func (c *Text) Sprint(a ...any) string {
-	return wrap(c.attributes, fmt.Sprint(a...))
+func (t *Text) Sprint(a ...any) string {
+	return wrap(t.attributes, fmt.Sprint(a...))
 }
 
 // Sprintf formats a string using the Text's attributes and fmt.Sprintf syntax.
-func (c *Text) Sprintf(format string, a ...any) string {
-	return wrap(c.attributes, fmt.Sprintf(format, a...))
+func (t *Text) Sprintf(format string, a ...any) string {
+	return wrap(t.attributes, fmt.Sprintf(format, a...))
 }
 
 // wrap wraps the given string with ANSI escape codes for the provided attributes.

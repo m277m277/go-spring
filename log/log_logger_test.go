@@ -17,63 +17,15 @@
 package log
 
 import (
-	"encoding/json"
 	"os"
 	"testing"
 
-	"go-spring.org/stdlib/flatten"
 	"go-spring.org/stdlib/testing/assert"
 )
 
-func readConfig() map[string]string {
-	s := `
-	{
-	  "bufferCap": "1KB",
-	  "bufferSize": 1000,
-	  "appender": {
-	    "file": {
-	      "type": "FileAppender",
-	      "file": "log.txt",
-	      "layout!": "JSONLayout{}"
-	    },
-	    "console!": "ConsoleAppender{layout=TextLayout{}}",
-	    "sample!": "SampleAppender{layout.type=TextLayout}"
-	  },
-	  "logger": {
-	    "root": {
-	      "type": "Logger",
-	      "level": "warn",
-	      "appenderRef": {
-	        "ref": "console"
-	      }
-	    },
-	    "myLogger": {
-	      "type": "AsyncLogger",
-	      "level": "trace",
-	      "tag": "_com_request_in,_com_request_*",
-	      "bufferSize": "${bufferSize}",
-	      "appenderRef": [
-	        {
-	          "ref": "file"
-	        },
-	        {
-	          "ref": "sample"
-	        }
-	      ]
-	    }
-	  }
-	}`
-
-	var m map[string]any
-	if err := json.Unmarshal([]byte(s), &m); err != nil {
-		panic(err)
-	}
-	return flatten.Flatten(m)
-}
-
 func TestGetLogger(t *testing.T) {
 	l := GetLogger("logger-not-exist")
-	err := RefreshConfig(readConfig())
+	err := RefreshConfig(ReadTestConfig())
 	assert.Error(t, err).Matches(`logger logger-not-exist not found`)
 	delete(loggerMap, l.name)
 	Destroy()
@@ -98,4 +50,17 @@ func TestGetLoggerBeforeRefreshUsesDefaultLogger(t *testing.T) {
 	b, err := os.ReadFile(logBuf.Name())
 	assert.Error(t, err).Nil()
 	assert.String(t, string(b)).Equal("hello\n")
+}
+
+func TestLoggerWrapperEnable(t *testing.T) {
+	l := GetLogger("wrapperEnable")
+	t.Cleanup(func() {
+		delete(loggerMap, l.name)
+	})
+
+	// Before any refresh the wrapper falls back to the default logger,
+	// whose level range starts at InfoLevel.
+	assert.That(t, l.Enable(TraceLevel)).False()
+	assert.That(t, l.Enable(InfoLevel)).True()
+	assert.That(t, l.Enable(FatalLevel)).True()
 }

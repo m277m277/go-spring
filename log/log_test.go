@@ -19,7 +19,6 @@ package log_test
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"os"
 	"runtime"
 	"strings"
@@ -27,7 +26,6 @@ import (
 	"time"
 
 	"go-spring.org/log"
-	"go-spring.org/stdlib/flatten"
 	"go-spring.org/stdlib/testing/assert"
 )
 
@@ -69,52 +67,6 @@ func init() {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-func readConfig() map[string]string {
-	s := `
-	{
-	  "bufferCap": "1KB",
-	  "bufferSize": 1000,
-	  "appender": {
-	    "file": {
-	      "type": "FileAppender",
-	      "file": "log.txt",
-	      "layout!": "JSONLayout{}"
-	    },
-	    "console!": "ConsoleAppender{layout=TextLayout{}}",
-	    "sample!": "SampleAppender{layout.type=TextLayout}"
-	  },
-	  "logger": {
-	    "root": {
-	      "type": "Logger",
-	      "level": "warn",
-	      "appenderRef": {
-	        "ref": "console"
-	      }
-	    },
-	    "myLogger": {
-	      "type": "AsyncLogger",
-	      "level": "trace",
-	      "tag": "_com_request_in,_com_request_*",
-	      "bufferSize": "${bufferSize}",
-	      "appenderRef": [
-	        {
-	          "ref": "file"
-	        },
-	        {
-	          "ref": "sample"
-	        }
-	      ]
-	    }
-	  }
-	}`
-
-	var m map[string]any
-	if err := json.Unmarshal([]byte(s), &m); err != nil {
-		panic(err)
-	}
-	return flatten.Flatten(m)
-}
-
 func TestLog(t *testing.T) {
 	ctx := t.Context()
 	_ = os.Remove("logs/log.txt")
@@ -123,6 +75,9 @@ func TestLog(t *testing.T) {
 	log.Stdout = logBuf
 	defer func() {
 		log.Stdout = os.Stdout
+		log.TimeNow = nil
+		log.StringFromContext = nil
+		log.FieldsFromContext = nil
 	}()
 
 	log.TimeNow = func(ctx context.Context) time.Time {
@@ -150,7 +105,7 @@ func TestLog(t *testing.T) {
 	log.Info(ctx, TagDefault, log.Msgf("hello %s", "world"))
 	log.Info(ctx, TagRequestIn, log.Msgf("hello %s", "world"))
 
-	err := log.RefreshConfig(readConfig())
+	err := log.RefreshConfig(log.ReadTestConfig())
 	assert.Error(t, err).Nil()
 
 	ctx = context.WithValue(ctx, &keyTraceID, "0a882193682db71edd48044db54cae88")
@@ -206,12 +161,12 @@ func TestLog(t *testing.T) {
 	rootLogger.Write(log.WarnLevel, []byte("this message is written directly\n"))
 
 	expectLog := `
-[INFO][2025-06-01T00:00:00.000][<<file>>:150] _def||trace_id=||span_id=||msg=hello world
-[INFO][2025-06-01T00:00:00.000][<<file>>:151] _com_request_in||trace_id=||span_id=||msg=hello world
-[WARN][2025-06-01T00:00:00.000][<<file>>:195] _def||trace_id=0a882193682db71edd48044db54cae88||span_id=50ef0724418c0a66||msg=hello world
-[ERROR][2025-06-01T00:00:00.000][<<file>>:196] _def||trace_id=0a882193682db71edd48044db54cae88||span_id=50ef0724418c0a66||msg=hello world
-[PANIC][2025-06-01T00:00:00.000][<<file>>:197] _def||trace_id=0a882193682db71edd48044db54cae88||span_id=50ef0724418c0a66||msg=hello world
-[ERROR][2025-06-01T00:00:00.000][<<file>>:200] _def||trace_id=0a882193682db71edd48044db54cae88||span_id=50ef0724418c0a66||key1=value1||key2=value2
+[INFO][2025-06-01T00:00:00.000][<<file>>:105] _def||trace_id=||span_id=||msg=hello world
+[INFO][2025-06-01T00:00:00.000][<<file>>:106] _com_request_in||trace_id=||span_id=||msg=hello world
+[WARN][2025-06-01T00:00:00.000][<<file>>:150] _def||trace_id=0a882193682db71edd48044db54cae88||span_id=50ef0724418c0a66||msg=hello world
+[ERROR][2025-06-01T00:00:00.000][<<file>>:151] _def||trace_id=0a882193682db71edd48044db54cae88||span_id=50ef0724418c0a66||msg=hello world
+[PANIC][2025-06-01T00:00:00.000][<<file>>:152] _def||trace_id=0a882193682db71edd48044db54cae88||span_id=50ef0724418c0a66||msg=hello world
+[ERROR][2025-06-01T00:00:00.000][<<file>>:155] _def||trace_id=0a882193682db71edd48044db54cae88||span_id=50ef0724418c0a66||key1=value1||key2=value2
 this message is written directly
 this message is written directly
 `
@@ -224,20 +179,20 @@ this message is written directly
 	myLoggerV2.Write(log.InfoLevel, []byte("this message is written directly\n"))
 
 	expectLog = `
-{"level":"trace","time":"2025-06-01T00:00:00.000","fileLine":"<<file>>:160","tag":"_com_request_out","trace_id":"0a882193682db71edd48044db54cae88","span_id":"50ef0724418c0a66","msg":"hello world"}
-{"level":"debug","time":"2025-06-01T00:00:00.000","fileLine":"<<file>>:167","tag":"_com_request_out","trace_id":"0a882193682db71edd48044db54cae88","span_id":"50ef0724418c0a66","msg":"hello world"}
-{"level":"trace","time":"2025-06-01T00:00:00.000","fileLine":"<<file>>:174","tag":"_com_request_out","trace_id":"0a882193682db71edd48044db54cae88","span_id":"50ef0724418c0a66","msg":"hello world"}
-{"level":"debug","time":"2025-06-01T00:00:00.000","fileLine":"<<file>>:175","tag":"_com_request_out","trace_id":"0a882193682db71edd48044db54cae88","span_id":"50ef0724418c0a66","msg":"hello world"}
-{"level":"info","time":"2025-06-01T00:00:00.000","fileLine":"<<file>>:178","tag":"_com_request_in","trace_id":"0a882193682db71edd48044db54cae88","span_id":"50ef0724418c0a66","msg":"hello world"}
-{"level":"warn","time":"2025-06-01T00:00:00.000","fileLine":"<<file>>:179","tag":"_com_request_in","trace_id":"0a882193682db71edd48044db54cae88","span_id":"50ef0724418c0a66","msg":"hello world"}
-{"level":"error","time":"2025-06-01T00:00:00.000","fileLine":"<<file>>:180","tag":"_com_request_in","trace_id":"0a882193682db71edd48044db54cae88","span_id":"50ef0724418c0a66","msg":"hello world"}
-{"level":"panic","time":"2025-06-01T00:00:00.000","fileLine":"<<file>>:181","tag":"_com_request_in","trace_id":"0a882193682db71edd48044db54cae88","span_id":"50ef0724418c0a66","msg":"hello world"}
-{"level":"fatal","time":"2025-06-01T00:00:00.000","fileLine":"<<file>>:182","tag":"_com_request_in","trace_id":"0a882193682db71edd48044db54cae88","span_id":"50ef0724418c0a66","msg":"hello world"}
-{"level":"info","time":"2025-06-01T00:00:00.000","fileLine":"<<file>>:185","tag":"_com_request_in","trace_id":"0a882193682db71edd48044db54cae88","span_id":"50ef0724418c0a66","msg":"hello world"}
-{"level":"warn","time":"2025-06-01T00:00:00.000","fileLine":"<<file>>:186","tag":"_com_request_in","trace_id":"0a882193682db71edd48044db54cae88","span_id":"50ef0724418c0a66","msg":"hello world"}
-{"level":"error","time":"2025-06-01T00:00:00.000","fileLine":"<<file>>:187","tag":"_com_request_in","trace_id":"0a882193682db71edd48044db54cae88","span_id":"50ef0724418c0a66","msg":"hello world"}
-{"level":"panic","time":"2025-06-01T00:00:00.000","fileLine":"<<file>>:188","tag":"_com_request_in","trace_id":"0a882193682db71edd48044db54cae88","span_id":"50ef0724418c0a66","msg":"hello world"}
-{"level":"fatal","time":"2025-06-01T00:00:00.000","fileLine":"<<file>>:189","tag":"_com_request_in","trace_id":"0a882193682db71edd48044db54cae88","span_id":"50ef0724418c0a66","msg":"hello world"}
+{"level":"trace","time":"2025-06-01T00:00:00.000","fileLine":"<<file>>:115","tag":"_com_request_out","trace_id":"0a882193682db71edd48044db54cae88","span_id":"50ef0724418c0a66","msg":"hello world"}
+{"level":"debug","time":"2025-06-01T00:00:00.000","fileLine":"<<file>>:122","tag":"_com_request_out","trace_id":"0a882193682db71edd48044db54cae88","span_id":"50ef0724418c0a66","msg":"hello world"}
+{"level":"trace","time":"2025-06-01T00:00:00.000","fileLine":"<<file>>:129","tag":"_com_request_out","trace_id":"0a882193682db71edd48044db54cae88","span_id":"50ef0724418c0a66","msg":"hello world"}
+{"level":"debug","time":"2025-06-01T00:00:00.000","fileLine":"<<file>>:130","tag":"_com_request_out","trace_id":"0a882193682db71edd48044db54cae88","span_id":"50ef0724418c0a66","msg":"hello world"}
+{"level":"info","time":"2025-06-01T00:00:00.000","fileLine":"<<file>>:133","tag":"_com_request_in","trace_id":"0a882193682db71edd48044db54cae88","span_id":"50ef0724418c0a66","msg":"hello world"}
+{"level":"warn","time":"2025-06-01T00:00:00.000","fileLine":"<<file>>:134","tag":"_com_request_in","trace_id":"0a882193682db71edd48044db54cae88","span_id":"50ef0724418c0a66","msg":"hello world"}
+{"level":"error","time":"2025-06-01T00:00:00.000","fileLine":"<<file>>:135","tag":"_com_request_in","trace_id":"0a882193682db71edd48044db54cae88","span_id":"50ef0724418c0a66","msg":"hello world"}
+{"level":"panic","time":"2025-06-01T00:00:00.000","fileLine":"<<file>>:136","tag":"_com_request_in","trace_id":"0a882193682db71edd48044db54cae88","span_id":"50ef0724418c0a66","msg":"hello world"}
+{"level":"fatal","time":"2025-06-01T00:00:00.000","fileLine":"<<file>>:137","tag":"_com_request_in","trace_id":"0a882193682db71edd48044db54cae88","span_id":"50ef0724418c0a66","msg":"hello world"}
+{"level":"info","time":"2025-06-01T00:00:00.000","fileLine":"<<file>>:140","tag":"_com_request_in","trace_id":"0a882193682db71edd48044db54cae88","span_id":"50ef0724418c0a66","msg":"hello world"}
+{"level":"warn","time":"2025-06-01T00:00:00.000","fileLine":"<<file>>:141","tag":"_com_request_in","trace_id":"0a882193682db71edd48044db54cae88","span_id":"50ef0724418c0a66","msg":"hello world"}
+{"level":"error","time":"2025-06-01T00:00:00.000","fileLine":"<<file>>:142","tag":"_com_request_in","trace_id":"0a882193682db71edd48044db54cae88","span_id":"50ef0724418c0a66","msg":"hello world"}
+{"level":"panic","time":"2025-06-01T00:00:00.000","fileLine":"<<file>>:143","tag":"_com_request_in","trace_id":"0a882193682db71edd48044db54cae88","span_id":"50ef0724418c0a66","msg":"hello world"}
+{"level":"fatal","time":"2025-06-01T00:00:00.000","fileLine":"<<file>>:144","tag":"_com_request_in","trace_id":"0a882193682db71edd48044db54cae88","span_id":"50ef0724418c0a66","msg":"hello world"}
 this message is written directly
 this message is written directly
 `
@@ -251,4 +206,15 @@ this message is written directly
 	assert.Error(t, err).Nil()
 	expectLog = strings.ReplaceAll(expectLog, "<<file>>", currFile)
 	assert.String(t, string(b)).Equal(strings.TrimLeft(expectLog, "\n"))
+}
+
+func TestRecord(t *testing.T) {
+	logBuf := bytes.NewBuffer(nil)
+	log.Stdout = logBuf
+	t.Cleanup(func() {
+		log.Stdout = os.Stdout
+	})
+
+	log.Record(context.Background(), log.InfoLevel, log.TagAppDef, 1, log.Msg("hello record"))
+	assert.String(t, logBuf.String()).Contains("_app_def||msg=hello record")
 }

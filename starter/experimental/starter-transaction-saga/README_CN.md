@@ -4,7 +4,7 @@
 
 `starter-transaction-saga` 把
 [`go-spring.org/spring/transaction`](../../spring/transaction) 中定义的 **Saga**
-分布式事务能力接入 Go-Spring 应用。它以进程内 Coordinator + aspect 链的形式
+分布式事务能力接入 Go-Spring 应用。它以进程内 Coordinator + 普通装饰器的形式
 提供 `@GlobalTransactional(SAGA)` 的 Go 惯用等价物,而不复刻 Seata 的
 TC/TM/RM 角色,也不依赖字节码魔法。
 
@@ -78,14 +78,15 @@ func (s *OrderService) Place(ctx context.Context, id string) (transaction.Result
 ### 4. 或声明为 `@GlobalTransactional`
 
 把同样的 Step 按方法名注册,再把 `transaction.GlobalTransactional` 接入
-aspect 链——即 `@GlobalTransactional(SAGA)` 的无反射等价物:
+调用——即 `@GlobalTransactional(SAGA)` 的无反射等价物:
 
 ```go
 func RegisterOrder(reg *transaction.StepRegistry) {
     reg.Register("OrderService.Place", deductInventory, chargePayment, publishEvent)
 }
 
-chain := aspect.NewChain(transaction.GlobalTransactional(coord, reg))
+place := transaction.GlobalTransactional(coord, reg)
+// err := place(ctx, "OrderService.Place", func(ctx context.Context) error { ... })
 ```
 
 Step 必须在**装配时**(bean 构造)注册,不能放到自定义 `Runner`,以确保启动

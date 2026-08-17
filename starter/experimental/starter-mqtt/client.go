@@ -87,6 +87,9 @@ type subscriber struct {
 }
 
 func (s *subscriber) Subscribe(_ context.Context, handler messaging.Handler) error {
+	// SafeHandler converts a handler panic into the normal error path
+	// (nack/redelivery) instead of unwinding into the SDK goroutine.
+	handler = messaging.SafeHandler(handler)
 	token := s.cl.Subscribe(s.topic, defaultQoS, func(_ mqtt.Client, m mqtt.Message) {
 		msg := &messaging.Message{Payload: m.Payload()}
 		if err := handler(context.Background(), msg); err != nil {

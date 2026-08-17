@@ -30,7 +30,8 @@ import (
 //   - []any
 //   - primitive JSON types (bool, number, string, nil)
 //
-// Structs, custom types, and non-string map keys are explicitly out of scope.
+// Structs and custom types are explicitly out of scope. Non-string map keys
+// are formatted with the same primitive rules, but they are not a design goal.
 //
 // Flattening rules:
 //
@@ -61,7 +62,7 @@ func Flatten(m map[string]any) map[string]string {
 	return result
 }
 
-// flattenValue recursively expands v into result under the given key.
+// flattenValue recursively expands val into result under the given key.
 // Composite values are traversed depth-first, producing fully-qualified
 // flattened keys.
 func flattenValue(key string, val any, result map[string]string) {
@@ -85,8 +86,8 @@ func flattenValue(key string, val any, result map[string]string) {
 			mapValue := iter.Value().Interface()
 			flattenValue(key+"."+mapKey, mapValue, result)
 		}
-	case reflect.Slice:
-		if v.IsNil() { // typed nil slice
+	case reflect.Slice, reflect.Array:
+		if v.Kind() == reflect.Slice && v.IsNil() { // typed nil slice
 			result[key] = "<nil>"
 			return
 		}
@@ -129,8 +130,9 @@ func toString(v reflect.Value) string {
 		reflect.Uint32,
 		reflect.Uint64:
 		return strconv.FormatUint(v.Uint(), 10)
-	case reflect.Float32,
-		reflect.Float64:
+	case reflect.Float32:
+		return strconv.FormatFloat(v.Float(), 'f', -1, 32)
+	case reflect.Float64:
 		return strconv.FormatFloat(v.Float(), 'f', -1, 64)
 	case reflect.String:
 		return v.String()

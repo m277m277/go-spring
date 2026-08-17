@@ -169,3 +169,27 @@ func TestFlatten(t *testing.T) {
 		})
 	}
 }
+
+func TestFlatten_Array(t *testing.T) {
+	result := Flatten(map[string]any{
+		"arr": [3]any{1, "b", map[string]any{"c": true}},
+	})
+	assert.That(t, result).Equal(map[string]string{
+		"arr[0]":   "1",
+		"arr[1]":   "b",
+		"arr[2].c": "true",
+	})
+}
+
+func TestFlatten_Float32(t *testing.T) {
+	// float32(0.1) is not exactly representable; it must be formatted with
+	// 32-bit precision, not widened to the float64 bit pattern.
+	result := Flatten(map[string]any{
+		"f32": float32(0.1),
+		"f64": 0.1,
+	})
+	assert.That(t, result).Equal(map[string]string{
+		"f32": "0.1",
+		"f64": "0.1",
+	})
+}

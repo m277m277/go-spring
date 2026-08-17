@@ -38,7 +38,7 @@
 //	if err := atgorm.Migrate(db); err != nil { ... }
 //	if err := db.Use(atgorm.NewPlugin("account-db", coord, lock)); err != nil { ... }
 //
-// then run business writes inside an [at.GlobalAT] aspect (or an explicit
+// then run business writes inside an [at.GlobalAT] decorator (or an explicit
 // coord.Begin/Commit/Rollback) so the plugin sees the global transaction id on
 // the context and self-registers a branch.
 //

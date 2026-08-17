@@ -68,6 +68,11 @@ gs.Provide(func(c *Controller) StarterGrpc.ServiceRegister {
 
 ## 核心功能
 
+**panic 恢复** —— 始终安装在最内层的 `Recover` 拦截器：handler panic 被转换为
+`codes.Internal` 并经共享 panic 链上报（由 `go-spring.org/log` 落结构化日志），
+而不是崩掉整个进程 —— grpc-go 自身对 handler panic 不做任何恢复。放在最内层，
+转换后的错误会回穿 tracing/metrics/resilience，被完整观测到。
+
 [示例](example/example.go) 展示了 3 个 gRPC 关键能力，均在 `runTest` 中做了端到端断言：
 
 1. **一元 Echo 调用**：客户端调用 `EchoService.Echo` 并拿到原样返回的消息，验证标准的

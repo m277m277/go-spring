@@ -185,6 +185,41 @@ func TestOnProperty(t *testing.T) {
 		assert.That(t, ok).False()
 	})
 
+	t.Run("having value - property missing", func(t *testing.T) {
+		m := gsmock.NewManager()
+		ctx := gs.NewConditionContextMockImpl(m)
+		ctx.MockProp().ReturnValue("", false)
+		ctx.MockHas().ReturnValue(false)
+
+		cond := OnProperty("missing.prop").HavingValue("42")
+		ok, err := cond.Matches(ctx)
+		assert.That(t, err).Nil()
+		assert.That(t, ok).False()
+	})
+
+	t.Run("having value - property missing with MatchIfMissing", func(t *testing.T) {
+		m := gsmock.NewManager()
+		ctx := gs.NewConditionContextMockImpl(m)
+		ctx.MockProp().ReturnValue("", false)
+		ctx.MockHas().ReturnValue(false)
+
+		cond := OnProperty("missing.prop").HavingValue("42").MatchIfMissing()
+		ok, err := cond.Matches(ctx)
+		assert.That(t, err).Nil()
+		assert.That(t, ok).True()
+	})
+
+	t.Run("having value - property not leaf node", func(t *testing.T) {
+		m := gsmock.NewManager()
+		ctx := gs.NewConditionContextMockImpl(m)
+		ctx.MockProp().ReturnValue("", false)
+		ctx.MockHas().ReturnValue(true) // exists as a prefix but has no leaf value
+
+		cond := OnProperty("parent.prop").HavingValue("42")
+		_, err := cond.Matches(ctx)
+		assert.Error(t, err).Matches("property parent\\.prop is not a leaf node")
+	})
+
 	t.Run("expression", func(t *testing.T) {
 
 		t.Run("number expression", func(t *testing.T) {
@@ -381,11 +416,11 @@ func TestAnd(t *testing.T) {
 	t.Run("nil condition", func(t *testing.T) {
 		assert.Panic(t, func() {
 			And(nil)
-		}, "conditions cannot contains nil")
+		}, "conditions cannot contain nil")
 
 		assert.Panic(t, func() {
 			And(trueCond, nil)
-		}, "conditions cannot contains nil")
+		}, "conditions cannot contain nil")
 	})
 
 	t.Run("one condition", func(t *testing.T) {
@@ -429,11 +464,11 @@ func TestOr(t *testing.T) {
 	t.Run("nil condition", func(t *testing.T) {
 		assert.Panic(t, func() {
 			Or(nil)
-		}, "conditions cannot contains nil")
+		}, "conditions cannot contain nil")
 
 		assert.Panic(t, func() {
 			Or(trueCond, nil)
-		}, "conditions cannot contains nil")
+		}, "conditions cannot contain nil")
 	})
 
 	t.Run("one condition", func(t *testing.T) {
@@ -477,11 +512,11 @@ func TestNone(t *testing.T) {
 	t.Run("nil condition", func(t *testing.T) {
 		assert.Panic(t, func() {
 			None(nil)
-		}, "conditions cannot contains nil")
+		}, "conditions cannot contain nil")
 
 		assert.Panic(t, func() {
 			None(trueCond, nil)
-		}, "conditions cannot contains nil")
+		}, "conditions cannot contain nil")
 	})
 
 	t.Run("one condition", func(t *testing.T) {

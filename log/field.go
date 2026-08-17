@@ -24,6 +24,8 @@ import (
 	"go-spring.org/stdlib/ordered"
 )
 
+// MsgKey is the fixed field key under which log messages are stored,
+// used by Msg and Msgf.
 const MsgKey = "msg"
 
 // ValueType represents the underlying type stored in a Field.
@@ -31,14 +33,25 @@ const MsgKey = "msg"
 type ValueType int
 
 const (
+	// ValueTypeBool stores a boolean value in Num (0 or 1).
 	ValueTypeBool = ValueType(iota)
+	// ValueTypeInt64 stores a signed integer value in Num.
 	ValueTypeInt64
+	// ValueTypeUint64 stores an unsigned integer value in Num.
 	ValueTypeUint64
+	// ValueTypeFloat64 stores a float value in Num as its IEEE 754 bit pattern.
 	ValueTypeFloat64
+	// ValueTypeString stores the string length in Num and a pointer to
+	// the string data in Any.
 	ValueTypeString
+	// ValueTypeReflect stores an arbitrary value in Any, encoded via reflection.
 	ValueTypeReflect
+	// ValueTypeArray stores an ArrayValue in Any.
 	ValueTypeArray
+	// ValueTypeObject stores a nested slice of Fields in Any.
 	ValueTypeObject
+	// ValueTypeFromMap stores a map[string]any in Any, expanded into
+	// individual key-value fields when encoded.
 	ValueTypeFromMap
 )
 
@@ -214,14 +227,14 @@ func Uints[T UintType](key string, val []T) Field {
 
 type sliceOfFloat[T FloatType] []T
 
-// EncodeArray encodes a slice of float32s using the Encoder interface.
+// EncodeArray encodes a slice of float32 or float64 values using the Encoder interface.
 func (arr sliceOfFloat[T]) EncodeArray(enc Encoder) {
 	for _, v := range arr {
 		enc.AppendFloat64(float64(v))
 	}
 }
 
-// Floats creates a Field with a slice of float32 values.
+// Floats creates a Field with a slice of float32 or float64 values.
 func Floats[T FloatType](key string, val []T) Field {
 	return Array(key, sliceOfFloat[T](val))
 }

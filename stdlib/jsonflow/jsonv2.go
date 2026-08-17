@@ -35,11 +35,20 @@ type MarshalOptions interface {
 }
 
 type (
-	Indent         string
-	IndentPrefix   string
+	// Indent sets the indentation string used for pretty-printing.
+	Indent string
+
+	// IndentPrefix sets the prefix prepended to every line when pretty-printing.
+	IndentPrefix string
+
+	// NilSliceAsNull controls whether nil slices are encoded as null (default true).
 	NilSliceAsNull bool
-	NilMapAsNull   bool
-	Deterministic  bool
+
+	// NilMapAsNull controls whether nil maps are encoded as null (default true).
+	NilMapAsNull bool
+
+	// Deterministic controls whether map keys are sorted for stable output (default true).
+	Deterministic bool
 )
 
 func (Indent) JSONOptions(NotForPublicUse)         {}
@@ -67,7 +76,7 @@ func toJSONv2Options(opts []MarshalOptions) []jsontext.Options {
 			options = append(options, stdjsonv2.FormatNilMapAsNull(bool(x)))
 		case Deterministic:
 			options = append(options, stdjsonv2.Deterministic(bool(x)))
-		default: // for linter
+		default: // foreign MarshalOptions implementations carry no jsonv2 meaning, so they are ignored
 		}
 	}
 	return options
@@ -96,6 +105,8 @@ func Marshal(i any, opts ...MarshalOptions) ([]byte, error) {
 }
 
 // MarshalIndent marshals a Go value into JSON bytes with indentation.
+// If the value implements JSONEncoder, prefix and indent are ignored:
+// the value writes its own formatting.
 func MarshalIndent(i any, prefix, indent string) ([]byte, error) {
 	return Marshal(i, IndentPrefix(prefix), Indent(indent))
 }

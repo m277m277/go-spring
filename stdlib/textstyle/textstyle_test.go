@@ -72,6 +72,21 @@ func TestAttribute_Sprint(t *testing.T) {
 			input:    "test",
 			expected: "\x1b[42mtest\x1b[0m",
 		},
+		// Remaining foreground and background colors.
+		{name: "Black", attr: textstyle.Black, input: "x", expected: "\x1b[30mx\x1b[0m"},
+		{name: "Green", attr: textstyle.Green, input: "x", expected: "\x1b[32mx\x1b[0m"},
+		{name: "Yellow", attr: textstyle.Yellow, input: "x", expected: "\x1b[33mx\x1b[0m"},
+		{name: "Blue", attr: textstyle.Blue, input: "x", expected: "\x1b[34mx\x1b[0m"},
+		{name: "Magenta", attr: textstyle.Magenta, input: "x", expected: "\x1b[35mx\x1b[0m"},
+		{name: "Cyan", attr: textstyle.Cyan, input: "x", expected: "\x1b[36mx\x1b[0m"},
+		{name: "White", attr: textstyle.White, input: "x", expected: "\x1b[37mx\x1b[0m"},
+		{name: "BgBlack", attr: textstyle.BgBlack, input: "x", expected: "\x1b[40mx\x1b[0m"},
+		{name: "BgRed", attr: textstyle.BgRed, input: "x", expected: "\x1b[41mx\x1b[0m"},
+		{name: "BgYellow", attr: textstyle.BgYellow, input: "x", expected: "\x1b[43mx\x1b[0m"},
+		{name: "BgBlue", attr: textstyle.BgBlue, input: "x", expected: "\x1b[44mx\x1b[0m"},
+		{name: "BgMagenta", attr: textstyle.BgMagenta, input: "x", expected: "\x1b[45mx\x1b[0m"},
+		{name: "BgCyan", attr: textstyle.BgCyan, input: "x", expected: "\x1b[46mx\x1b[0m"},
+		{name: "BgWhite", attr: textstyle.BgWhite, input: "x", expected: "\x1b[47mx\x1b[0m"},
 	}
 
 	for _, tt := range tests {
@@ -102,6 +117,12 @@ func TestText_Sprint(t *testing.T) {
 	textWithAttrs := textstyle.NewText(attributes...)
 	result = textWithAttrs.Sprint("test")
 	assert.String(t, result).Equal("\x1b[1;31;42mtest\x1b[0m")
+
+	// Sprint with no args still emits the wrap codes around an empty string.
+	assert.String(t, textstyle.Red.Sprint()).Equal("\x1b[31m\x1b[0m")
+
+	// Sprint concatenates multiple args like fmt.Sprint.
+	assert.String(t, textstyle.Red.Sprint("a", 1)).Equal("\x1b[31ma1\x1b[0m")
 }
 
 func TestText_Sprintf(t *testing.T) {
@@ -112,17 +133,6 @@ func TestText_Sprintf(t *testing.T) {
 	text := textstyle.NewText(attributes...)
 	result := text.Sprintf("hello %s", "world")
 	assert.String(t, result).Equal("\x1b[1;34mhello world\x1b[0m")
-}
-
-func TestWrapFunction(t *testing.T) {
-	// Test that wrap function properly handles multiple attributes
-	attributes := []textstyle.Attribute{textstyle.Bold, textstyle.Italic}
-	result := textstyle.NewText(attributes...).Sprint("test")
-	assert.String(t, result).Equal("\x1b[1;3mtest\x1b[0m")
-
-	// Test empty attributes case
-	emptyResult := textstyle.NewText().Sprint("test")
-	assert.String(t, emptyResult).Equal("test")
 }
 
 func TestANSIFormatCorrectness(t *testing.T) {

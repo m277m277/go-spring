@@ -18,10 +18,11 @@ package gs_conf
 
 import (
 	"errors"
-	"fmt"
 	"io/fs"
 	"os"
 	"strings"
+
+	"go-spring.org/stdlib/errutil"
 )
 
 // EnvFile defines the environment variable name used to override the
@@ -218,14 +219,14 @@ func (p *envParser) readKey() (string, error) {
 	}
 	key := strings.TrimRight(string(p.data[start:p.pos]), " \t")
 	if p.peek() != '=' {
-		return "", fmt.Errorf(".env line %d: missing '=' after key %q", p.line, key)
+		return "", errutil.Explain(nil, ".env line %d: missing '=' after key %q", p.line, key)
 	}
 	p.next() // consume '='
 	if key == "" {
-		return "", fmt.Errorf(".env line %d: empty variable name", p.line)
+		return "", errutil.Explain(nil, ".env line %d: empty variable name", p.line)
 	}
 	if !isValidEnvName(key) {
-		return "", fmt.Errorf(".env line %d: invalid variable name %q", p.line, key)
+		return "", errutil.Explain(nil, ".env line %d: invalid variable name %q", p.line, key)
 	}
 	return key, nil
 }
@@ -278,7 +279,7 @@ func (p *envParser) readSingleQuoted() (string, error) {
 		}
 		b.WriteByte(p.next())
 	}
-	return "", fmt.Errorf(".env line %d: unterminated single-quoted value", p.line)
+	return "", errutil.Explain(nil, ".env line %d: unterminated single-quoted value", p.line)
 }
 
 // readDoubleQuoted reads a value wrapped in double quotes. Backslash
@@ -295,7 +296,7 @@ func (p *envParser) readDoubleQuoted(lookup func(string) (string, bool)) (string
 		case '\\':
 			p.next() // consume backslash
 			if p.eof() {
-				return "", fmt.Errorf(".env line %d: unterminated double-quoted value", p.line)
+				return "", errutil.Explain(nil, ".env line %d: unterminated double-quoted value", p.line)
 			}
 			p.writeEscape(&b)
 		case '$':
@@ -305,7 +306,7 @@ func (p *envParser) readDoubleQuoted(lookup func(string) (string, bool)) (string
 			b.WriteByte(p.next())
 		}
 	}
-	return "", fmt.Errorf(".env line %d: unterminated double-quoted value", p.line)
+	return "", errutil.Explain(nil, ".env line %d: unterminated double-quoted value", p.line)
 }
 
 // writeEscape writes the escape sequence following a backslash to b.
@@ -397,7 +398,7 @@ func (p *envParser) expectLineEnd() error {
 		}
 		return nil
 	default:
-		return fmt.Errorf(".env line %d: unexpected content after quoted value", p.line)
+		return errutil.Explain(nil, ".env line %d: unexpected content after quoted value", p.line)
 	}
 }
 

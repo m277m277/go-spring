@@ -35,7 +35,7 @@ func TestOnOnce(t *testing.T) {
 	t.Run("nil condition", func(t *testing.T) {
 		assert.Panic(t, func() {
 			OnOnce(nil)
-		}, "conditions cannot contains nil")
+		}, "conditions cannot contain nil")
 	})
 
 	t.Run("evaluated once", func(t *testing.T) {

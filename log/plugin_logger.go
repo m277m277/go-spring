@@ -39,7 +39,7 @@ func init() {
 // A Logger receives log events and forwards them to one or more appenders.
 type Logger interface {
 	Lifecycle             // Start/Stop methods for resource management
-	GetName() string      // Appender's name
+	GetName() string      // Logger's name
 	GetTags() []string    // Tags associated with this logger
 	GetLevel() LevelRange // Level range handled by this logger
 	SetLevel(LevelRange)  // Overrides the level range at runtime
@@ -168,7 +168,10 @@ func ParseBufferFullPolicy(s string) (BufferFullPolicy, error) {
 // and processes them in a background goroutine.
 type AsyncLogger struct {
 	LoggerBase
-	AppenderRefs []*AppenderRef   `PluginElement:"appenderRef"`
+	AppenderRefs []*AppenderRef `PluginElement:"appenderRef"`
+
+	// BufferSize is the number of events the async buffer can hold.
+	// Start returns an error if it is smaller than 100.
 	BufferSize   int              `PluginAttribute:"bufferSize,default=10000"`
 	OnBufferFull BufferFullPolicy `PluginAttribute:"onBufferFull,default=discard"`
 
@@ -189,10 +192,14 @@ func (c *AsyncLogger) GetAppenderRefs() (syncMode bool, _ []*AppenderRef) {
 	return false, c.AppenderRefs
 }
 
+// minBufferSize is the smallest async buffer size accepted by AsyncLogger.Start.
+const minBufferSize = 100
+
 // Start initializes the buffer and starts the background worker goroutine.
 func (c *AsyncLogger) Start() error {
-	if c.BufferSize < 100 {
-		return errutil.Explain(nil, "bufferSize is too small") // todo details
+	if c.BufferSize < minBufferSize {
+		return errutil.Explain(nil, "bufferSize %d is too small, it must be at least %d",
+			c.BufferSize, minBufferSize)
 	}
 
 	c.buf = make(chan *Event, c.BufferSize)

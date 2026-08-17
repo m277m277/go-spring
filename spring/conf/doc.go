@@ -98,8 +98,8 @@ Examples:
 Register custom validation functions:
 
 	// Register a validator that checks a time is in the future
-	conf.RegisterValidateFunc("future", func(t time.Time) bool {
-	    return t.After(time.Now())
+	conf.RegisterValidateFunc("future", func(t time.Time) (bool, error) {
+	    return t.After(time.Now()), nil
 	})
 
 	// Use it in validation:
@@ -176,7 +176,7 @@ RegisterProvider to support additional configuration sources.
 Built-in readers are registered for these extensions:
 
   - JSON (.json)
-  - Java Properties (.properties)
+  - Java Properties (.properties, .props)
   - YAML (.yaml, .yml)
   - TOML (.toml, .tml)
 
@@ -191,6 +191,7 @@ Register custom readers with RegisterReader for additional formats.
 	    "log"
 
 	    "go-spring.org/spring/conf"
+	    "go-spring.org/stdlib/flatten"
 	)
 
 	type Config struct {
@@ -207,7 +208,7 @@ Register custom readers with RegisterReader for additional formats.
 
 	    // Bind to struct (uses ${ROOT} by default - binds all keys from root)
 	    var cfg Config
-	    if err := conf.Bind(props, &cfg); err != nil {
+	    if err := conf.Bind(flatten.NewPropertiesStorage(props), &cfg); err != nil {
 	        log.Fatal(err)
 	    }
 
@@ -218,7 +219,7 @@ Register custom readers with RegisterReader for additional formats.
 Bind can also bind only under a specific key prefix:
 
 	var cfg AppConfig
-	conf.Bind(props, &cfg, "${app}") // all fields look for keys under app.*
+	conf.Bind(flatten.NewPropertiesStorage(props), &cfg, "${app}") // all fields look for keys under app.*
 
 # Extension Points
 

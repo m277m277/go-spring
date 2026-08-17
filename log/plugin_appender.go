@@ -127,7 +127,9 @@ func WriteEvent(w io.Writer, e *Event, layout Layout) {
 }
 
 // Appender defines components responsible for writing log events.
-// Implementations should document whether they are safe for concurrent use.
+// Implementations declare their concurrency safety via ConcurrentSafe;
+// appenders that report false are rejected for sync-mode loggers and
+// may only be used behind an async logger.
 //
 // Append MUST NOT modify or retain references to the Event.
 type Appender interface {
@@ -158,9 +160,16 @@ type DiscardAppender struct {
 	AppenderBase
 }
 
-func (c *DiscardAppender) Start() error         { return nil }
-func (c *DiscardAppender) Stop()                {}
-func (c *DiscardAppender) Append(e *Event)      {}
+// Start does nothing; the appender holds no resources.
+func (c *DiscardAppender) Start() error { return nil }
+
+// Stop does nothing; the appender holds no resources.
+func (c *DiscardAppender) Stop() {}
+
+// Append discards the event without writing it anywhere.
+func (c *DiscardAppender) Append(e *Event) {}
+
+// ConcurrentSafe returns true; discarding needs no synchronization.
 func (c *DiscardAppender) ConcurrentSafe() bool { return true }
 
 // ConsoleAppender writes formatted log events to standard output.
@@ -168,14 +177,18 @@ type ConsoleAppender struct {
 	AppenderBase
 }
 
+// Start does nothing; the appender holds no resources.
 func (c *ConsoleAppender) Start() error { return nil }
-func (c *ConsoleAppender) Stop()        {}
+
+// Stop does nothing; the appender holds no resources.
+func (c *ConsoleAppender) Stop() {}
 
 // Append formats the event and writes it to standard output.
 func (c *ConsoleAppender) Append(e *Event) {
 	WriteEvent(Stdout, e, c.Layout)
 }
 
+// ConcurrentSafe returns true; the standard output stream is concurrency-safe.
 func (c *ConsoleAppender) ConcurrentSafe() bool { return true }
 
 // FileAppender writes formatted log events to a file in append mode.
@@ -211,11 +224,12 @@ func (c *FileAppender) Append(e *Event) {
 	WriteEvent(c.file, e, c.Layout)
 }
 
+// ConcurrentSafe returns true; each write goes through the shared file.
 func (c *FileAppender) ConcurrentSafe() bool { return true }
 
 // RollingFileAppender writes log events to files that rotate at fixed time intervals.
-// It is safe for concurrent use only when Lock is true.
-// If Lock is false, callers must ensure serialized access (e.g., via an async logger).
+// It is safe for concurrent use only when SyncLock is true.
+// If SyncLock is false, callers must ensure serialized access (e.g., via an async logger).
 type RollingFileAppender struct {
 	AppenderBase
 
@@ -232,10 +246,11 @@ type RollingFileAppender struct {
 // Start opens the initial log file and prepares for rotation.
 func (c *RollingFileAppender) Start() error {
 	c.writer = &RollingFileWriter{
-		fileDir:  c.FileDir,
-		fileName: c.FileName,
-		interval: c.Interval,
-		maxAge:   c.MaxAge,
+		fileDir:    c.FileDir,
+		fileName:   c.FileName,
+		interval:   c.Interval,
+		maxAge:     c.MaxAge,
+		closeDelay: defaultCloseFileDelay,
 	}
 	_, err := c.writer.Rotate()
 	return err
@@ -267,7 +282,13 @@ func (c *RollingFileAppender) Append(e *Event) {
 	}
 }
 
+// ConcurrentSafe returns true only when SyncLock is enabled;
+// otherwise the appender must be driven by a single goroutine.
 func (c *RollingFileAppender) ConcurrentSafe() bool { return c.SyncLock }
+
+// defaultCloseFileDelay is how long a rotated file stays open after rotation
+// before it is closed and becomes eligible for MaxAge cleanup.
+const defaultCloseFileDelay = 5 * time.Minute
 
 // RollingFileWriter is the low-level sequential writer.
 // It is NOT safe for concurrent use;
@@ -279,11 +300,23 @@ type RollingFileWriter struct {
 	currFile *File
 	currTime int64
 	maxAge   time.Duration
+
+	// closeDelay is how long a rotated file stays open after Rotate switches
+	// to a new file. RollingFileAppender.Start sets it to defaultCloseFileDelay;
+	// a zero value (direct construction) also falls back to that default.
+	// Tests may shorten it to make rotation cleanup observable.
+	closeDelay time.Duration
 }
 
 // Rotate creates a new log file if the current time exceeds the rotation interval.
 // It returns the active file for writing.
-// The previous file is closed asynchronously after a delay.
+//
+// The previous file is closed asynchronously after closeDelay, and expired-file
+// cleanup (MaxAge) runs right after that close. The delay is a tradeoff: keeping
+// the old file briefly open lets writes that raced with the rotation still land,
+// but those late events go to the already-rotated file and may be lost once it
+// is closed or cleaned up.
+//
 // This method is not concurrency-safe.
 func (w *RollingFileWriter) Rotate() (*File, error) {
 	now := time.Now()
@@ -303,9 +336,12 @@ func (w *RollingFileWriter) Rotate() (*File, error) {
 
 	if w.currFile != nil {
 		oldFile := w.currFile
+		delay := w.closeDelay
+		if delay <= 0 {
+			delay = defaultCloseFileDelay
+		}
 		go func() {
-			// Delay closing old file. Some logs may be lost.
-			time.Sleep(5 * time.Minute)
+			time.Sleep(delay)
 			CloseFile(oldFile)
 			w.clearExpiredFiles()
 		}()

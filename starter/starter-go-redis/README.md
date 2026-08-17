@@ -103,6 +103,13 @@ See the `sentinel` and `cluster` instances in
 [docker-compose.yml](example/docker-compose.yml) for bringing up all three
 topologies locally.
 
+## Compatibility
+
+Dragonfly and Kvrocks speak the Redis wire protocol, so this starter drives
+them unchanged — point `addr` at the Dragonfly/Kvrocks endpoint. RESP-only
+features are shared; features outside the protocol (Dragonfly's
+multi-tenancy, Kvrocks' namespace) are out of scope and need a custom driver.
+
 ## Core Features
 
 The [example.go](example/example.go) program demonstrates and asserts three core Redis operations:

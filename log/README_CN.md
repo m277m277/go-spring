@@ -28,7 +28,7 @@
   - **Logger**：同时支持同步和异步日志，异步模式不阻塞业务主线程
 - **灵活的滚动日志**：按时间间隔自动切割，支持自动清理过期日志，可将警告及以上级别日志分离到独立文件
 - **性能优化**：使用缓冲池复用、日志事件对象池，最小化内存分配开销，基准测试中表现优异
-- **动态配置重载**：支持运行时从外部配置文件重新加载日志配置，无需重启应用
+- **动态配置重载**：支持运行时通过 `RefreshConfig` 重新加载日志配置，无需重启应用；配置文件的读取与解析由调用方完成
 - **完善测试覆盖**：核心模块均有单元测试覆盖，保证稳定可靠
 
 ## 核心概念
@@ -72,8 +72,11 @@ package main
 
 import (
   "context"
+  "encoding/json"
+  "os"
 
   "go-spring.org/log"
+  "go-spring.org/stdlib/flatten"
 )
 
 func main() {
@@ -85,9 +88,17 @@ func main() {
     }
   }
 
-  // 从配置文件加载日志配置
-  err := log.RefreshFile("log.properties")
+  // 从配置文件加载日志配置。文件的读取与解析由调用方完成：
+  // 先解码成 map，再扁平化，最后交给 RefreshConfig。
+  b, err := os.ReadFile("log.json")
   if err != nil {
+    panic(err)
+  }
+  var m map[string]any
+  if err := json.Unmarshal(b, &m); err != nil {
+    panic(err)
+  }
+  if err := log.RefreshConfig(flatten.Flatten(m)); err != nil {
     panic(err)
   }
 
@@ -108,7 +119,7 @@ func main() {
 
 ## 配置示例
 
-Go-Spring Log 支持属性文件、JSON、YAML 等多种配置格式：
+Go-Spring Log 支持属性文件、JSON、YAML 等多种配置格式（由调用方解析成扁平属性 map 后传给 `RefreshConfig`，例如借助 `stdlib/flatten`）：
 
 ```properties
 # 异步日志缓冲区大小
@@ -132,7 +143,7 @@ logger.root.appenderRef.ref=console
 # 给匹配的标签配置独立异步日志
 logger.request.type=AsyncLogger
 logger.request.level=DEBUG
-logger.request.tag=_app_request*,_rpc_*
+logger.request.tag=_app_request_*,_rpc_*
 logger.request.bufferSize=${bufferSize}
 logger.request.onBufferFull=block
 logger.request.appenderRef[0].ref=file

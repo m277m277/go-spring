@@ -1714,6 +1714,23 @@ func TestNumber_InDelta(t *testing.T) {
 	assert.Number(m, uint(5)).InDelta(uint(4), uint(2))
 	assert.String(t, m.String()).Equal("")
 
+	// Unsigned types where v < expect must not wrap around to a huge diff.
+	m.Reset()
+	assert.Number(m, uint(8)).InDelta(uint(10), uint(5))
+	assert.String(t, m.String()).Equal("")
+
+	m.Reset()
+	assert.Number(m, uint8(7)).InDelta(uint8(10), uint8(5))
+	assert.String(t, m.String()).Equal("")
+
+	m.Reset()
+	assert.Number(m, uint(1)).InDelta(uint(10), uint(3))
+	assert.String(t, m.String()).Equal(`error# Assertion failed: expected number to be within ±3 of 10, but it is 1`)
+
+	m.Reset()
+	assert.Number(m, uint64(100)).InDelta(uint64(99990), uint64(50))
+	assert.String(t, m.String()).Equal(`error# Assertion failed: expected number to be within ±50 of 99990, but it is 100`)
+
 	m.Reset()
 	assert.Number(m, uint16(100)).InDelta(uint16(95), uint16(10))
 	assert.String(t, m.String()).Equal("")

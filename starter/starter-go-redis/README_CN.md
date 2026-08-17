@@ -102,6 +102,12 @@ TLS、连接池大小、超时、OTel 埋点以及启动期 fail-fast `Ping` 对
 完整可运行示例见 [app.properties](example/conf/app.properties) 中的 `sentinel` 与 `cluster` 实例，
 本地拉起三种拓扑参见 [docker-compose.yml](example/docker-compose.yml)。
 
+## 兼容性
+
+Dragonfly 与 Kvrocks 说 Redis 线协议，因此本 starter 可直接驱动它们——把
+`addr` 指向 Dragonfly/Kvrocks 端点即可。RESP 协议内的特性共享；协议之外的
+特性（Dragonfly 多租户、Kvrocks 命名空间）不在范围内，需自定义 driver。
+
 ## 核心功能
 
 [example.go](example/example.go) 示例程序演示并断言了三项 Redis 核心操作：

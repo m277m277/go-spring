@@ -17,31 +17,62 @@
 
 `stdlib` 是一系列精心设计的独立 Go 语言工具模块集合，对 Go 标准库进行了有益补充，让日常 Go 开发更加便捷愉悦。
 
-每个模块都是独立的，可以单独使用。每个模块目录下都有详细的文档说明。
+每个模块都是独立的，可以单独使用，整个包图只依赖 Go 标准库。每个包目录下只有一份 README，讲清楚定位场景、使用方式与关键设计。
 
 ## 可用模块
 
+### Web 与网络
+
 | 模块 | 说明 |
 |--------|-------------|
-| [ctxcache](./ctxcache/) | 基于 Context 的缓存工具 |
-| [errutil](./errutil/) | 错误处理工具，提供错误包装、栈追踪捕获等功能 |
-| [fileutil](./fileutil/) | 文件系统工具 |
-| [flatten](./flatten/) | 嵌套数据结构扁平化 |
-| [formutil](./formutil/) | 表单处理工具 |
-| [funcutil](./funcutil/) | 函数工具，延迟求值、偏函数应用等 |
-| [goutil](./goutil/) | Go 通用工具，上下文取消控制等功能 |
-| [hashutil](./hashutil/) | 哈希计算工具 |
-| [iterutil](./iterutil/) | 迭代器和循环处理工具 |
-| [jsonflow](./jsonflow/) | JSON 流式处理工具包 |
-| [listutil](./listutil/) | 列表和链表工具 |
-| [mathutil](./mathutil/) | 数学数值工具 |
-| [md5util](./md5util/) | MD5 哈希便捷工具 |
+| [httpclt](./httpclt/) | 声明式 HTTP 客户端运行时工具：请求元数据、请求选项与流式 JSON 解码 |
+| [httpsvr](./httpsvr/) | 轻量 HTTP 服务端工具：`ServeMux` 服务缝、请求上下文、JSON 与 SSE 处理器封装 |
+| [httputil](./httputil/) | 从入站请求推导 OTel-free 的 HTTP 语义约定属性，供各 server starter 复用 |
+| [formutil](./formutil/) | 表单处理工具：把表单值解码进类型化结构体 |
 | [netutil](./netutil/) | 网络相关工具 |
-| [ordered](./ordered/) | 有序 Map 和有序 Set 数据结构 |
+
+### JSON 与数据整型
+
+| 模块 | 说明 |
+|--------|-------------|
+| [jsonflow](./jsonflow/) | JSON 流式处理工具包 |
+| [flatten](./flatten/) | 嵌套数据结构扁平化为平铺 key 路径 |
 | [patchutil](./patchutil/) | 补丁处理工具 |
-| [testing](./testing/) | 优雅的流式 API 风格单元测试断言库，支持 `assert` 和 `require` 两种模式，提供丰富的类型专属断言 |
+
+### 集合与泛型
+
+| 模块 | 说明 |
+|--------|-------------|
+| [goutil](./goutil/) | Go 泛型通用工具，上下文取消控制等功能 |
+| [iterutil](./iterutil/) | 迭代器和循环处理工具 |
+| [listutil](./listutil/) | 给 `container/list` 加泛型类型安全外壳，附切片工具 |
+| [ordered](./ordered/) | 有序 Map 和有序 Set 数据结构 |
+
+### 错误、上下文与文件
+
+| 模块 | 说明 |
+|--------|-------------|
+| [errutil](./errutil/) | 错误处理工具：错误包装、栈追踪捕获、构造器前置条件 |
+| [ctxcache](./ctxcache/) | 基于 Context 的请求级缓存工具 |
+| [fileutil](./fileutil/) | 文件系统工具 |
+| [funcutil](./funcutil/) | 函数工具：延迟求值、偏函数应用等 |
+
+### 文本、哈希与数值
+
+| 模块 | 说明 |
+|--------|-------------|
 | [textstyle](./textstyle/) | 文本样式格式化工具 |
+| [hashutil](./hashutil/) | 哈希计算工具 |
+| [md5util](./md5util/) | MD5 哈希便捷工具 |
+| [mathutil](./mathutil/) | 数学数值工具，含防溢出算术 |
+| [bufutil](./bufutil/) | 有界缓冲工具，旁路拷贝永不阻塞主流程 |
 | [typeutil](./typeutil/) | 类型反射和转换工具 |
+
+### 测试
+
+| 模块 | 说明 |
+|--------|-------------|
+| [testing](./testing/) | 流式 API 断言库：`assert`（失败继续）与 `require`（失败即停）两种模式，类型专属断言 |
 
 ## 许可证
 

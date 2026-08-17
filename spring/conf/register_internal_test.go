@@ -43,3 +43,30 @@ func TestRegisterNilValidateFunc(t *testing.T) {
 		RegisterValidateFunc(name, fn)
 	}, "validate function nilValidateFuncForTest cannot be nil")
 }
+
+func TestRegisterValidateFuncEmptyName(t *testing.T) {
+	assert.Panic(t, func() {
+		RegisterValidateFunc("", func(int) (bool, error) { return true, nil })
+	}, "validate function name can't be empty")
+}
+
+func TestRegisterValidateFuncDuplicateName(t *testing.T) {
+	const name = "dupValidateFuncForTest"
+	RegisterValidateFunc(name, func(int) (bool, error) { return true, nil })
+	defer delete(validateFuncs, name)
+
+	assert.Panic(t, func() {
+		RegisterValidateFunc(name, func(int) (bool, error) { return true, nil })
+	}, "validate function "+name+" already exists")
+}
+
+type dupConverterTarget struct{}
+
+func TestRegisterDuplicateConverter(t *testing.T) {
+	RegisterConverter(func(string) (dupConverterTarget, error) { return dupConverterTarget{}, nil })
+	defer delete(converters, reflect.TypeFor[dupConverterTarget]())
+
+	assert.Panic(t, func() {
+		RegisterConverter(func(string) (dupConverterTarget, error) { return dupConverterTarget{}, nil })
+	}, "converter for type .* already exists")
+}

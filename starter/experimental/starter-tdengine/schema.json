@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "spring.tdengine",
+  "type": "object",
+  "properties": {
+    "dsn": {
+      "type": "string",
+      "description": "[user[:password]@]ws(host:port)/[dbname][?params], e.g. 'root:taosdata@ws(127.0.0.1:6041)/power'"
+    },
+    "max-open-conns": {
+      "type": "integer",
+      "default": 8
+    },
+    "max-idle-conns": {
+      "type": "integer",
+      "default": 2
+    },
+    "conn-max-lifetime": {
+      "type": "string",
+      "description": "Duration string, e.g. '30m'",
+      "default": "0s"
+    },
+    "observability": {
+      "type": "object",
+      "description": "Per-statement span/metric/access-log config (off/brief/detailed), see observe.ObserveConfig"
+    },
+    "driver": {
+      "type": "string",
+      "default": "DefaultDriver"
+    }
+  }
+}

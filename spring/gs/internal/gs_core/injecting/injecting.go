@@ -38,15 +38,6 @@ import (
 	"go-spring.org/stdlib/typeutil"
 )
 
-// refreshState represents the state of a refresh operation.
-type refreshState int
-
-const (
-	RefreshDefault = refreshState(iota) // Not refreshed yet
-	Refreshing                          // Currently refreshing
-	Refreshed                           // Successfully refreshed
-)
-
 // Injecting is the core IoC container component.
 // It handles bean creation, dependency injection, lifecycle management,
 // dynamic property updates, and destroy callbacks.
@@ -114,14 +105,16 @@ func (c *Injecting) Refresh(roots, beans []*gs_bean.BeanDefinition) (err error) 
 
 	stack := NewStack()
 	defer func() {
-		// If wiring failed or beans remain on the stack, log the error for debugging.
-		if err != nil || len(stack.beanStack) > 0 {
+		// If wiring failed, log the error for debugging. The wiring stack is
+		// always unwound by then: pushBean/popBean are defer-balanced in
+		// wireBean, so there is no leftover-beans condition to check here.
+		if err != nil {
 			log.Errorf(context.Background(), gs_bean.TagBeanLifecycle, "%s", err)
 		}
 	}()
 
 	r := &Injector{
-		state:                   RefreshDefault,
+		state:                   gs.RefreshDefault,
 		props:                   c.props,
 		beansByName:             beansByName,
 		beansByType:             beansByType,
@@ -129,13 +122,13 @@ func (c *Injecting) Refresh(roots, beans []*gs_bean.BeanDefinition) (err error) 
 	}
 
 	// Step 2: Wire all root beans.
-	r.state = Refreshing
+	r.state = gs.Refreshing
 	for _, b := range roots {
 		if err = r.wireBean(b, stack); err != nil {
 			return err
 		}
 	}
-	r.state = Refreshed
+	r.state = gs.Refreshed
 
 	// Step 3: Wire lazy-injected fields deferred during step 2.
 	for _, f := range stack.lazyFields {
@@ -179,7 +172,7 @@ func (c *Injecting) Close() {
 // - Lazy field handling and circular dependency detection.
 // - Respecting forceAutowireIsNullable flag to treat missing dependencies as optional.
 type Injector struct {
-	state                   refreshState                               // Current wiring state
+	state                   gs.RefreshState                            // Current wiring state
 	props                   *gs_dync.Properties                        // Property resolver
 	beansByName             map[string][]*gs_bean.BeanDefinition       // Beans indexed by name
 	beansByType             map[reflect.Type][]*gs_bean.BeanDefinition // Beans indexed by type
@@ -296,7 +289,7 @@ func (c *Injector) getBean(t reflect.Type, tag WireTag, stack *Stack) (*gs_bean.
 
 	b := foundBeans[0]
 	log.Debugf(context.Background(), gs_bean.TagBeanLifecycle, "bean matched: tag=%q type=%s => %s", tag, t, b)
-	if c.state == Refreshing {
+	if c.state == gs.Refreshing {
 		if err := c.wireBean(b, stack); err != nil {
 			return nil, err
 		}
@@ -431,7 +424,7 @@ func (c *Injector) getBeans(t reflect.Type, tags []WireTag, nullable bool,
 	}
 
 	// If the container is in the refreshing state, wire the beans before returning them
-	if c.state == Refreshing {
+	if c.state == gs.Refreshing {
 		for _, b := range beans {
 			if err := c.wireBean(b, stack); err != nil {
 				return nil, err
@@ -533,12 +526,15 @@ func (c *Injector) autowire(v reflect.Value, str string, stack *Stack) error {
 
 // wireBean fully constructs, injects dependencies, and initializes the given BeanDefinition.
 // Steps:
-// 1. Wires beans declared in GetDependsOn() recursively.
-// 2. Pushes bean onto the wiring stack (registers destroyer if it has one).
-// 3. Detects circular dependencies; returns error if detected.
-// 4. Invokes the bean's constructor (if any) via getBeanValue.
-// 5. Performs field-level wiring using wireBeanValue.
-// 6. Calls the bean's Init callback if defined.
+//  1. Wires beans declared in GetDependsOn() recursively.
+//  2. Pushes the bean onto the wiring stack. Destroy callbacks are not
+//     registered here; after wiring completes they are collected in
+//     dependency-safe order (see getSortedDestroyers).
+//  3. Detects circular dependencies; returns error if detected.
+//  4. Invokes the bean's constructor (if any) via getBeanValue.
+//  5. Performs field-level wiring using wireBeanValue.
+//  6. Calls the bean's Init callback if defined.
+//
 // After completion, bean status is set to StatusWired and popped from the stack.
 func (c *Injector) wireBean(b *gs_bean.BeanDefinition, stack *Stack) error {
 
@@ -553,8 +549,11 @@ func (c *Injector) wireBean(b *gs_bean.BeanDefinition, stack *Stack) error {
 		return gs.WrapInjectErr(b.String(), err)
 	}
 
-	// If the bean is already wired (StatusWired), we can skip it
-	// because it's already been wired and initialized.
+	// If the bean is already on the current wiring path (pushed but not yet
+	// popped), a dependency is re-entering it while its fields are still
+	// being wired. Return as-is so the caller observes the partially wired
+	// bean instead of re-entering it. Fully wired beans are never on the
+	// path — they were popped — and are skipped below instead.
 	if _, ok := stack.beanCycle[b]; ok {
 		return nil
 	}
@@ -562,8 +561,12 @@ func (c *Injector) wireBean(b *gs_bean.BeanDefinition, stack *Stack) error {
 	stack.pushBean(b)
 	defer stack.popBean()
 
-	// If the bean is already created (StatusCreated), we can skip it
-	// because it's already been wired and initialized.
+	// Skip beans whose construction already ran in this refresh:
+	// StatusCreated means the constructor succeeded (field wiring is either
+	// in progress on the current path — that case already returned above via
+	// beanCycle — or was abandoned by an earlier failed pass), and
+	// StatusWired means the bean is fully wired and initialized. Neither
+	// needs to be created again.
 	if b.GetStatus() >= gs_bean.StatusCreated {
 		return nil
 	}
@@ -885,7 +888,12 @@ func (s *Stack) getSortedDestroyers() ([]func(), error) {
 		beanDeps.PushBack(d)
 	}
 
-	// Topological sort produces creation order (dependencies first)
+	// Topological sort produces creation order (dependencies first).
+	//
+	// The error branch is unreachable in practice: wireBean rejects circular
+	// dependencies up front (the StatusCreating check), so the dependency
+	// graph recorded in beanDepMap is acyclic and the sort cannot fail. The
+	// branch is kept only as a safety net.
 	beanDeps, err := gs_util.TopologicalSort(beanDeps, getBeforeDeps)
 	if err != nil {
 		return nil, errutil.Explain(err, "sort destroy callbacks failed")

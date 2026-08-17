@@ -18,6 +18,7 @@ package jsonflow
 
 import (
 	"bytes"
+	"maps"
 	"math"
 	"strings"
 	"testing"
@@ -37,6 +38,12 @@ func TestEncodeScalar(t *testing.T) {
 	if got := encodeToString(t, func(e Encoder) error {
 		return EncodeBool(e, true)
 	}); got != "true" {
+		t.Fatalf("got %s", got)
+	}
+
+	if got := encodeToString(t, func(e Encoder) error {
+		return EncodeBool(e, false)
+	}); got != "false" {
 		t.Fatalf("got %s", got)
 	}
 
@@ -271,6 +278,103 @@ func TestEncodeObject(t *testing.T) {
 	}); got != "null" {
 		t.Fatalf("got %s", got)
 	}
+
+	if got := encodeToString(t, func(e Encoder) error {
+		return EncodeObject[JSONEncoder](e, nil)
+	}); got != "null" {
+		t.Fatalf("got %s", got)
+	}
+}
+
+func TestMarshalOptions(t *testing.T) {
+	type val struct {
+		M map[string]int
+		S []int
+	}
+
+	t.Run("Default nil collections are null and keys are sorted", func(t *testing.T) {
+		b, err := Marshal(map[string]int{"b": 2, "a": 1})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := string(b); got != `{"a":1,"b":2}` {
+			t.Fatalf("got %s", got)
+		}
+
+		b, err = Marshal(val{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := string(b); got != `{"M":null,"S":null}` {
+			t.Fatalf("got %s", got)
+		}
+	})
+
+	t.Run("NilSliceAsNull override", func(t *testing.T) {
+		b, err := Marshal(val{}, NilSliceAsNull(false))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := string(b); got != `{"M":null,"S":[]}` {
+			t.Fatalf("got %s", got)
+		}
+	})
+
+	t.Run("NilMapAsNull override", func(t *testing.T) {
+		b, err := Marshal(val{}, NilMapAsNull(false))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := string(b); got != `{"M":{},"S":null}` {
+			t.Fatalf("got %s", got)
+		}
+	})
+
+	t.Run("Deterministic override round-trips", func(t *testing.T) {
+		b, err := Marshal(map[string]int{"b": 2, "a": 1}, Deterministic(false))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var m map[string]int
+		if err := Unmarshal(b, &m); err != nil {
+			t.Fatal(err)
+		}
+		if !maps.Equal(m, map[string]int{"a": 1, "b": 2}) {
+			t.Fatalf("got %v", m)
+		}
+	})
+
+	t.Run("MarshalIndent", func(t *testing.T) {
+		b, err := MarshalIndent(val{}, "", "  ")
+		if err != nil {
+			t.Fatal(err)
+		}
+		expected := "{\n  \"M\": null,\n  \"S\": null\n}"
+		if got := string(b); got != expected {
+			t.Fatalf("got %s", got)
+		}
+	})
+
+	t.Run("MarshalIndent with prefix", func(t *testing.T) {
+		b, err := MarshalIndent(val{}, "  ", "  ")
+		if err != nil {
+			t.Fatal(err)
+		}
+		expected := "{\n    \"M\": null,\n    \"S\": null\n  }"
+		if got := string(b); got != expected {
+			t.Fatalf("got %s", got)
+		}
+	})
+
+	t.Run("MarshalIndent ignores prefix and indent for JSONEncoder", func(t *testing.T) {
+		b, err := MarshalIndent(&encodedObject{Name: "alice"}, "", "  ")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := string(b); got != "{\"name\":\"alice\"}\n" {
+			t.Fatalf("got %s", got)
+		}
+	})
 }
 
 func TestMarshalWriteUsesEncodeJSON(t *testing.T) {

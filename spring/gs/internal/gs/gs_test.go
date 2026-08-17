@@ -17,11 +17,13 @@
 package gs
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"reflect"
 	"testing"
 
+	"go-spring.org/stdlib/errutil"
 	"go-spring.org/stdlib/testing/assert"
 )
 
@@ -53,5 +55,48 @@ func TestBeanSelector(t *testing.T) {
 		assert.That(t, s.Name).Equal("writer")
 		assert.That(t, s.Type).Equal(reflect.TypeFor[io.Writer]())
 		assert.That(t, fmt.Sprint(s)).Equal("{Type:io.Writer,Name:writer}")
+	})
+}
+
+func TestWrapInjectErr(t *testing.T) {
+
+	cause := errutil.Explain(nil, "boom")
+
+	t.Run("already wrapped error is returned unchanged", func(t *testing.T) {
+		wrapped := &InjectionError{Bean: "b1", Err: cause}
+		got := WrapInjectErr("b2", wrapped, "ctx %d", 42)
+		assert.That(t, got).Same(wrapped) // no duplicate wrapping, no extra context
+	})
+
+	t.Run("bean and format", func(t *testing.T) {
+		got := WrapInjectErr("b1", cause, "ctx %d", 42)
+		var e *InjectionError
+		assert.That(t, errors.As(got, &e)).True()
+		assert.That(t, e.Bean).Equal("b1")
+		assert.String(t, got.Error()).Equal("wire bean b1, err ctx 42: boom")
+		assert.String(t, e.Unwrap().Error()).Equal("ctx 42: boom")
+		assert.That(t, errors.Unwrap(e.Unwrap())).Same(cause)
+	})
+
+	t.Run("format only", func(t *testing.T) {
+		got := WrapInjectErr("", cause, "ctx %d", 42)
+		var e *InjectionError
+		assert.That(t, errors.As(got, &e)).False()
+		assert.String(t, got.Error()).Equal("ctx 42: boom")
+	})
+
+	t.Run("no args", func(t *testing.T) {
+		got := WrapInjectErr("b1", cause)
+		var e *InjectionError
+		assert.That(t, errors.As(got, &e)).True()
+		assert.String(t, got.Error()).Equal("wire bean b1, err boom")
+	})
+
+	t.Run("non-string format arg falls back to the original error", func(t *testing.T) {
+		got := WrapInjectErr("b1", cause, 42)
+		var e *InjectionError
+		assert.That(t, errors.As(got, &e)).True()
+		assert.That(t, e.Bean).Equal("b1")
+		assert.String(t, got.Error()).Equal("wire bean b1, err boom")
 	})
 }

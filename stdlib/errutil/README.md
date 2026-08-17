@@ -2,27 +2,19 @@
 
 [English](README.md) | [中文](README_CN.md)
 
-`errutil` is a lightweight Go utility package for structured error handling.
-It provides **two distinct semantic styles** for wrapping errors:
-
-1. **Explanatory wrapping** — Adds human-readable meaning or interpretation to an error, clarifying *what* went wrong in
-   business or logical terms.
-2. **Stack wrapping** — Adds contextual call-path information, showing *where* in the call chain the error was
-   propagated.
-
-These two patterns serve different purposes:
-
-* **Explanatory errors** are *user-facing* and semantic:
-  e.g. `"failed to load configuration: file not found"`
-* **Stack errors** are *developer-facing* and structural:
-  e.g. `"InitService >> LoadConfig >> file not found"`
-
-The goal is to make error wrapping more expressive by clearly separating **interpretation (`:`)** from **trace
-path (`>>`)**.
+`errutil` is a lightweight utility package for structured error handling, part
+of the zero-dependency `stdlib` layer; every helper is a pure function over
+Go's built-in `error` type. It provides two orthogonal wrapping verbs:
+**`Explain`** adds human-readable meaning — *what* went wrong in business
+terms, user-facing and semantic — while **`Stack`** adds call-path context —
+*where* the error passed through, developer-facing and structural. It also
+ships common sentinel errors and fail-fast precondition helpers; separating
+interpretation (`:`) from trace path (`>>`) makes wrapping more expressive
+than ad-hoc `fmt.Errorf` prefixes.
 
 ## Usage
 
-### Explanatory Wrapping
+### Explanatory wrapping
 
 Use `Explain` to add semantic meaning to an existing error:
 
@@ -32,7 +24,7 @@ return errutil.Explain(err, "failed to connect to database")
 // Output: "failed to connect to database: connection refused"
 ```
 
-### Stack Wrapping
+### Stack wrapping
 
 Use `Stack` to add call-path context for debugging or tracing:
 
@@ -42,27 +34,78 @@ return errutil.Stack(err, "LoadConfig")
 // Output: "LoadConfig >> file not found"
 ```
 
-### Combined Usage
+### Combined usage
 
-`Explain` and `Stack` can be combined — first add a semantic explanation,  
-then attach call-path context:
+`Explain` and `Stack` can be combined — first add a semantic explanation,
+then attach call-path context, preserving both meaning and trace:
 
 ```go
 baseErr := errors.New("file not found")
 baseErr = errutil.Explain(baseErr, "failed to load configuration")
 err := errutil.Stack(baseErr, "InitService")
 // Output: "InitService >> failed to load configuration: file not found"
-````
+```
 
-This pattern preserves both semantic meaning and call-path trace,
-making it ideal for large or layered systems.
-
-## Public API
+### API
 
 - `Explain(err, format, args...) error` — wraps with `":"`.
 - `Stack(err, format, args...) error` — wraps with `" >> "`.
 - `ErrForbiddenMethod`, `ErrUnimplementedMethod` — sentinel errors for the
   forbidden / not-implemented cases.
 
-Both wrappers use `fmt.Errorf("... %w", err)`, so `errors.Is` / `errors.As`
-keep working across chains.
+### Precondition helpers
+
+- `Field` — a named string value passed to `RequireAny`; `Name` is the
+  human-readable property name used in the error message, `Value` is the
+  field's current value.
+- `RequireField(component, field, value string) error` — returns a fail-fast
+  error when a required value is empty (whitespace-only counts as empty):
+
+```go
+if err := errutil.RequireField("mail", "host", cfg.Host); err != nil {
+    return nil, err
+}
+```
+
+- `RequireAny(component string, fields ...Field) error` — returns a fail-fast
+  error when every one of the alternative fields is empty, for cross-field
+  rules like "addr OR service-name" that declarative per-field validation
+  cannot express:
+
+```go
+if err := errutil.RequireAny("http-client",
+    errutil.Field{Name: "addr", Value: cfg.Addr},
+    errutil.Field{Name: "service-name", Value: cfg.ServiceName},
+); err != nil {
+    return nil, err
+}
+```
+
+## Design
+
+- **Two verbs, two separators.** `:` marks semantic interpretation, `>>` marks
+  call-path propagation. Splitting the two removes the "is this prefix a cause
+  or a location?" ambiguity that plagues single-verb wrapping.
+- **`%w` everywhere, no custom error type.** Every wrapper uses
+  `fmt.Errorf("... %w", err)` internally, so `errors.Is` / `errors.As` keep
+  working across chains. The package deliberately defines no error type of its
+  own; interoperability with the standard library is the point.
+- **Uniform `nil`-in behaviour.** When the inner error is `nil`, both wrappers
+  fall back to `fmt.Errorf(format, args...)`, so callers can write
+  `errutil.Explain(nil, "reason: %s", x)` without a `nil` guard.
+- **Deliberately not a stack-trace library.** `Stack` records a name for each
+  step; it does not capture `runtime.Callers` frames. Anything richer belongs
+  in a dedicated tracing package.
+- **Zero third-party imports.** `errutil` sits at the very bottom of the
+  stdlib layer and is imported by most other stdlib packages. Format strings
+  follow `fmt` semantics; passing a `%w` verb explicitly would wrap twice —
+  callers should not.
+- **Precondition helpers live here, not in a config package**: they are
+  imperative runtime checks expressed through `Explain` — pure string tests,
+  no dependency on the config engine — covering cross-field rules that
+  declarative per-field validation cannot express.
+
+## License
+
+`errutil` is distributed under the Apache License 2.0. See
+[LICENSE](../../LICENSE) for details.

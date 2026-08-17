@@ -126,6 +126,43 @@ func TestResolving(t *testing.T) {
 		assert.Error(t, err).Matches("module error")
 	})
 
+	t.Run("module condition not met - skipped", func(t *testing.T) {
+		defer func() { gs_init.Clear() }()
+		gs_init.AddModule(gs_cond.OnProperty("module.enabled").HavingValue("true"), func(r gs_init.BeanProvider, p flatten.Storage) error {
+			r.Provide(&TestBean{Value: 1}).Name("from-module")
+			return nil
+		}, "skip_test.go", 1)
+
+		r := New()
+		err := r.Refresh(flatten.NewPropertiesStorage(flatten.NewProperties(nil)))
+		assert.That(t, err).Nil()
+
+		var names []string
+		for _, b := range r.Beans() {
+			names = append(names, b.GetName())
+		}
+		assert.That(t, names).Nil() // module skipped, no bean registered
+	})
+
+	t.Run("module condition error", func(t *testing.T) {
+		defer func() { gs_init.Clear() }()
+		// HavingValue on a non-leaf property makes the condition evaluation
+		// itself fail, which must abort Refresh with the module's location.
+		gs_init.AddModule(gs_cond.OnProperty("a.b").HavingValue("x"), func(r gs_init.BeanProvider, p flatten.Storage) error {
+			return nil
+		}, "error_test.go", 2)
+
+		r := New()
+		err := r.Refresh(flatten.NewPropertiesStorage(flatten.MapProperties(map[string]any{
+			"a": map[string]any{
+				"b": map[string]any{
+					"c": "1",
+				},
+			},
+		})))
+		assert.Error(t, err).Matches("failed to apply module at error_test.go:2: condition OnProperty\\(.*\\) matches error: property a\\.b is not a leaf node")
+	})
+
 	t.Run("resolve error in bean condition", func(t *testing.T) {
 		r := New()
 		r.Provide(&TestBean{Value: 1}).Condition(

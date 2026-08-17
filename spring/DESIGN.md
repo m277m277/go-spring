@@ -17,7 +17,7 @@ business SDK, or any starter.
   `Module`, `Group`, `Condition`) that starters use to contribute those.
 - `spring/conf` is the configuration engine: layered sources (command line,
   env, `app-<profile>.<ext>`, `app.<ext>`, in-memory, tag defaults) merged
-  by priority, format readers under `spring/conf/reader/{yaml,toml,prop}`,
+  by priority, format readers under `spring/conf/reader/{yaml,toml,prop,json}`,
   and pluggable decryption under `spring/conf/decrypt`. The engine is
   independent of the container; the container drives it during boot. It is
   also the only spring package the outside ecosystem reuses directly —
@@ -36,7 +36,6 @@ demands:
 | Family | Home | Why |
 |---|---|---|
 | `httpsvr`, `httpclt` | `stdlib/` | pure HTTP semantics, no container dependency |
-| `aspect` | `cloud/experimental/aspect` | AOP primitive consumed by ecosystem families |
 | governance (`resilience`, `fault`, `traffic`), `discovery`, `loadbalance`, `event`, `scheduling`, `batch`, `lock`, `messaging`, `transaction`, `tlsconf`, `cache`, `repository`, `migration`, `i18n`, `validation`, `httpx`, `security`, `session` | `cloud/` (go-spring.org/cloud) | ecosystem abstractions, container-free — the cloud module imports no spring package |
 | concrete backends (Redis, GORM, Kafka, dubbo-go, …) | `starter/` | third-party SDKs + gs wiring |
 
@@ -94,11 +93,45 @@ go in `stdlib`** — so a starter wires, cloud abstracts, spring runs.
 
 ## 4. Trade-offs & Alternatives Rejected
 
+The rejections below are one stance, not separate calls: **the container
+assembles; it does not adjudicate.** Java Spring's extension-point growth is
+driven by forces this project does not share — hooks serving the thousands
+of frameworks hosted *on* Spring (a BeanPostProcessor exists so proxies can
+replace user beans), complexity moved into the container to compensate for
+language limits (no first-class decoration, type erasure), and twenty years
+of backward compatibility that forbids subtraction. Go's first-class
+functions make decoration explicit nesting; config-key activation makes
+"when does this wire" a non-question. Where a family needs to plug in, it
+gets a typed seam (`.Export(gs.As[...])` collection, a Driver registry) — a
+contract for that family, not a hook that can rewrite any bean.
+
 - **Runtime scanning (Spring Boot classpath scanning) rejected.** All bean
   metadata is registered by `init()`, so there is no classpath walk. Cost:
-  every bean provider must be linked in (a blank import from
-  `internal/init.go`). Benefit: predictable boot, no ordering surprises,
+  every bean provider package must be imported — directly or transitively —
+  by `main`, otherwise its `init()` never runs and its beans are silently
+  absent. Benefit: predictable boot, no ordering surprises,
   zero reflection after wiring.
+- **`autoconfig.exclude` rejected.** Spring Boot needs an exclusion list
+  because auto-configurations activate on classpath presence — eager and
+  implicit, so an off-switch had to exist somewhere else. Here every starter
+  registers through a config-key condition (`gs.Module(gs.OnProperty
+  ("spring.X"), ...)`): importing a starter wires nothing until its
+  configuration exists, so "disable it" is simply "don't configure it", and
+  flag-gated conveniences (e.g. `spring.pprof.enabled`) carry their own
+  explicit switch. Cost: a starter author must gate registration on a
+  config key — no unconditional `init()` providers. Benefit: one switch, in
+  the configuration, where the operator already looks — no second, drifting
+  off-switch to keep in sync.
+- **`@Primary` rejected.** Injection is name-first (`autowire:"name"`), so
+  the by-type ambiguity `@Primary` resolves in Spring mostly cannot arise;
+  when a default bean must yield to a user-provided one, that is expressed
+  as a condition on the default's *registration* — `gs.OnMissingBean[T]()`,
+  `gs.OnSingleBean[T]()`, `gs.OnProperty(...)` — deciding whether the bean
+  exists at all rather than which existing bean wins. Cost: a starter that
+  ships a default must gate it with an explicit condition instead of relying
+  on a priority mark. Benefit: no hidden priority layer in the type index —
+  the graph stays name-addressed and the whole decision is visible at
+  registration time.
 - **Compile-time DI (Wire-style codegen) rejected.** The container keeps a
   runtime graph so conditional modules, `Group` from configuration maps,
   and hot-refresh of `Dync[T]` can decide at boot / at runtime what to

@@ -95,7 +95,11 @@ import (
 )
 
 const (
+	// Version is the release version of the Go-Spring core module,
+	// printed in the application startup banner.
 	Version = "go-spring@v1.3.4"
+
+	// Website is the home page of the Go-Spring project.
 	Website = "https://go-spring.org/"
 )
 
@@ -197,7 +201,12 @@ func IndexArg(n int, arg Arg) Arg {
 //	    }).Condition(gs.OnProperty("logging.enabled"))
 //	)
 func BindArg(fn any, args ...Arg) *gs_arg.BindArg {
-	return gs_arg.Bind(fn, args...)
+	a := gs_arg.Bind(fn, args...)
+	// gs_arg.Bind's runtime.Caller(1) points at this wrapper, so re-stamp
+	// the file:line with the user's call site (same pattern as Module).
+	_, file, line, _ := runtime.Caller(1)
+	a.SetFileLine(file, line)
+	return a
 }
 
 /************************************ cond ***********************************/
@@ -309,7 +318,10 @@ func RegisterExpressFunc(name string, fn any) {
 // OnExpression creates a condition from an expression.
 // The expression is evaluated to determine if the condition is satisfied.
 //
-// Example (future):
+// NOTE: OnExpression is currently unimplemented — its Matches method always
+// returns ErrUnimplementedMethod, so it cannot gate beans or modules yet.
+//
+// Intended usage (once implemented):
 //
 //	gs.OnExpression("${app.port} > 8080 && ${app.env} == 'prod'")
 func OnExpression(expression string) Condition {
@@ -366,15 +378,41 @@ func None(conditions ...Condition) Condition {
 /*********************************** app *************************************/
 
 type (
-	Configuration       = gs_bean.Configuration
-	BeanProvider        = gs_init.BeanProvider
-	Rooter              = gs_app.Rooter
-	Runner              = gs_app.Runner
-	Server              = gs_app.Server
-	ReadySignal         = gs_app.ReadySignal
-	ContextProvider     = gs_app.ContextProvider
+	// Configuration specifies parameters for scanning a Configuration bean's
+	// methods into sub-beans, e.g. the Includes/Excludes patterns.
+	Configuration = gs_bean.Configuration
+
+	// BeanProvider defines the API for registering beans in the IoC
+	// container; it is the registrar handed to a ModuleFunc.
+	BeanProvider = gs_init.BeanProvider
+
+	// Rooter marks a bean as an application graph root, making it reachable
+	// for instantiation even when no other bean autowires it.
+	Rooter = gs_app.Rooter
+
+	// Runner defines a component that runs once after all beans have been
+	// wired but before any server starts.
+	Runner = gs_app.Runner
+
+	// Server defines the lifecycle of a long-running application server
+	// (e.g. HTTP, gRPC): Run blocks until stopped, Stop shuts it down.
+	Server = gs_app.Server
+
+	// ReadySignal lets a Server block until every server has finished
+	// listening, so none accepts traffic before the app is fully booted.
+	ReadySignal = gs_app.ReadySignal
+
+	// ContextProvider provides injectable access to the application's
+	// root context.
+	ContextProvider = gs_app.ContextProvider
+
+	// PropertiesRefresher triggers a hot reload of application properties,
+	// updating every gs.Dync[T] value in place.
 	PropertiesRefresher = gs_app.PropertiesRefresher
-	EnvProvider         = gs_app.EnvProvider
+
+	// EnvProvider exposes a read-only snapshot of the merged configuration
+	// properties for operational introspection.
+	EnvProvider = gs_app.EnvProvider
 )
 
 // Provide registers a global bean definition.

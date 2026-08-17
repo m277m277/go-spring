@@ -6,7 +6,7 @@
 capability defined in
 [`go-spring.org/spring/transaction`](../../spring/transaction) to a Go-Spring
 application — the Go-idiomatic equivalent of `@GlobalTransactional(SAGA)`,
-reached with an in-process coordinator and an aspect chain rather than by
+reached with an in-process coordinator and a plain decorator rather than by
 replicating Seata's TC/TM/RM roles or requiring bytecode magic.
 
 A **Contributor**-archetype starter (see [DESIGN.md](../DESIGN.md) §2.3):
@@ -82,7 +82,7 @@ func (s *OrderService) Place(ctx context.Context, id string) (transaction.Result
 ### 4. Or declare it as `@GlobalTransactional`
 
 Register the same steps under a method name and wire
-`transaction.GlobalTransactional` into an aspect chain — the no-reflection
+`transaction.GlobalTransactional` around the call — the no-reflection
 equivalent of `@GlobalTransactional(SAGA)`:
 
 ```go
@@ -90,7 +90,8 @@ func RegisterOrder(reg *transaction.StepRegistry) {
     reg.Register("OrderService.Place", deductInventory, chargePayment, publishEvent)
 }
 
-chain := aspect.NewChain(transaction.GlobalTransactional(coord, reg))
+place := transaction.GlobalTransactional(coord, reg)
+// err := place(ctx, "OrderService.Place", func(ctx context.Context) error { ... })
 ```
 
 Steps must be registered at **wiring time** (bean construction), never from a

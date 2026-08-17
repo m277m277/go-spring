@@ -24,12 +24,12 @@ import (
 	"go-spring.org/stdlib/testing/assert"
 )
 
-func TestNew_PanicsOnNegativeCap(t *testing.T) {
-	assert.Panic(t, func() { New(-1) }, "negative cap")
+func TestNewLimitedBuffer_PanicsOnNegativeCap(t *testing.T) {
+	assert.Panic(t, func() { NewLimitedBuffer(-1) }, "negative cap")
 }
 
-func TestNew_ZeroCapDiscardsEverything(t *testing.T) {
-	b := New(0)
+func TestNewLimitedBuffer_ZeroCapDiscardsEverything(t *testing.T) {
+	b := NewLimitedBuffer(0)
 	n, err := b.Write([]byte("hello"))
 	assert.That(t, err).Nil()
 	assert.Number(t, n).Equal(5, "Write always reports the full size")
@@ -38,7 +38,7 @@ func TestNew_ZeroCapDiscardsEverything(t *testing.T) {
 }
 
 func TestWrite_KeepsUpToCapDropsOverflow(t *testing.T) {
-	b := New(4)
+	b := NewLimitedBuffer(4)
 	n, err := b.Write([]byte("hello world")) // 11 bytes into a 4-cap buffer
 	assert.That(t, err).Nil()
 	assert.Number(t, n).Equal(11, "overflow still reported as fully written")
@@ -47,7 +47,7 @@ func TestWrite_KeepsUpToCapDropsOverflow(t *testing.T) {
 }
 
 func TestWrite_MultipleWritesAccumulateToCap(t *testing.T) {
-	b := New(5)
+	b := NewLimitedBuffer(5)
 	_, _ = b.Write([]byte("ab"))   // 2
 	_, _ = b.Write([]byte("cde"))  // +3 = 5, at cap
 	_, _ = b.Write([]byte("fghi")) // all dropped, still 5
@@ -56,7 +56,7 @@ func TestWrite_MultipleWritesAccumulateToCap(t *testing.T) {
 }
 
 func TestWriteString_MatchesWrite(t *testing.T) {
-	b := New(3)
+	b := NewLimitedBuffer(3)
 	n, err := b.WriteString("abcd")
 	assert.That(t, err).Nil()
 	assert.Number(t, n).Equal(4)
@@ -68,7 +68,7 @@ func TestWriteString_MatchesWrite(t *testing.T) {
 // the contract starter-gin's body capture relies on.
 func TestWrite_TeeReaderNeverBlocksOrErrorsOnOverflow(t *testing.T) {
 	const cap = 8
-	b := New(cap)
+	b := NewLimitedBuffer(cap)
 	src := io.NopCloser(strings.NewReader(strings.Repeat("x", 1000)))
 	tee := io.TeeReader(src, b)
 
@@ -81,7 +81,7 @@ func TestWrite_TeeReaderNeverBlocksOrErrorsOnOverflow(t *testing.T) {
 }
 
 func TestReset_AllowsReuse(t *testing.T) {
-	b := New(4)
+	b := NewLimitedBuffer(4)
 	_, _ = b.Write([]byte("aaaa"))
 	assert.Number(t, b.Len()).Equal(4)
 	b.Reset()
@@ -92,6 +92,23 @@ func TestReset_AllowsReuse(t *testing.T) {
 }
 
 func TestCap_ReturnsConfiguredMax(t *testing.T) {
-	assert.Number(t, New(512).Cap()).Equal(512)
-	assert.Number(t, New(0).Cap()).Zero()
+	assert.Number(t, NewLimitedBuffer(512).Cap()).Equal(512)
+	assert.Number(t, NewLimitedBuffer(0).Cap()).Zero()
+}
+
+// The documented zero-value contract: a LimitedBuffer without NewLimitedBuffer
+// has cap 0 and discards everything, without ever erroring.
+func TestZeroValue_DiscardsEverything(t *testing.T) {
+	var b LimitedBuffer
+	n, err := b.Write([]byte("hello"))
+	assert.That(t, err).Nil()
+	assert.Number(t, n).Equal(5)
+	assert.Number(t, b.Len()).Zero()
+	assert.String(t, b.String()).Equal("")
+}
+
+func TestBytes_ReturnsBufferedContent(t *testing.T) {
+	b := NewLimitedBuffer(8)
+	_, _ = b.WriteString("abc")
+	assert.String(t, string(b.Bytes())).Equal("abc", "Bytes exposes what was kept")
 }

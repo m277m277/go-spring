@@ -14,7 +14,7 @@ code sees only `security.*`.
   session-cookie implementations live in starters or the calling app.
 - Web filter chain is bundled here because it is plain net/http glue with no
   external dependency, and it is the transport-side counterpart of the
-  aspect-side `Require`.
+  decorator-side `Require`.
 - Not a session library (see `spring/session`), not an OAuth2 authorization
   server (see `starter-oauth2-server`).
 
@@ -29,10 +29,10 @@ code sees only `security.*`.
   `resilience.RegisterDriver`.
 - `WithAuthentication` / `FromContext` — ctx propagation with an unexported
   key type so nothing else collides.
-- `Require(authorities...)` — an `aspect.Interceptor`; reads
+- `Require(authorities...)` — a plain decorator; reads
   `FromContext(jp.Context)`, returns `ErrUnauthenticated` when missing and
   `ErrForbidden` when authenticated but lacking any authority; otherwise
-  `Proceed`. This is the **AOP-equivalent** method guard using the aspect
+  `Proceed`. This is the **AOP-equivalent** method guard using an ordinary
   chain rather than a bytecode/annotation port.
 - `Middleware = func(http.Handler) http.Handler`, `Chain(a,b,c)(h) ==
   a(b(c(h)))` — outermost first. Canonical order for the resource server:
@@ -65,10 +65,10 @@ code sees only `security.*`.
 - **No Spring Security filter registry**. Ordering is `Chain(...)` order;
   reasoning is explicit and there is no invisible priority system.
 - **`Authorize` at the HTTP layer, `Require` at the method layer** — the
-  same authority set, two gates. HTTP gates a route, aspect gates a service
+  same authority set, two gates. HTTP gates a route, the decorator gates a service
   method. Both live in this package so they are consistent.
 - **Registry does not resolve validators at request time**. `Authenticate`
   takes a `TokenValidator` value; use the registry to _look up_ a validator
   at wiring time, not on every request.
 - **No annotation scanning**. `@PreAuthorize` is replaced by an explicit
-  `aspect.NewChain(security.Require(...))` — the AOP-equivalent chain.
+  `security.Require(...)` wrapping the call — the AOP-equivalent decorator.

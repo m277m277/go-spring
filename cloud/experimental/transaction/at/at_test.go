@@ -21,7 +21,6 @@ import (
 	"errors"
 	"testing"
 
-	"go-spring.org/cloud/experimental/aspect"
 	"go-spring.org/stdlib/testing/assert"
 )
 
@@ -150,16 +149,16 @@ func TestMemoryGlobalLock_AllOrNothingOnConflict(t *testing.T) {
 
 func TestGlobalAT_CommitsOnSuccessRollsBackOnError(t *testing.T) {
 	c := NewCoordinator()
-	chain := aspect.NewChain(GlobalAT(c))
+	decorator := GlobalAT(c)
 
 	// Success path: a branch that self-registers during the business call is
 	// committed when the method returns nil.
 	var committed *fakeBranch
-	_, err := chain.Run(context.Background(), "OrderService.Place", func(ctx context.Context) (any, error) {
+	err := decorator(context.Background(), "OrderService.Place", func(ctx context.Context) error {
 		xid, ok := XIDFromContext(ctx)
-		assert.That(t, ok).True() // the aspect injected an XID
+		assert.That(t, ok).True() // the decorator injected an XID
 		committed = &fakeBranch{id: "db1"}
-		return nil, c.Register(ctx, xid, committed)
+		return c.Register(ctx, xid, committed)
 	})
 	assert.Error(t, err).Nil()
 	assert.That(t, committed.commits).Equal(1)
@@ -167,11 +166,11 @@ func TestGlobalAT_CommitsOnSuccessRollsBackOnError(t *testing.T) {
 
 	// Failure path: the business error is propagated and the branch is rolled back.
 	var rolledBack *fakeBranch
-	_, err = chain.Run(context.Background(), "OrderService.Place", func(ctx context.Context) (any, error) {
+	err = decorator(context.Background(), "OrderService.Place", func(ctx context.Context) error {
 		xid, _ := XIDFromContext(ctx)
 		rolledBack = &fakeBranch{id: "db1"}
 		_ = c.Register(ctx, xid, rolledBack)
-		return nil, errors.New("insufficient balance")
+		return errors.New("insufficient balance")
 	})
 	assert.Error(t, err).Matches("insufficient balance")
 	assert.That(t, rolledBack.rollbacks).Equal(1)

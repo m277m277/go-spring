@@ -45,7 +45,10 @@ type PanicInfo struct {
 //
 // By default, it prints the panic value and stack trace to stdout.
 // Applications may override this function during initialization to provide
-// custom logging, metrics, or alerting behavior.
+// custom logging, metrics, or alerting behavior. Registering a hook through
+// [RegisterOnPanic] takes over reporting (see its doc for the dispatch
+// rules) — prefer that API when a configuration wants both a custom handler
+// and the framework's built-in reporting.
 var OnPanic = func(ctx context.Context, info PanicInfo) {
 	fmt.Printf("[PANIC] %v\n%s\n", info.Panic, info.Stack)
 }
@@ -98,6 +101,9 @@ func (s *Status) Wait() {
 // If mode is DetachCancel, f receives a context derived using
 // context.WithoutCancel. In that case, cancellation and deadlines of the
 // parent context will not propagate to the goroutine.
+//
+// If ctx is nil, the nil context is passed to f unchanged; f must not
+// call methods such as ctx.Done() on it.
 func Go(ctx context.Context, f func(ctx context.Context), mode CancelMode) *Status {
 	if mode == DetachCancel && ctx != nil {
 		ctx = context.WithoutCancel(ctx)
@@ -160,6 +166,9 @@ type GoValueFunc[T any] func(ctx context.Context) (T, error)
 // If mode is DetachCancel, f receives a context derived using
 // context.WithoutCancel. In that case, cancellation and deadlines of the
 // parent context will not propagate to the goroutine.
+//
+// If ctx is nil, the nil context is passed to f unchanged; f must not
+// call methods such as ctx.Done() on it.
 func GoValue[T any](ctx context.Context, f GoValueFunc[T], mode CancelMode) *ValueStatus[T] {
 	if mode == DetachCancel && ctx != nil {
 		ctx = context.WithoutCancel(ctx)

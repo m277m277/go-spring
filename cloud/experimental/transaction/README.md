@@ -20,7 +20,7 @@ For TCC and AT patterns see the subpackages
 - `Recover(ctx, s)` — backward recovery: replays compensation for whatever the
   crashed process might have effected.
 - `Observer` seam for otel spans without stdlib depending on otel.
-- `StepRegistry` + `GlobalTransactional(coord, reg)` — the aspect-level
+- `StepRegistry` + `GlobalTransactional(coord, reg)` — the decorator-level
   `@GlobalTransactional` equivalent, keyed by method name.
 - Step-level `RetryPolicy` (aliased to `resilience.Policy`) reuses the same
   knob set as outbound resilience.
@@ -71,7 +71,7 @@ reg.Register("PlaceOrder",
     transaction.Step{Name: "charge-card",   Action: charge,       Compensate: refund},
 )
 gtx := transaction.GlobalTransactional(coord, reg)
-// Compose gtx into an aspect chain (see spring/aspect); the aspect drives the
+// Wrap the business method with the decorator; it drives the
 // saga when the joinpoint's method name matches a registration, and proceeds
 // transparently otherwise.
 ```

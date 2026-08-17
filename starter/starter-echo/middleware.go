@@ -99,7 +99,10 @@ func applyMiddlewares(e *echo.Echo, cfg Config) error {
 		e.Use(LoadTest(mw.LoadTest.Header))
 	}
 	if mw.Recovery.Enabled {
-		e.Use(middleware.Recover())
+		// Starter-owned recover (see recover.go): echo's middleware.Recover
+		// semantics, plus reporting through the shared goutil panic chain so
+		// the structured log bridge sees it.
+		e.Use(Recover())
 	}
 	if mw.RequestID.Enabled {
 		e.Use(middleware.RequestID())

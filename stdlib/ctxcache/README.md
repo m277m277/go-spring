@@ -2,38 +2,27 @@
 
 [English](README.md) | [中文](README_CN.md)
 
-## Introduction
+`ctxcache` is a strongly-typed, context-scoped cache for request-scoped data,
+part of the zero-dependency `stdlib` layer. It attaches a concurrency-safe,
+write-once key-value store to a `context.Context`, letting values propagate
+across call boundaries without polluting function signatures. It is not a
+general-purpose cache — no TTL, eviction, or hit rates — just a small,
+guaranteed-scoped, guaranteed-typed store whose lifecycle is exactly the
+enclosing request. Typical uses: authenticated user objects, permission lists,
+trace metadata, and computed intermediates shared across a call chain.
 
-`ctxcache` is a strongly-typed, context-scoped cache package designed for request-scoped data.
+## Usage
 
-`ctxcache` attaches a concurrency-safe, write-once key-value store to `context.Context`, allowing values to be
-implicitly propagated across call boundaries without polluting function signatures.
-
-## Features
-
-- **Strong Type Safety**: Uses generics combining string names and Go type parameters as key identifiers, ensuring type
-  safety and preventing collisions between values of different types—even if they share the same string identifier
-- **Concurrency Safe**: Internally uses mutex-protected maps, supporting concurrent access
-- **Write-Once Semantics**: Each key can be assigned exactly once, then read multiple times until the cache is cleared
-- **Context Lifecycle**: Cache lifecycle is explicitly controlled by the cancel function returned from `Init`
-- **Request Scope Isolation**: Cache is attached to context, naturally supporting request-level data isolation
-
-## Main Functions
-
-### Initialize Cache
-
-Use the `Init` function to attach a cache to a context:
+Initialize the cache at the request boundary (e.g. in HTTP middleware) and
+clean it up on exit:
 
 ```go
 ctx, cancel := ctxcache.Init(ctx)
-defer cancel() // Clean up cache at request boundary
+defer cancel()
 ```
 
-`Init` is idempotent: repeated calls with the same context return the original context and a no-op cancel function.
-
-### Set Values
-
-Use the `Set` function to assign a value to a key:
+Set a value. Each key can only be set once; repeated attempts return
+`ErrKeyAlreadySet`:
 
 ```go
 err := ctxcache.Set(ctx, "user", userInfo)
@@ -42,11 +31,8 @@ if err != nil {
 }
 ```
 
-Each key can only be set once. Repeated attempts return an `ErrKeyAlreadySet` error.
-
-### Get Values
-
-Use the `Get` function to retrieve a value:
+Retrieve it downstream. `Get` is generic; the type parameter is what makes the
+lookup type-safe:
 
 ```go
 value, err := ctxcache.Get[UserType](ctx, "user")
@@ -55,77 +41,93 @@ if err != nil {
 }
 ```
 
-`Get` is a generic function that requires specifying a type parameter to ensure type safety.
-
-### Clear Cache
-
-Calling the cancel function returned by `Init` clears all cached values:
+Calling the cancel function returned by `Init` clears all cached values and
+makes the cache permanently unusable — subsequent `Get` or `Set` return
+`ErrCacheAlreadyCleared`:
 
 ```go
-cancel() // Clear cache and make it permanently unusable
+cancel()
 ```
 
-Once cleared, subsequent `Get` or `Set` operations will return `ErrCacheAlreadyCleared` error.
+### API
 
-## Error Types
+- `Init(ctx) (context.Context, func())` — attach a cache and get its cancel
+  function. Idempotent: a repeated call on the same context returns the original
+  context and a no-op cancel.
+- `Set[T](ctx, key, value) error` — assign a value; once per key.
+- `Get[T](ctx, key) (T, error)` — retrieve a value by typed key.
+- `Cache.Clear()` — remove all values and mark the cache cleared (idempotent).
 
-The package defines the following error types:
+Errors returned by the package (all testable with `errors.Is`):
 
-- `ErrCacheNotInitialized`: Cache is not initialized
-- `ErrCacheAlreadyCleared`: Cache has already been cleared
-- `ErrKeyNotSet`: Key is not set
-- `ErrKeyAlreadySet`: Key is already set
+- `ErrCacheNotInitialized`: cache is not initialized
+- `ErrCacheAlreadyCleared`: cache has already been cleared
+- `ErrKeyNotSet`: key is not set
+- `ErrKeyAlreadySet`: key is already set
 
-## Typical Use Cases
-
-1. **HTTP Middleware**: Initialize cache at request entry point and clean up at exit
-2. **Authenticated User Info**: Store authenticated user objects
-3. **Permission Data**: Pass user permission lists
-4. **Trace Metadata**: Carry trace context information
-5. **Computed Intermediates**: Share computed intermediate values across call chains
-
-## Example Usage
+A complete example:
 
 ```go
 package main
 
 import (
-	"context"
-	"fmt"
-	"go-spring.org/stdlib/ctxcache"
+    "context"
+    "fmt"
+    "go-spring.org/stdlib/ctxcache"
 )
 
 type User struct {
-	ID   int
-	Name string
+    ID   int
+    Name string
 }
 
 func main() {
-	ctx := context.Background()
+    ctx := context.Background()
 
-	// Initialize cache
-	ctx, cancel := ctxcache.Init(ctx)
-	defer cancel()
+    // Initialize cache
+    ctx, cancel := ctxcache.Init(ctx)
+    defer cancel()
 
-	// Set user info
-	user := User{ID: 1, Name: "Alice"}
-	if err := ctxcache.Set(ctx, "user", user); err != nil {
-		panic(err)
-	}
+    // Set user info
+    user := User{ID: 1, Name: "Alice"}
+    if err := ctxcache.Set(ctx, "user", user); err != nil {
+        panic(err)
+    }
 
-	// Get user info in downstream code
-	retrievedUser, err := ctxcache.Get[User](ctx, "user")
-	if err != nil {
-		panic(err)
-	}
+    // Get user info in downstream code
+    retrievedUser, err := ctxcache.Get[User](ctx, "user")
+    if err != nil {
+        panic(err)
+    }
 
-	fmt.Printf("User: %+v\n", retrievedUser)
+    fmt.Printf("User: %+v\n", retrievedUser)
 }
 ```
 
-## Notes
+## Design
 
-- `ctxcache` is not a general-purpose cache. It is designed for structured, short-lived, in-process context data
-- Each key can only be assigned once. This is intentional design to ensure data immutability
-- The cancel function should be called at request boundaries to ensure request-scoped data is properly cleaned up
-- Once cleared, the cache becomes permanently unusable and should not be used again
+The package owns one pattern: "one request, one bag of typed values, cleared at
+the boundary". Everything is anchored to a specific context; there is no
+process-global map.
+
+- **`Cache`**: a mutex-protected `map[any]any` attached to the context via a
+  private key. Exactly one `Cache` per context; a second `Init` on the same
+  context is a no-op.
+- **`TypedKey[T]`**: keys are `(string, type)` pairs produced by generics. The
+  same name under two different `T`s is two disjoint slots — which is why
+  `Get`/`Set` are generic instead of taking `any`.
+- **Explicit lifecycle**: `Init` returns a cancel function that clears the map
+  and permanently marks the cache cleared. There is deliberately no "second
+  life" — reuse would silently share state across requests.
+- **Write-once per key** makes lookups a total contract: a value that is
+  present cannot mutate under the caller. Callers that want mutability must
+  store a pointer or a `sync.Map` under a stable key.
+- **The cancel function must be called**, usually via `defer` at the middleware
+  boundary. A missing call leaks the (small) map but no goroutines.
+- **Concurrency**: a single mutex is the simplest correct choice; contention is
+  unlikely because request-scoped data usually flows sequentially.
+
+## License
+
+`ctxcache` is distributed under the Apache License 2.0. See
+[LICENSE](../../LICENSE) for details.

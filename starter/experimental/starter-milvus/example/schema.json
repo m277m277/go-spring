@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "spring.milvus",
+  "type": "object",
+  "properties": {
+    "addr": { "type": "string", "description": "Milvus gRPC endpoint, host:19530" },
+    "database": { "type": "string", "default": "default" },
+    "username": { "type": "string", "default": "" },
+    "password": { "type": "string", "default": "" },
+    "observability": { "type": "object" }
+  }
+}

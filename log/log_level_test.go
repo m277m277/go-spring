@@ -29,6 +29,18 @@ func TestRegisterLevel(t *testing.T) {
 	assert.String(t, customLevel.UpperName()).Equal("CUSTOM")
 }
 
+func TestRegisterLevelAliasAndConflict(t *testing.T) {
+	// Registering an existing name with the same code returns the
+	// already-registered level (alias branch).
+	l := RegisterLevel(InfoLevel.Code(), "info")
+	assert.That(t, l).Equal(InfoLevel)
+
+	// Registering an existing name with a different code panics.
+	assert.Panic(t, func() {
+		RegisterLevel(100, "INFO")
+	}, "log: level INFO already registered with a different code")
+}
+
 func TestParseLevelRange(t *testing.T) {
 	tests := []struct {
 		str     string
@@ -68,9 +80,36 @@ func TestParseLevelRange(t *testing.T) {
 			want: LevelRange{MinLevel: FatalLevel, MaxLevel: MaxLevel},
 		},
 		{
+			str:  "Info",
+			want: LevelRange{MinLevel: InfoLevel, MaxLevel: MaxLevel},
+		},
+		{
+			str:  "INFO~ERROR",
+			want: LevelRange{MinLevel: InfoLevel, MaxLevel: ErrorLevel},
+		},
+		{
+			str:  "INFO~",
+			want: LevelRange{MinLevel: InfoLevel, MaxLevel: MaxLevel},
+		},
+		{
 			str:     "unknown",
 			want:    LevelRange{},
 			wantErr: errutil.Explain(nil, "invalid log level: %q", "unknown"),
+		},
+		{
+			str:     "a~b~c",
+			want:    LevelRange{},
+			wantErr: errutil.Explain(nil, "invalid log level: %q", "a~b~c"),
+		},
+		{
+			str:     "INFO~BOGUS",
+			want:    LevelRange{},
+			wantErr: errutil.Explain(nil, "invalid log level: %q", "BOGUS"),
+		},
+		{
+			str:     "ERROR~INFO",
+			want:    LevelRange{},
+			wantErr: errutil.Explain(nil, "invalid log level: %q", "ERROR~INFO"),
 		},
 	}
 	for _, tt := range tests {

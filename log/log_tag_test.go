@@ -65,14 +65,18 @@ func TestRegisterTag(t *testing.T) {
 }
 
 func TestGetAllTags(t *testing.T) {
+	// The registry is global and grows as test files register their own
+	// tags, so only membership of the well-known tags is asserted here.
 	tags := GetAllTags()
-	assert.That(t, tags).Equal([]string{
+	for _, want := range []string{
 		"_app_def",
 		"_biz_def",
 		"_com_request_in",
 		"_com_request_out",
 		"_def",
-	})
+	} {
+		assert.Slice(t, tags).Contains(want)
+	}
 }
 
 func TestBuildTag(t *testing.T) {
@@ -122,6 +126,9 @@ func TestBuildTag(t *testing.T) {
 }
 
 func TestRegisterTagValid(t *testing.T) {
+	t.Cleanup(func() {
+		delete(tagRegistry, "_test_tag")
+	})
 
 	tag := RegisterTag("_test_tag")
 	assert.That(t, tag).NotNil()
@@ -159,4 +166,13 @@ func TestRegisterTags(t *testing.T) {
 	tag2 = RegisterRPCTag("http", "")
 	assert.That(t, tag2).NotNil()
 	assert.String(t, tag2.tag).Equal("_rpc_http")
+
+	// Test RegisterInfraTag
+	tag = RegisterInfraTag("redis", "query")
+	assert.That(t, tag).NotNil()
+	assert.String(t, tag.tag).Equal("_infra_redis_query")
+
+	tag2 = RegisterInfraTag("mysql", "")
+	assert.That(t, tag2).NotNil()
+	assert.String(t, tag2.tag).Equal("_infra_mysql")
 }

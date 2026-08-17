@@ -17,7 +17,6 @@
 package ctxcache
 
 import (
-	"fmt"
 	"testing"
 
 	"go-spring.org/stdlib/testing/assert"
@@ -27,11 +26,9 @@ func TestCtxCache(t *testing.T) {
 
 	// Operations on uninitialized context
 	err := Set(t.Context(), "key", "value")
-	fmt.Println(err)
 	assert.Error(t, err).Is(ErrCacheNotInitialized)
 
 	_, err = Get[string](t.Context(), "key")
-	fmt.Println(err)
 	assert.Error(t, err).Is(ErrCacheNotInitialized)
 
 	// Check repeated Init
@@ -41,31 +38,25 @@ func TestCtxCache(t *testing.T) {
 
 	// Getting an unset key should fail
 	_, err = Get[string](ctx1, "key")
-	fmt.Println(err)
 	assert.Error(t, err).Is(ErrKeyNotSet)
 
 	// Set and Get a string value successfully
 	err = Set(ctx1, "key", "value")
-	fmt.Println(err)
 	assert.Error(t, err).Nil()
 
 	value, err := Get[string](ctx1, "key")
-	fmt.Println(err)
 	assert.Error(t, err).Nil()
 	assert.String(t, value).Equal("value")
 
 	// Setting the same key twice should fail
 	err = Set(ctx1, "key", "anotherValue")
-	fmt.Println(err)
 	assert.Error(t, err).Is(ErrKeyAlreadySet)
 
 	// Set and Get multiple types under same key
 	err = Set(ctx1, "key", 42)
-	fmt.Println(err)
 	assert.Error(t, err).Nil()
 
 	intValue, err := Get[int](ctx1, "key")
-	fmt.Println(err)
 	assert.Error(t, err).Nil()
 	assert.Number(t, intValue).Equal(42)
 
@@ -73,17 +64,17 @@ func TestCtxCache(t *testing.T) {
 	cancel1()
 
 	_, err = Get[string](ctx1, "key")
-	fmt.Println(err)
 	assert.Error(t, err).Is(ErrCacheAlreadyCleared)
 
-	// Re-calling cancel should be safe
+	// The no-op cancel from a repeated Init should be safe
 	cancel2()
 
+	// Re-calling the real cancel should be safe (Clear is idempotent)
+	cancel1()
+
 	err = Set(ctx1, "key", "value")
-	fmt.Println(err)
 	assert.Error(t, err).Is(ErrCacheAlreadyCleared)
 
 	_, err = Get[int](ctx1, "key")
-	fmt.Println(err)
 	assert.Error(t, err).Is(ErrCacheAlreadyCleared)
 }

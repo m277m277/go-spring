@@ -108,6 +108,21 @@ func TestTopologicalSort(t *testing.T) {
 		}
 		sorting := listutil.ListOf("A", "B", "C")
 		_, err := TopologicalSort(sorting, getBefore)
-		assert.Error(t, err).Matches("dependency cycle detected")
+		assert.Error(t, err).Matches("dependency cycle detected: C depends on A")
+	})
+
+	t.Run("dependency outside items is skipped", func(t *testing.T) {
+		// A depends on B, but only A is in the list: B is silently skipped.
+		getBefore := func(_ *list.List, current any) *list.List {
+			l := list.New()
+			if current == "A" {
+				l.PushBack("B")
+			}
+			return l
+		}
+		sorting := listutil.ListOf("A")
+		sorted, err := TopologicalSort(sorting, getBefore)
+		assert.That(t, err).Nil()
+		assert.That(t, listutil.AllOfList[string](sorted)).Equal([]string{"A"})
 	})
 }
