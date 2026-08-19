@@ -50,7 +50,7 @@ import (
 	"go-spring.org/stdlib/errutil"
 )
 
-var starterTag = log.RegisterInfraTag("scheduler", "")
+var starterTag = log.RegisterAppTag("scheduler", "")
 
 func init() {
 	// Register the scheduler as a gs.Server under a distinct name so it coexists
@@ -109,17 +109,23 @@ func (s *Server) Run(ctx context.Context, sig gs.ReadySignal) error {
 // Stop halts scheduling and drains in-flight runs, bounded by the configured
 // drain timeout. It is called during graceful shutdown.
 func (s *Server) Stop() error {
+	return s.StopContext(context.Background())
+}
+
+// StopContext halts scheduling and drains in-flight runs, bounded by the
+// configured drain timeout. It is called during graceful shutdown with the
+// framework's shutdown context, which is threaded into the scheduler drain.
+func (s *Server) StopContext(ctx context.Context) error {
 	if s.sched == nil {
 		return nil
 	}
-	ctx := context.Background()
 	if s.Config.DrainTimeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, s.Config.DrainTimeout)
 		defer cancel()
 	}
 	if err := s.sched.Stop(ctx); err != nil {
-		log.Warnf(context.Background(), log.TagAppDef, "scheduler drain timed out: %v", err)
+		log.Warnf(ctx, log.TagAppDef, "scheduler drain timed out: %v", err)
 		return err
 	}
 	return nil

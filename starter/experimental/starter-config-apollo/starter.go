@@ -48,7 +48,7 @@ type agolloChangeEvent = agstorage.ChangeEvent
 type agolloFullChangeEvent = agstorage.FullChangeEvent
 
 var (
-	starterTag    = log.RegisterInfraTag("starter_config_apollo", "")
+	starterTag    = log.RegisterAppTag("starter_config_apollo", "")
 	apolloControl = &apolloCtrl{}
 )
 

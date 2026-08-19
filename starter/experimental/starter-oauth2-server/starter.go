@@ -23,7 +23,7 @@ import (
 
 var (
 	// starterTag identifies logs emitted by the oauth2 server starter.
-	starterTag = log.RegisterInfraTag("starter_oauth2_server", "")
+	starterTag = log.RegisterAppTag("starter_oauth2_server", "")
 )
 
 func init() {

@@ -46,7 +46,7 @@ import (
 // methods are the init functions (bean wiring here; provider registration in
 // filewatch.go and configtree.go). All other code operates on the receiver.
 var (
-	starterTag          = log.RegisterInfraTag("starter_config_file", "")
+	starterTag          = log.RegisterAppTag("starter_config_file", "")
 	fileWatchController = &configFileController{}
 )
 

@@ -58,7 +58,7 @@ func init() {
 // etcdController is the global singleton. It is referenced only from the init
 // function; all other code operates on the receiver without touching this global.
 var (
-	starterTag     = log.RegisterInfraTag("starter_config_etcd", "")
+	starterTag     = log.RegisterAppTag("starter_config_etcd", "")
 	etcdController = &etcdCtrl{}
 )
 

@@ -196,18 +196,16 @@ Especially as team size grows, unified naming conventions avoid the confusion of
 
 #### Category Prefixes
 
-Go-Spring officially recommends the following four prefix categories, which cover most backend application scenarios:
+Go-Spring officially recommends the following three prefix categories, which cover most backend application scenarios:
 
 | Category Prefix | Applicable Scenarios | Typical Examples |
 |-----------------|----------------------|------------------|
-| `_app_` | Application lifecycle and infrastructure | Startup, shutdown, configuration loading, health checks, scheduled task dispatching |
-| | | `_app_startup`, `_app_shutdown`, `_app_config_reload` |
+| `_app_` | Application lifecycle and infrastructure | Startup, shutdown, configuration loading, health checks, scheduled task dispatching, connection pool exhaustion, circuit breaker opening |
+| | | `_app_startup`, `_app_shutdown`, `_app_pool_exhausted` |
 | `_biz_` | Business processes and domain events | Order creation, user login, payment callback, state change notification |
 | | | `_biz_order_create`, `_biz_user_login`, `_biz_pay_success` |
 | `_rpc_` | External dependency calls | Database operations, cache reads/writes, message queue sends, downstream HTTP calls, gRPC service requests |
 | | | `_rpc_redis_get`, `_rpc_mysql_query`, `_rpc_http_call` |
-| `_infra_` | Framework and middleware internals | Connection pool exhaustion, circuit breaker opening, retry triggered, degradation logic executed |
-| | | `_infra_pool_exhausted`, `_infra_circuit_open` |
 
 > These categories are recommended conventions, not technical restrictions. You can absolutely customize other categories according to project characteristics,
 > but remember: **categories should remain consistent within the same project**.

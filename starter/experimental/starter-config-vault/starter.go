@@ -64,7 +64,7 @@ func init() {
 // functions. All other code operates on the
 // receiver without touching this global.
 var (
-	starterTag      = log.RegisterInfraTag("starter_config_vault", "")
+	starterTag      = log.RegisterAppTag("starter_config_vault", "")
 	vaultController = &vaultCtrl{}
 )
 

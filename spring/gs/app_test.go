@@ -14,17 +14,23 @@
  * limitations under the License.
  */
 
-package gs_test
+// Tests for app.go: app bootstrapping, Configure/Web, RunTest and its
+// signature validation, and the Start-failure shutdown path.
+
+package gs
 
 import (
+	"context"
+	"errors"
+	"reflect"
+	"sync/atomic"
 	"testing"
 
-	"go-spring.org/spring/gs"
 	"go-spring.org/stdlib/testing/assert"
 )
 
 func init() {
-	gs.Provide(func(ctx *gs.ContextProvider) *GlobalService {
+	Provide(func(ctx *ContextProvider) *GlobalService {
 		return &GlobalService{}
 	})
 }
@@ -39,7 +45,7 @@ type App1Service struct {
 }
 
 func TestApp1(t *testing.T) {
-	gs.Web(false).RunTest(t, func(s *App1Service) {
+	Web(false).RunTest(t, func(s *App1Service) {
 		assert.That(t, s.Name).Equal("app1")
 		assert.That(t, s.Svr).NotNil()
 		assert.That(t, s.Svr.Name).Equal("global")
@@ -47,7 +53,7 @@ func TestApp1(t *testing.T) {
 }
 
 func TestApp2(t *testing.T) {
-	gs.Web(false).Configure(func(g gs.App) {
+	Web(false).Configure(func(g App) {
 		g.Property("name", "myapp2")
 	}).RunTest(t, func(s *struct {
 		Name string         `value:"${name:=app2}"`
@@ -67,20 +73,120 @@ func TestApp2(t *testing.T) {
 func TestWeb(t *testing.T) {
 
 	t.Run("server disabled", func(t *testing.T) {
-		gs.Web(false).RunTest(t, func(s *struct {
-			Svr *gs.SimpleHttpServer `autowire:"?"`
+		Web(false).RunTest(t, func(s *struct {
+			Svr *SimpleHttpServer `autowire:"?"`
 		}) {
 			assert.That(t, s.Svr).Nil()
 		})
 	})
 
 	t.Run("server enabled", func(t *testing.T) {
-		gs.Configure(func(app gs.App) {
+		Configure(func(app App) {
 			app.Property("spring.http.server.addr", ":0")
 		}).RunTest(t, func(s *struct {
-			Svr *gs.SimpleHttpServer `autowire:""`
+			Svr *SimpleHttpServer `autowire:""`
 		}) {
 			assert.That(t, s.Svr).NotNil()
 		})
+	})
+}
+
+// failingRunner is a gs.Runner whose Run always errors, so App.Start fails after
+// the IoC container is wired (and after any module setup has registered stoppers).
+type failingRunner struct{}
+
+func (failingRunner) Run(context.Context) error {
+	return errFailingRunner
+}
+
+var errFailingRunner = errors.New("failing runner")
+
+// TestStopperFlushedOnStartFailure proves that when App.Start fails (so Run
+// never reaches WaitForShutdown), the top-level defer in Run still flushes
+// registered stoppers. Without that defer a stopper registered during setup
+// would leak its buffered data on a failed boot.
+func TestStopperFlushedOnStartFailure(t *testing.T) {
+	resetStoppersForTest()
+
+	// Run() blocks until startApp fails (failingRunner) then returns; it never
+	// enters the signal-wait phase. The defer flushes the stopper registered here.
+	var ran atomic.Bool
+	RegisterStopper("test-start-failure", func(context.Context) error {
+		ran.Store(true)
+		return nil
+	})
+
+	Configure(func(g App) {
+		g.Provide(func() Runner { return failingRunner{} })
+	}).Run()
+
+	if !ran.Load() {
+		t.Fatal("stopper was not flushed on Start failure; the failure-path defer is missing")
+	}
+}
+
+// runTestTarget is a plain struct used to exercise RunTest's signature checks.
+type runTestTarget struct{}
+
+func TestValidateRunTestFunc(t *testing.T) {
+
+	t.Run("invalid", func(t *testing.T) {
+		var nilFn func(*runTestTarget)
+		cases := []struct {
+			name string
+			fn   any
+			err  string
+		}{
+			{
+				name: "nil",
+				fn:   nil,
+				err:  `RunTest requires func\(\*Struct\), got <nil>`,
+			},
+			{
+				name: "non function",
+				fn:   1,
+				err:  `RunTest requires func\(\*Struct\), got int`,
+			},
+			{
+				name: "nil function",
+				fn:   nilFn,
+				err:  `RunTest requires non-nil func\(\*Struct\)`,
+			},
+			{
+				name: "no arguments",
+				fn:   func() {},
+				err:  `RunTest requires exactly one argument, got 0`,
+			},
+			{
+				name: "too many arguments",
+				fn:   func(*runTestTarget, int) {},
+				err:  `RunTest requires exactly one argument, got 2`,
+			},
+			{
+				name: "non pointer",
+				fn:   func(runTestTarget) {},
+				err:  `RunTest argument must be pointer to struct, got .*runTestTarget`,
+			},
+			{
+				name: "non struct pointer",
+				fn:   func(*int) {},
+				err:  `RunTest argument must be pointer to struct, got \*int`,
+			},
+		}
+
+		for _, c := range cases {
+			t.Run(c.name, func(t *testing.T) {
+				_, _, err := validateRunTestFunc(c.fn)
+				assert.Error(t, err).Matches(c.err)
+			})
+		}
+	})
+
+	t.Run("valid", func(t *testing.T) {
+		fn := func(*runTestTarget) {}
+		ft, fv, err := validateRunTestFunc(fn)
+		assert.That(t, err).Nil()
+		assert.That(t, ft).Equal(reflect.TypeFor[func(*runTestTarget)]())
+		assert.That(t, fv.IsValid()).True()
 	})
 }

@@ -42,7 +42,7 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
-var starterTag = log.RegisterInfraTag("http_client", "")
+var starterTag = log.RegisterAppTag("http_client", "")
 
 // clientConfig couples a bound instance name with its Config for the global
 // assembler.

@@ -40,7 +40,7 @@ import (
 // so the wrapper body, lifecycle and observe/resilience wiring stay in one place.
 type DB = gormcore.DB
 
-var starterTag = log.RegisterInfraTag("gorm_mysql", "")
+var starterTag = log.RegisterAppTag("gorm_mysql", "")
 
 // tlsSeq makes each registered custom TLS config name unique.
 var tlsSeq atomic.Uint64

@@ -31,7 +31,7 @@ import (
 	"go-spring.org/stdlib/flatten"
 )
 
-var starterTag = log.RegisterInfraTag("kafka", "")
+var starterTag = log.RegisterAppTag("kafka", "")
 
 func init() {
 	// Register multiple Kafka clients as a group.

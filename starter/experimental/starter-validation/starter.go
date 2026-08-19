@@ -46,7 +46,7 @@ import (
 
 var (
 	// starterTag identifies logs emitted by the validation starter.
-	starterTag = log.RegisterInfraTag("starter_validation", "")
+	starterTag = log.RegisterAppTag("starter_validation", "")
 )
 
 func init() {

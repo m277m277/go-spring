@@ -23,7 +23,7 @@ import (
 
 var (
 	// starterTag identifies logs emitted by the k8s config center starter.
-	starterTag = log.RegisterInfraTag("starter_config_k8s", "")
+	starterTag = log.RegisterAppTag("starter_config_k8s", "")
 )
 
 func init() {

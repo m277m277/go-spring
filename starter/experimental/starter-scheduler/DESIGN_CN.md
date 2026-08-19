@@ -34,9 +34,8 @@
   调度器根据 job 的 `lock` 字段查名。`spring/scheduling` 自定义了极简
   `Locker` / `Lock` 接口(保零依赖),故 starter 内 `lockerAdapter` 桥接
   `lock.Locker` 并把 TTL / 续租 option 烤进适配器。
-- **停机参与框架级 drain。**`spring.scheduler.drain-timeout`(默认 `30s`)
-  约束 `Stop`;它是 `app.shutdown.timeout` 之上的兜底——调度器立刻停止接受
-  新触发,等在途集合结束。
+- **停机由调度器自定边界。**`spring.scheduler.drain-timeout`(默认 `30s`)
+  约束 `Stop`——调度器立刻停止接受新触发,等在途集合结束。
 
 ## 3. 约束
 

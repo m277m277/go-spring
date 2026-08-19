@@ -187,7 +187,14 @@ func (s *HttpServer) Run(ctx context.Context, sig gs.ReadySignal) error {
 // Stop signals Run to tear down the kratos.App so Go-Spring can complete its
 // shutdown sequence.
 func (s *HttpServer) Stop() error {
-	log.Infof(context.Background(), kratosHTTPTag, "kratos http server shutting down on %s", s.cfg.Addr)
+	return s.StopContext(context.Background())
+}
+
+// StopContext signals Run to tear down the kratos.App so Go-Spring can complete
+// its shutdown sequence. The App teardown itself is driven by Run via
+// app.Stop() (which takes no context), so ctx only tags the shutdown log.
+func (s *HttpServer) StopContext(ctx context.Context) error {
+	log.Infof(ctx, kratosHTTPTag, "kratos http server shutting down on %s", s.cfg.Addr)
 	close(s.done)
 	return nil
 }

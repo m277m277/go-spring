@@ -172,10 +172,17 @@ func (s *HTTPServer) Run(ctx context.Context, sig gs.ReadySignal) error {
 // etcd when a registry is set), flushes the metric provider if any, and unblocks
 // Run.
 func (s *HTTPServer) Stop() error {
-	log.Infof(context.Background(), goframeHTTPTag, "goframe http server shutting down")
+	return s.StopContext(context.Background())
+}
+
+// StopContext gracefully shuts down the goframe server (which also deregisters
+// from etcd when a registry is set), flushes the metric provider if any with
+// the shutdown context, and unblocks Run.
+func (s *HTTPServer) StopContext(ctx context.Context) error {
+	log.Infof(ctx, goframeHTTPTag, "goframe http server shutting down")
 	err := s.svr.Shutdown()
 	if s.metricStop != nil {
-		_ = s.metricStop(context.Background())
+		_ = s.metricStop(ctx)
 	}
 	close(s.done)
 	return err

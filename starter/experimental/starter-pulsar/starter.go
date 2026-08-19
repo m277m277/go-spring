@@ -30,7 +30,7 @@ import (
 	"go-spring.org/stdlib/flatten"
 )
 
-var starterTag = log.RegisterInfraTag("pulsar", "")
+var starterTag = log.RegisterAppTag("pulsar", "")
 
 func init() {
 

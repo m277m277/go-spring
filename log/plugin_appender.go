@@ -160,16 +160,9 @@ type DiscardAppender struct {
 	AppenderBase
 }
 
-// Start does nothing; the appender holds no resources.
-func (c *DiscardAppender) Start() error { return nil }
-
-// Stop does nothing; the appender holds no resources.
-func (c *DiscardAppender) Stop() {}
-
-// Append discards the event without writing it anywhere.
-func (c *DiscardAppender) Append(e *Event) {}
-
-// ConcurrentSafe returns true; discarding needs no synchronization.
+func (c *DiscardAppender) Start() error         { return nil }
+func (c *DiscardAppender) Stop()                {}
+func (c *DiscardAppender) Append(e *Event)      {}
 func (c *DiscardAppender) ConcurrentSafe() bool { return true }
 
 // ConsoleAppender writes formatted log events to standard output.
@@ -177,19 +170,14 @@ type ConsoleAppender struct {
 	AppenderBase
 }
 
-// Start does nothing; the appender holds no resources.
-func (c *ConsoleAppender) Start() error { return nil }
-
-// Stop does nothing; the appender holds no resources.
-func (c *ConsoleAppender) Stop() {}
+func (c *ConsoleAppender) Start() error         { return nil }
+func (c *ConsoleAppender) Stop()                {}
+func (c *ConsoleAppender) ConcurrentSafe() bool { return true }
 
 // Append formats the event and writes it to standard output.
 func (c *ConsoleAppender) Append(e *Event) {
 	WriteEvent(Stdout, e, c.Layout)
 }
-
-// ConcurrentSafe returns true; the standard output stream is concurrency-safe.
-func (c *ConsoleAppender) ConcurrentSafe() bool { return true }
 
 // FileAppender writes formatted log events to a file in append mode.
 type FileAppender struct {

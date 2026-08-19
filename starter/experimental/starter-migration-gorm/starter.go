@@ -52,7 +52,7 @@ import (
 
 var (
 	// starterTag identifies logs emitted by the migration gorm starter.
-	starterTag = log.RegisterInfraTag("starter_migration_gorm", "")
+	starterTag = log.RegisterAppTag("starter_migration_gorm", "")
 )
 
 func init() {

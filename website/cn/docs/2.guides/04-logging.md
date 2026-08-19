@@ -196,18 +196,16 @@ Go-Spring 的标签系统正是对这个问题的答案。
 
 #### 分类前缀
 
-Go-Spring 官方推荐以下四类前缀，它们覆盖了绝大多数后端应用场景：
+Go-Spring 官方推荐以下三类前缀，它们覆盖了绝大多数后端应用场景：
 
 | 分类前缀 | 适用场景 | 典型示例 |
 |---------|----------|----------|
-| `_app_` | 应用生命周期与基础设施 | 启动、关闭、配置加载、健康检查、定时任务调度 |
-| | | `_app_startup`、`_app_shutdown`、`_app_config_reload` |
+| `_app_` | 应用生命周期与基础设施 | 启动、关闭、配置加载、健康检查、定时任务调度、连接池耗尽、熔断器打开 |
+| | | `_app_startup`、`_app_shutdown`、`_app_pool_exhausted` |
 | `_biz_` | 业务流程与领域事件 | 订单创建、用户登录、支付回调、状态变更通知 |
 | | | `_biz_order_create`、`_biz_user_login`、`_biz_pay_success` |
 | `_rpc_` | 外部依赖调用 | 数据库操作、缓存读写、消息队列发送、HTTP 下游调用、gRPC 服务请求 |
 | | | `_rpc_redis_get`、`_rpc_mysql_query`、`_rpc_http_call` |
-| `_infra_` | 框架与中间件内部 | 连接池耗尽、熔断器打开、重试触发、降级逻辑执行 |
-| | | `_infra_pool_exhausted`、`_infra_circuit_open` |
 
 > 这些分类只是推荐约定，不是技术限制。你完全可以根据项目特点自定义其他分类，
 > 但请记住：**同一个项目内应保持分类的一致性**。

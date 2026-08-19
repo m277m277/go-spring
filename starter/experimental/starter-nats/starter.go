@@ -26,7 +26,7 @@ import (
 	"go-spring.org/stdlib/flatten"
 )
 
-var starterTag = log.RegisterInfraTag("nats", "")
+var starterTag = log.RegisterAppTag("nats", "")
 
 func init() {
 	// Register multiple NATS connections as a group.

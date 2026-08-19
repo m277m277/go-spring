@@ -36,7 +36,7 @@ import (
 	"go-spring.org/stdlib/flatten"
 )
 
-var starterTag = log.RegisterInfraTag("lock_k8s", "")
+var starterTag = log.RegisterAppTag("lock_k8s", "")
 
 func init() {
 	// Register one Lease-backed Locker per entry under "${spring.lock}". A

@@ -49,7 +49,7 @@ import (
 
 var (
 	// starterTag identifies logs emitted by the session redis starter.
-	starterTag = log.RegisterInfraTag("starter_session_redis", "")
+	starterTag = log.RegisterAppTag("starter_session_redis", "")
 )
 
 func init() {

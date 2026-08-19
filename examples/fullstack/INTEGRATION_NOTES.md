@@ -105,10 +105,9 @@ each driven to a verdict against the code above:
    swapping implementation is import-only. No unrelated starters read the same
    key. The only real per-host clash — ports — is solved by item 1 above.
 2. **Multi-server drain order — verified correct.** The actuator server is a
-   `PreStopper`, so on SIGTERM readiness flips first, the `pre-stop-delay` window
-   elapses with every server (including actuator) still up, then all stop
-   concurrently. No ordering guarantee between servers is needed because nothing
-   stops until draining is done (`spring/gs/internal/gs_app/app.go`).
+   `PreStopper`, so on SIGTERM readiness flips first while every server (including
+   actuator) stays up; each server then stops itself on its own drain schedule.
+   No ordering guarantee between servers is needed.
 3. **OTel double instrumentation — non-issue.** `starter-otel` is provider-only;
    `starter-gin`/`starter-gateway` add no otel middleware; no provider is set
    twice. Exactly one span per request (see item 5).

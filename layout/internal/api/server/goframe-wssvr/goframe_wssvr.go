@@ -101,11 +101,18 @@ func (s *Server) Run(ctx context.Context, sig gs.ReadySignal) error {
 	return nil
 }
 
-// Stop gracefully shuts the WebSocket server down so Go-Spring can complete its
-// shutdown sequence.
-func (s *Server) Stop() error {
+// StopContext is the context-aware variant of Stop: it receives the shutdown
+// context from Go-Spring (values-only, no cancellation) and threads it into
+// http.Server.Shutdown. Stop delegates here with context.Background().
+func (s *Server) StopContext(ctx context.Context) error {
 	if s.svr == nil {
 		return nil
 	}
-	return s.svr.Shutdown(context.Background())
+	return s.svr.Shutdown(ctx)
+}
+
+// Stop gracefully shuts the WebSocket server down so Go-Spring can complete its
+// shutdown sequence.
+func (s *Server) Stop() error {
+	return s.StopContext(context.Background())
 }

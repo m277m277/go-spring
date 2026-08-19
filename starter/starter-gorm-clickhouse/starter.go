@@ -38,7 +38,7 @@ import (
 // so the wrapper body, lifecycle and observe/resilience wiring stay in one place.
 type DB = gormcore.DB
 
-var starterTag = log.RegisterInfraTag("gorm_clickhouse", "")
+var starterTag = log.RegisterAppTag("gorm_clickhouse", "")
 
 func init() {
 	gormcore.Register(gormcore.Dialect[Config]{

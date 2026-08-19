@@ -47,6 +47,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 
 	"go-spring.org/log"
 	"go-spring.org/spring/conf"
@@ -54,11 +55,22 @@ import (
 	"go-spring.org/stdlib/flatten"
 )
 
-var configTag = log.RegisterAppTag("config", "load")
-
 // AppConfig represents the layered configuration of an application.
 type AppConfig struct {
 	Properties *flatten.Properties
+	// Layered is the most recently refreshed merged configuration storage,
+	// retained so callers can introspect the per-source layers (via Sources).
+	// Refresh is callable from any goroutine, so it is swapped atomically to
+	// avoid a torn snapshot for concurrent readers. Nil until Refresh is called.
+	Layered atomic.Pointer[flatten.LayeredStorage]
+}
+
+func (c *AppConfig) Sources() []flatten.Source {
+	l := c.Layered.Load()
+	if l == nil {
+		return nil
+	}
+	return l.Sources()
 }
 
 // NewAppConfig creates a new AppConfig instance.
@@ -70,7 +82,7 @@ func NewAppConfig() *AppConfig {
 
 // Refresh refreshes the configuration by merging multiple sources.
 func (c *AppConfig) Refresh() (flatten.Storage, error) {
-	log.Debugf(context.Background(), configTag, "refreshing configuration")
+	log.Debugf(context.Background(), log.TagAppDef, "refreshing configuration")
 
 	if err := loadDotEnv(); err != nil {
 		return nil, errutil.Explain(err, "load .env file failed")
@@ -82,6 +94,10 @@ func (c *AppConfig) Refresh() (flatten.Storage, error) {
 		return nil, err
 	}
 
+	// Build the layered storage fresh each time so Refresh is idempotent (it
+	// runs at Start and on every RefreshProperties); building it in place on
+	// the shared field would both accumulate duplicate sources and race with
+	// concurrent refreshes. Store the finished snapshot atomically at the end.
 	l := &flatten.LayeredStorage{}
 	l.AddStorage(flatten.StorageCommandLine, flatten.NewPropertiesStorage(cmd), "cmd")
 	l.AddStorage(flatten.StorageEnvironment, flatten.NewPropertiesStorage(env), "env")
@@ -91,7 +107,7 @@ func (c *AppConfig) Refresh() (flatten.Storage, error) {
 	if err != nil {
 		return nil, errutil.Explain(err, "resolve spring.app.config.dir failed")
 	}
-	log.Debugf(context.Background(), configTag, "config directory: %s", confDir)
+	log.Debugf(context.Background(), log.TagAppDef, "config directory: %s", confDir)
 
 	if err = loadFiles(l, confDir, nil); err != nil {
 		return nil, errutil.Explain(err, "load base config files failed")
@@ -104,12 +120,14 @@ func (c *AppConfig) Refresh() (flatten.Storage, error) {
 	}
 	activeProfiles := dedupe(strings.Split(strActiveProfiles, ","))
 	if len(activeProfiles) > 0 {
-		log.Debugf(context.Background(), configTag, "active profiles: %v", activeProfiles)
+		log.Debugf(context.Background(), log.TagAppDef, "active profiles: %v", activeProfiles)
 		if err = loadFiles(l, confDir, activeProfiles); err != nil {
 			return nil, errutil.Explain(err, "load profile config files %v failed", activeProfiles)
 		}
 	}
-	log.Debugf(context.Background(), configTag, "configuration refresh complete")
+	log.Debugf(context.Background(), log.TagAppDef, "configuration refresh complete")
+
+	c.Layered.Store(l)
 	return l, nil
 }
 
@@ -165,14 +183,14 @@ func loadFiles(l *flatten.LayeredStorage, dir string, activeProfiles []string) e
 		if err != nil {
 			// Don't use `os.IsNotExist`
 			if errors.Is(err, os.ErrNotExist) {
-				log.Tracef(context.Background(), configTag, "config file not found, skipping: %s", filename)
+				log.Tracef(context.Background(), log.TagAppDef, "config file not found, skipping: %s", filename)
 				continue
 			}
-			log.Errorf(context.Background(), configTag, "load config file %s failed: %v", filename, err)
+			log.Errorf(context.Background(), log.TagAppDef, "load config file %s failed: %v", filename, err)
 			return errutil.Explain(err, "load config file %s failed", filename)
 		}
 
-		log.Debugf(context.Background(), configTag, "loaded config file: %s", filename)
+		log.Debugf(context.Background(), log.TagAppDef, "loaded config file: %s", filename)
 
 		// Add the file to the layered storage
 		if activeProfiles == nil {
@@ -211,7 +229,7 @@ func loadFileImports(l *flatten.LayeredStorage, p *flatten.Properties, activePro
 		if err != nil {
 			return errutil.Explain(err, "load import file %s failed", str)
 		}
-		log.Debugf(context.Background(), configTag, "loaded imported config file: %s", str)
+		log.Debugf(context.Background(), log.TagAppDef, "loaded imported config file: %s", str)
 		if activeProfiles == nil {
 			l.AddStorage(flatten.StorageAppFile, flatten.NewPropertiesStorage(c), str)
 		} else {

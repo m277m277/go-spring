@@ -18,10 +18,10 @@ ports:
   http: GS_APP_PORT
   management: GS_MGMT_PORT
 
-# terminationGracePeriodSeconds and the preStop sleep align with
-# app.shutdown.timeout / app.shutdown.pre-stop-delay in conf/app-k8s.properties:
-# readiness flips to OUT_OF_SERVICE on SIGTERM, preStop sleeps while endpoints
-# are removed, then servers stop. Keep grace period >= app.shutdown.timeout.
+# terminationGracePeriodSeconds and the preStop sleep bound the drain: readiness
+# flips to OUT_OF_SERVICE on SIGTERM, preStop sleeps while endpoints are removed,
+# then each server finishes its own shutdown (in PreStop / StopContext). Keep the
+# grace period large enough for the slowest server to drain.
 terminationGracePeriodSeconds: 30
 preStopSleepSeconds: 5
 

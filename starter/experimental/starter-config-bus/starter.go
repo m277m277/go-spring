@@ -38,7 +38,7 @@ import (
 
 var (
 	// starterTag identifies logs emitted by the config bus starter.
-	starterTag = log.RegisterInfraTag("starter_config_bus", "")
+	starterTag = log.RegisterAppTag("starter_config_bus", "")
 )
 
 func init() {

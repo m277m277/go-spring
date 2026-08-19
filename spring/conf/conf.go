@@ -67,13 +67,13 @@ func RegisterProvider(name string, p provider.Provider) {
 	provider.Register(name, p)
 }
 
-// RegisterDecryptDriver registers a property-level decryptor driver, the seam
-// through which a custom decryption scheme (an asymmetric cipher or a cloud
-// KMS) replaces the built-in AES-GCM driver. Select the active driver with the
-// GS_CONFIG_DECRYPT_DRIVER environment variable. Must be called in init
+// RegisterDecryptor registers a property-level decryption scheme, the seam
+// through which a custom scheme (an asymmetric cipher or a cloud KMS) replaces
+// the built-in AES-GCM driver. Select the active scheme by naming it in the
+// marker - ENC(name:cipher) - or rely on the default. Must be called in init
 // functions only.
-func RegisterDecryptDriver(name string, f decrypt.Factory) {
-	decrypt.RegisterDriver(name, f)
+func RegisterDecryptor(name string, f decrypt.Factory) {
+	decrypt.Register(name, f)
 }
 
 // Load creates a Properties instance from a configuration source.
@@ -148,7 +148,9 @@ func Bind(p flatten.Storage, i any, tag ...string) error {
 // for each entry — the common skeleton of multi-instance starters, where each
 // "${tag.<name>}" block becomes one (name, config) pair handed to fn to provide
 // that instance's beans. fn may return an error to abort the loop; the first
-// non-nil error is returned.
+// non-nil error is returned, wrapped with the failing entry's name so a bad
+// instance is attributable (e.g. "conf: bind \"${servers}\" entry \"a\" failed:
+// boom").
 //
 // It is a thin iterator over Bind; map iteration order is non-deterministic, so
 // fn must not depend on entry order (register beans by name, as multi-instance
@@ -160,7 +162,7 @@ func BindEach[C any](p flatten.Storage, tag string, fn func(name string, c C) er
 	}
 	for name, c := range m {
 		if err := fn(name, c); err != nil {
-			return err
+			return errutil.Explain(err, "conf: bind %q entry %q failed", tag, name)
 		}
 	}
 	return nil

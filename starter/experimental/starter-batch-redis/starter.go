@@ -49,7 +49,7 @@ import (
 
 var (
 	// starterTag identifies logs emitted by the batch redis starter.
-	starterTag = log.RegisterInfraTag("starter_batch_redis", "")
+	starterTag = log.RegisterAppTag("starter_batch_redis", "")
 )
 
 func init() {

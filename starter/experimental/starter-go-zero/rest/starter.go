@@ -168,7 +168,14 @@ func (s *RestServer) Run(ctx context.Context, sig gs.ReadySignal) error {
 
 // Stop signals Run to return so Go-Spring can complete its shutdown sequence.
 func (s *RestServer) Stop() error {
-	log.Infof(context.Background(), gozeroRestTag, "go-zero rest server shutting down on %s:%d", s.cfg.Host, s.cfg.Port)
+	return s.StopContext(context.Background())
+}
+
+// StopContext signals Run to return so Go-Spring can complete its shutdown
+// sequence. The server teardown itself happens in Run via svr.Stop() (which
+// takes no context), so ctx only tags the shutdown log.
+func (s *RestServer) StopContext(ctx context.Context) error {
+	log.Infof(ctx, gozeroRestTag, "go-zero rest server shutting down on %s:%d", s.cfg.Host, s.cfg.Port)
 	close(s.done)
 	return nil
 }

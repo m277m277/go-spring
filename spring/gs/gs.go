@@ -202,8 +202,6 @@ func IndexArg(n int, arg Arg) Arg {
 //	)
 func BindArg(fn any, args ...Arg) *gs_arg.BindArg {
 	a := gs_arg.Bind(fn, args...)
-	// gs_arg.Bind's runtime.Caller(1) points at this wrapper, so re-stamp
-	// the file:line with the user's call site (same pattern as Module).
 	_, file, line, _ := runtime.Caller(1)
 	a.SetFileLine(file, line)
 	return a
@@ -407,12 +405,9 @@ type (
 	ContextProvider = gs_app.ContextProvider
 
 	// PropertiesRefresher triggers a hot reload of application properties,
-	// updating every gs.Dync[T] value in place.
+	// updating every gs.Dync[T] value in place. It also exposes a Snapshot of
+	// the raw configuration sources for operational introspection.
 	PropertiesRefresher = gs_app.PropertiesRefresher
-
-	// EnvProvider exposes a read-only snapshot of the configuration sources for
-	// operational introspection.
-	EnvProvider = gs_app.EnvProvider
 )
 
 // Provide registers a global bean definition.
@@ -421,6 +416,12 @@ type (
 // It accepts either an existing instance or a constructor function.
 // The optional args are used to bind parameters for the constructor or to
 // provide explicit injection values.
+//
+// An unnamed bean derives its default name automatically: from the constructor
+// function's name (NewMyService -> "NewMyService", a method's name likewise),
+// or from the short type name for instance beans. Anonymous constructor
+// functions therefore yield unusable names (e.g. "main.func1") - use a named
+// constructor or an explicit .Name() in that case.
 //
 // Parameters:
 //   - objOrCtor: bean instance (struct pointer) or constructor function

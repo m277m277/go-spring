@@ -24,8 +24,8 @@
 //     property refresh and the bound field updates without a restart.
 //
 //  2. Property-level decryption (Jasypt ENC(...) equivalent). The imported
-//     document also carries demo.password=ENC(<ciphertext>), which the conf
-//     binding pipeline decrypts with the AES key from GS_CONFIG_DECRYPT_KEY
+//     document also carries demo.password=ENC(aes:<ciphertext>), which the conf
+//     binding pipeline decrypts with the AES key from GS_CONFIG_DECRYPT_AES_KEY
 //     before binding, so the bean only ever sees the plaintext.
 //
 // The Vault client below is built directly from the SDK rather than injected,
@@ -45,7 +45,6 @@ import (
 
 	"github.com/hashicorp/vault/api"
 	"go-spring.org/log"
-	"go-spring.org/spring/conf/decrypt"
 	"go-spring.org/spring/gs"
 
 	_ "go-spring.org/starter-config-vault"
@@ -98,13 +97,13 @@ func runTest(d *Demo) {
 	// Encrypt a password under the configured AES key, then publish a config
 	// document to Vault containing both a plain and an encrypted property.
 	const wantPassword = "topsecret"
-	enc, err := decrypt.Encrypt(wantPassword)
+	enc, err := aes.Encrypt(wantPassword)
 	if err != nil {
 		log.Errorf(ctx, log.TagAppDef, "encrypt failed: %v", err)
 		os.Exit(1)
 	}
 	wantMessage := "hello-" + time.Now().Format("150405")
-	doc := fmt.Sprintf("demo.message=%s\ndemo.password=ENC(%s)\n", wantMessage, enc)
+	doc := fmt.Sprintf("demo.message=%s\ndemo.password=ENC(aes:%s)\n", wantMessage, enc)
 
 	if err := publish(ctx, doc); err != nil {
 		log.Errorf(ctx, log.TagAppDef, "publish config failed: %v", err)

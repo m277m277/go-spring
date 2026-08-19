@@ -48,7 +48,7 @@ import (
 
 var (
 	// starterTag identifies logs emitted by the consul registry starter.
-	starterTag = log.RegisterInfraTag("starter_registry_consul", "")
+	starterTag = log.RegisterAppTag("starter_registry_consul", "")
 )
 
 func init() {
@@ -128,7 +128,14 @@ func (s *Server) PreStop(ctx context.Context) {
 // Stop deregisters as a fallback should PreStop not have run. Deregister is
 // idempotent, so a second call is a no-op.
 func (s *Server) Stop() error {
-	s.deregister(context.Background())
+	return s.StopContext(context.Background())
+}
+
+// StopContext deregisters as a fallback should PreStop not have run,
+// propagating the shutdown context into the deregister call. Deregister is
+// idempotent, so a second call is a no-op.
+func (s *Server) StopContext(ctx context.Context) error {
+	s.deregister(ctx)
 	return nil
 }
 

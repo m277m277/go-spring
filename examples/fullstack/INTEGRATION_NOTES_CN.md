@@ -91,9 +91,8 @@ span 中间件(`traceMiddleware` / `traceServer`)才能把 `trace_id` 打进日�
    `spring.redis`),换实现只改 import。没有两个不相关 starter 读同一个 key。唯一真正
    的同机冲突——端口——已由上文第 1 条解决。
 2. **多 server 停机顺序 —— 已验证正确。** actuator server 是 `PreStopper`,SIGTERM
-   时先翻 readiness,`pre-stop-delay` 窗口内所有 server(含 actuator)仍在服务,然后
-   并发停止。server 间无需顺序保证,因为排空完成前没有任何 server 停止
-   (`spring/gs/internal/gs_app/app.go`)。
+   时先翻 readiness,此时所有 server(含 actuator)仍在服务;随后各 server 按各自的
+   排空节奏停止自身。server 间无需顺序保证。
 3. **OTel 双重埋点 —— 非问题。** `starter-otel` 只提供 provider;
    `starter-gin`/`starter-gateway` 不加 otel 中间件;没有 provider 被装两次。每个请求
    恰好一个 span(见第 5 条)。

@@ -47,7 +47,8 @@ const (
 	CallerTypeDefault CallerType = iota
 
 	// CallerTypeFast indicates that the caller information should be retrieved
-	// using a faster but less accurate method.
+	// using a PC-keyed cache, which is faster than the default method while
+	// yielding identical results.
 	CallerTypeFast
 
 	// CallerTypeNone indicates that no caller information should be retrieved.

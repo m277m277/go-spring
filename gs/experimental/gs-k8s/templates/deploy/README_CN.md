@@ -81,9 +81,10 @@ starter **有意为之**的启动期 I/O fail-fast:DB/Redis 拨号、配置中�
 
 ## 优雅停机
 
-`terminationGracePeriodSeconds`(30s)与容器 `preStop` sleep(5s)和
-`conf/app-k8s.properties` 里的 `app.shutdown.timeout` / `app.shutdown.pre-stop-delay`
-对齐。滚动更新无损排空在途请求。
+`terminationGracePeriodSeconds`(30s)与容器 `preStop` sleep(5s)框定排空窗口:
+收到 SIGTERM 后 readiness 翻转为 OUT_OF_SERVICE,`preStop` sleep 让端点控制器
+停止转发新流量,随后各 server 各自完成自己的停机(在 PreStop / StopContext 中)。
+滚动更新无损排空在途请求。
 
 ## 指标
 

@@ -28,8 +28,7 @@ type Config struct {
 	Jobs map[string]JobConfig `value:"${jobs:=}"`
 
 	// DrainTimeout bounds how long Stop waits for in-flight runs to finish during
-	// graceful shutdown before giving up. It is a safety net on top of the
-	// framework-level app.shutdown.timeout.
+	// graceful shutdown before giving up.
 	DrainTimeout time.Duration `value:"${drain-timeout:=30s}"`
 }
 

@@ -72,7 +72,7 @@ type Mailer struct {
 
 var (
 	// starterTag identifies logs emitted by the mail starter.
-	starterTag = log.RegisterInfraTag("starter_mail", "")
+	starterTag = log.RegisterAppTag("starter_mail", "")
 )
 
 func init() {

@@ -181,7 +181,7 @@ func New(system string, sc SemConv, kind trace.SpanKind, cfg ObserveConfig, opts
 		metric.WithDescription("Number of in-flight "+system+" client operations"),
 		metric.WithUnit("{request}"),
 	)
-	o.logTag = log.RegisterInfraTag(system, "access")
+	o.logTag = log.RegisterAppTag(system, "access")
 	return o
 }
 

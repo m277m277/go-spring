@@ -56,7 +56,7 @@ func init() {
 	})
 }
 
-var starterTag = log.RegisterInfraTag("elasticsearch", "")
+var starterTag = log.RegisterAppTag("elasticsearch", "")
 
 // newClient creates a new Elasticsearch client based on the provided
 // configuration. The cluster is probed once at startup so that misconfiguration

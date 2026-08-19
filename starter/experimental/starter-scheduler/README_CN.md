@@ -106,8 +106,8 @@ import (
 ## 优雅停机
 
 收到 `SIGTERM` 后,调度器停止触发并等待在途运行结束,受
-`spring.scheduler.drain-timeout`(默认 `30s`)约束——它是框架级
-`app.shutdown.timeout` 之上的一层保险。
+`spring.scheduler.drain-timeout`(默认 `30s`)约束——这是调度器对自身优雅停机
+的边界。
 
 ## 配置项参考
 

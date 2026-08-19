@@ -31,7 +31,7 @@ import (
 	"go-spring.org/stdlib/errutil"
 )
 
-var starterTag = log.RegisterInfraTag("redigo", "")
+var starterTag = log.RegisterAppTag("redigo", "")
 
 // Pool is the wrapper bean redigo pools are injected as. It embeds
 // the concrete *redis.Pool (so Get/Stats/etc. promote unchanged). NewPool

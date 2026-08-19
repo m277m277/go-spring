@@ -48,8 +48,8 @@ client --POST /api/orders (Bearer token)--> gateway :9440
   网关缺口见踩坑记录。
 - **安全**:`starter-security-jwt`。订单服务是资源服务器;网关原样转发调用方的
   `Authorization` 头。
-- **优雅停机**:收到 SIGTERM 后 readiness 翻为 `OUT_OF_SERVICE`,框架先排空再停
-  server(`app.shutdown.pre-stop-delay`)。
+- **优雅停机**:收到 SIGTERM 后 readiness 翻为 `OUT_OF_SERVICE`,随后各 server 各自
+  完成自身的排空(PreStop / StopContext)再停止。
 
 ## 运行
 

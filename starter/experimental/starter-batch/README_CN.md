@@ -139,9 +139,9 @@ spring.scheduler.jobs.nightly-reconcile.cron=0 2 * * *
 ## 优雅停机
 
 收到 `SIGTERM` 后,runner 取消所有在途的启动型运行并等它们结束,受
-`spring.batch.drain-timeout`(默认 `30s`)约束——它是框架级
-`app.shutdown.timeout` 之上的一层保险。遵守 context 的 step 会及时返回,并把
-step 留在 `stopped` 状态——下次启动可以从最后一次提交的 checkpoint **续跑**。
+`spring.batch.drain-timeout`(默认 `30s`)约束——这是 runner 对自身优雅停机的
+边界。遵守 context 的 step 会及时返回,并把 step 留在 `stopped` 状态——下次启动
+可以从最后一次提交的 checkpoint **续跑**。
 
 ## 配置项参考
 

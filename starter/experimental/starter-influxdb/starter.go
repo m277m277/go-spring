@@ -29,7 +29,7 @@ import (
 	"go-spring.org/stdlib/flatten"
 )
 
-var starterTag = log.RegisterInfraTag("influxdb", "")
+var starterTag = log.RegisterAppTag("influxdb", "")
 
 func init() {
 	// Register multiple InfluxDB clients as a group, one per entry under

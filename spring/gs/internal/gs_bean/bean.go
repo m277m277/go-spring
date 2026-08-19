@@ -18,24 +18,18 @@
 package gs_bean
 
 import (
-	"context"
 	"fmt"
 	"reflect"
 	"runtime"
 	"slices"
 	"strings"
 
-	"go-spring.org/log"
 	"go-spring.org/spring/gs/internal/gs"
 	"go-spring.org/spring/gs/internal/gs_arg"
 	"go-spring.org/spring/gs/internal/gs_cond"
 	"go-spring.org/stdlib/errutil"
 	"go-spring.org/stdlib/typeutil"
 )
-
-// TagBeanLifecycle is the log tag for bean lifecycle events.
-// It allows independent control of bean-related log levels.
-var TagBeanLifecycle = log.RegisterAppTag("bean", "lifecycle")
 
 // BeanStatus represents the different lifecycle statuses of a bean.
 type BeanStatus int8
@@ -417,6 +411,7 @@ func NewBean(objOrCtor any, ctorArgs ...gs.Arg) *BeanDefinition {
 	var f *gs_arg.Callable
 	var v reflect.Value
 	var fromValue bool
+	var name string
 	var cond gs.Condition
 
 	switch i := objOrCtor.(type) {
@@ -475,9 +470,17 @@ func NewBean(objOrCtor any, ctorArgs ...gs.Arg) *BeanDefinition {
 			panic(fmt.Sprintf("constructor return type must be reference type, got %v", t))
 		}
 
-		// If the constructor is a method, set a condition for its owner bean
+		// Derive bean name from constructor function name
 		fnPtr := reflect.ValueOf(objOrCtor).Pointer()
 		fnInfo := runtime.FuncForPC(fnPtr)
+		funcName := fnInfo.Name()
+		name = funcName[strings.LastIndex(funcName, "/")+1:]
+		name = name[strings.Index(name, ".")+1:]
+		if name[0] == '(' {
+			name = name[strings.Index(name, ".")+1:]
+		}
+
+		// If the constructor is a method, set a condition for its owner bean
 		method := strings.LastIndexByte(fnInfo.Name(), ')') > 0
 		if method {
 			var s = gs.BeanID{Type: in0}
@@ -502,10 +505,15 @@ func NewBean(objOrCtor any, ctorArgs ...gs.Arg) *BeanDefinition {
 		}
 	}
 
-	d := &BeanDefinition{f: f, t: t, v: v, name: t.String(), status: StatusDefault}
+	// Fallback: derive name from the type
+	if name == "" {
+		s := strings.Split(t.String(), ".")
+		name = strings.TrimPrefix(s[len(s)-1], "*")
+	}
+
+	d := &BeanDefinition{f: f, t: t, v: v, name: name, status: StatusDefault}
 	if cond != nil {
 		d.Condition(cond)
 	}
-	log.Debugf(context.Background(), TagBeanLifecycle, "bean created: %s", d.String())
 	return d
 }

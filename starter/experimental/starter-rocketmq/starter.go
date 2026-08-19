@@ -32,7 +32,7 @@ import (
 	"go-spring.org/stdlib/flatten"
 )
 
-var starterTag = log.RegisterInfraTag("rocketmq", "")
+var starterTag = log.RegisterAppTag("rocketmq", "")
 
 func init() {
 

@@ -108,12 +108,12 @@ func (s *Server) handleThreadDump(w http.ResponseWriter, r *http.Request) {
 }
 
 // snapshot returns the current configuration sources, or an empty slice when no
-// EnvProvider was injected.
+// PropertiesRefresher was injected.
 func (s *Server) snapshot() []flatten.Source {
-	if s.Env == nil {
+	if s.Config == nil {
 		return []flatten.Source{}
 	}
-	return s.Env.Snapshot()
+	return s.Config.Sources()
 }
 
 // buildTree expands dot-separated property keys into a nested map, masking leaf

@@ -175,6 +175,13 @@ func (s *SimpleGinServer) Run(ctx context.Context, sig gs.ReadySignal) error {
 // Stop gracefully shuts the HTTP server down, allowing in-flight requests to
 // complete.
 func (s *SimpleGinServer) Stop() error {
-	log.Infof(context.Background(), ginTag, "gin server shutting down on %s", s.svr.Addr)
-	return s.svr.Shutdown(context.Background())
+	return s.StopContext(context.Background())
+}
+
+// StopContext gracefully shuts the HTTP server down with the given context,
+// allowing in-flight requests to complete. It implements the gs_app.Stopper
+// seam so the shutdown context is propagated to http.Server.Shutdown.
+func (s *SimpleGinServer) StopContext(ctx context.Context) error {
+	log.Infof(ctx, ginTag, "gin server shutting down on %s", s.svr.Addr)
+	return s.svr.Shutdown(ctx)
 }

@@ -32,8 +32,7 @@ type Config struct {
 	Repository string `value:"${repository:=}"`
 
 	// DrainTimeout bounds how long Stop waits for in-flight launches to finish
-	// during graceful shutdown before giving up. It is a safety net on top of
-	// the framework-level app.shutdown.timeout.
+	// during graceful shutdown before giving up.
 	DrainTimeout time.Duration `value:"${drain-timeout:=30s}"`
 
 	// Jobs maps a job name to its launch options. The name must match a

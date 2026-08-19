@@ -24,7 +24,7 @@ import (
 
 var (
 	// starterTag identifies logs emitted by the swagger starter.
-	starterTag = log.RegisterInfraTag("starter_swagger", "")
+	starterTag = log.RegisterAppTag("starter_swagger", "")
 )
 
 func init() {

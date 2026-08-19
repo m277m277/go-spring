@@ -67,7 +67,7 @@ import (
 
 var (
 	// starterTag identifies logs emitted by the batch starter.
-	starterTag = log.RegisterInfraTag("starter_batch", "")
+	starterTag = log.RegisterAppTag("starter_batch", "")
 )
 
 // enabled matches when the starter is not explicitly disabled. It is the
@@ -166,6 +166,16 @@ func (s *Server) Run(ctx context.Context, sig gs.ReadySignal) error {
 // has returned are not tracked here — their lifetime is owned by their caller
 // (e.g. the scheduler, which drains its own goroutines).
 func (s *Server) Stop() error {
+	return s.StopContext(context.Background())
+}
+
+// StopContext cancels in-flight startup launches and waits for them to finish,
+// bounded by the configured drain timeout. It is called during graceful
+// shutdown with the framework's shutdown context. On-demand launches triggered
+// through the shared Launcher after Run has returned are not tracked here -
+// their lifetime is owned by their caller (e.g. the scheduler, which drains its
+// own goroutines).
+func (s *Server) StopContext(ctx context.Context) error {
 	if s.cancel != nil {
 		s.cancel()
 	}
@@ -183,7 +193,7 @@ func (s *Server) Stop() error {
 	case <-done:
 		return nil
 	case <-time.After(timeout):
-		log.Warnf(context.Background(), starterTag,
+		log.Warnf(ctx, starterTag,
 			"batch: drain timed out after %s; abandoning in-flight launches", timeout)
 		return nil
 	}

@@ -40,7 +40,7 @@ import (
 
 var (
 	// starterTag identifies logs emitted by the otel starter.
-	starterTag = log.RegisterInfraTag("starter_otel", "")
+	starterTag = log.RegisterAppTag("starter_otel", "")
 
 	// runtimeOnce guards runtimemetrics.Start, which is not idempotent: the OTel
 	// contrib runtime instrumentation registers fresh async callbacks on the

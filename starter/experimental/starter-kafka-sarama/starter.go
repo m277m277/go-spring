@@ -27,7 +27,7 @@ import (
 	"go-spring.org/stdlib/flatten"
 )
 
-var starterTag = log.RegisterInfraTag("kafka_sarama", "")
+var starterTag = log.RegisterAppTag("kafka_sarama", "")
 
 func init() {
 	// Bridge sarama's package-level logger into go-spring's log so

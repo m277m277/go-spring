@@ -35,7 +35,7 @@ import (
 	"go.opentelemetry.io/otel/metric"
 )
 
-var starterTag = log.RegisterInfraTag("bigcache", "")
+var starterTag = log.RegisterAppTag("bigcache", "")
 
 func init() {
 	// Register multiple BigCache instances as a group, one per entry under

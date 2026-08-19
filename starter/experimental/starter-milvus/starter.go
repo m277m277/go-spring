@@ -26,7 +26,7 @@ import (
 	"go-spring.org/stdlib/flatten"
 )
 
-var starterTag = log.RegisterInfraTag("milvus", "")
+var starterTag = log.RegisterAppTag("milvus", "")
 
 func init() {
 	gs.Module(gs.OnProperty("spring.milvus"), func(r gs.BeanProvider, p flatten.Storage) error {

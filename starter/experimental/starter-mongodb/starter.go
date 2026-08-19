@@ -34,7 +34,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
-var starterTag = log.RegisterInfraTag("mongodb", "")
+var starterTag = log.RegisterAppTag("mongodb", "")
 
 func init() {
 	// Register multiple MongoDB clients as a group, one per entry under

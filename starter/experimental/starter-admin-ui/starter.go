@@ -157,6 +157,13 @@ func (s *Server) Run(ctx context.Context, sig gs.ReadySignal) error {
 
 // Stop shuts the server down gracefully and waits for the poller to exit.
 func (s *Server) Stop() error {
+	return s.StopContext(context.Background())
+}
+
+// StopContext shuts the server down gracefully, propagating ctx into
+// http.Server.Shutdown so the drain rides the shutdown context, and waits for
+// the poller to exit.
+func (s *Server) StopContext(ctx context.Context) error {
 	if s.stop != nil {
 		// Idempotent close guard — Stop is called at most once by the framework,
 		// but a nil-safety close is cheap and defensive.
@@ -172,7 +179,7 @@ func (s *Server) Stop() error {
 	if s.svr == nil {
 		return nil
 	}
-	return s.svr.Shutdown(context.Background())
+	return s.svr.Shutdown(ctx)
 }
 
 // pollLoop refreshes the snapshot on a fixed cadence until Stop closes the

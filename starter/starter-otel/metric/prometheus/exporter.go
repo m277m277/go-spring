@@ -38,7 +38,7 @@ import (
 )
 
 // logTag identifies logs emitted by the prometheus scrape server.
-var logTag = log.RegisterInfraTag("starter_otel", "prometheus")
+var logTag = log.RegisterAppTag("starter_otel", "prometheus")
 
 func init() {
 	metric.RegisterMeterExporter("prometheus", newPrometheus)

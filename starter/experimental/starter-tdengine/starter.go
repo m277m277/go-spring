@@ -30,7 +30,7 @@ import (
 	"go-spring.org/stdlib/flatten"
 )
 
-var starterTag = log.RegisterInfraTag("tdengine", "")
+var starterTag = log.RegisterAppTag("tdengine", "")
 
 func init() {
 	// Register multiple TDengine clients as a group, one per entry under

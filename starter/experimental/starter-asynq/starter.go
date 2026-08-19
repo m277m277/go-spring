@@ -29,7 +29,7 @@ import (
 	"go-spring.org/stdlib/flatten"
 )
 
-var starterTag = log.RegisterInfraTag("asynq", "")
+var starterTag = log.RegisterAppTag("asynq", "")
 
 func init() {
 	// Register one Asynq instance per entry under "${spring.asynq}". The

@@ -28,7 +28,6 @@ package gs_arg
 import (
 	"fmt"
 	"reflect"
-	"runtime"
 
 	"go-spring.org/spring/gs/internal/gs"
 	"go-spring.org/stdlib/errutil"
@@ -347,10 +346,7 @@ func Bind(fn any, args ...gs.Arg) *BindArg {
 	if err != nil {
 		panic(err)
 	}
-	arg := &BindArg{r: r}
-	_, file, line, _ := runtime.Caller(1)
-	arg.SetFileLine(file, line)
-	return arg
+	return &BindArg{r: r}
 }
 
 // SetFileLine records the source location of the Bind() call.

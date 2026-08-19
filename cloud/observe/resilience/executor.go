@@ -90,7 +90,7 @@ func WrapExecutor(inner resilience.Executor, system string, cfg observe.ObserveC
 		duration:       duration,
 		active:         active,
 		breakerChanges: breakerChanges,
-		logTag:         log.RegisterInfraTag(system, "resilience"),
+		logTag:         log.RegisterAppTag(system, "resilience"),
 		cfg:            cfg,
 	}
 	// If the inner executor emits breaker state transitions, subscribe so each

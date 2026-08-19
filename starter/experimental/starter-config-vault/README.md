@@ -95,10 +95,12 @@ resolved value wrapped in `ENC(...)` or prefixed with `{cipher}` is decrypted
 before it is bound, so application code only sees the plaintext.
 
 ```properties
-db.password=ENC(<base64-ciphertext>)
+db.password=ENC(aes:<base64-ciphertext>)
 # or, Spring Cloud Config style:
-db.password={cipher}<base64-ciphertext>
+db.password={cipher}aes:<base64-ciphertext>
 ```
+
+The marker must name its driver, so several schemes can coexist in one file.
 
 The built-in `aes` driver uses AES-GCM. The key is supplied out of band — never
 in a config file:
@@ -106,12 +108,11 @@ in a config file:
 | Variable                     | Description                                        |
 |------------------------------|----------------------------------------------------|
 | `GS_CONFIG_DECRYPT_KEY`      | base64-encoded AES key (16/24/32 bytes)            |
-| `GS_CONFIG_DECRYPT_KEY_FILE` | path to a file holding the base64-encoded key      |
-| `GS_CONFIG_DECRYPT_DRIVER`   | driver name, default `aes`                         |
+| `GS_CONFIG_DECRYPT_AES_KEY_FILE` | path to a file holding the base64-encoded key      |
 
 A value that carries a marker but cannot be decrypted fails startup rather than
 degrading to a broken default. To plug in an asymmetric scheme or a cloud KMS,
-register a driver in an `init` function and select it via the env var:
+register a driver in an `init` function and name it in the marker:
 
 ```go
 conf.RegisterDecryptDriver("kms", func() (decrypt.Decryptor, error) { ... })

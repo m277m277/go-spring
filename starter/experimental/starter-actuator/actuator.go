@@ -112,10 +112,11 @@ type Server struct {
 	// does not import those components — the seam is the stdlib interface.
 	Endpoints []endpoint.Endpoint `autowire:"?"`
 
-	// Env exposes a read-only snapshot of the merged configuration for the /env
-	// and /configprops endpoints. Optional so the actuator still builds probes
-	// and info when property introspection is unavailable.
-	Env *gs.EnvProvider `autowire:"?"`
+	// Config exposes a read-only snapshot of the merged configuration (via
+	// PropertiesRefresher.Snapshot) for the /env and /configprops endpoints.
+	// Optional so the actuator still builds probes and info when property
+	// introspection is unavailable.
+	Config *gs.PropertiesRefresher `autowire:"?"`
 
 	svr      *http.Server
 	ready    atomic.Bool
@@ -189,11 +190,17 @@ func (s *Server) Run(ctx context.Context, sig gs.ReadySignal) error {
 
 // Stop gracefully shuts down the management server.
 func (s *Server) Stop() error {
+	return s.StopContext(context.Background())
+}
+
+// StopContext gracefully shuts down the management server, propagating ctx into
+// http.Server.Shutdown so the drain rides the shutdown context.
+func (s *Server) StopContext(ctx context.Context) error {
 	if s.svr == nil {
 		return nil
 	}
-	log.Debugf(context.Background(), actuatorTag, "stopping actuator server")
-	return s.svr.Shutdown(context.Background())
+	log.Debugf(ctx, actuatorTag, "stopping actuator server")
+	return s.svr.Shutdown(ctx)
 }
 
 // PreStop implements the framework's graceful-drain hook. It is called at the

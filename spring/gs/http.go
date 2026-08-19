@@ -28,8 +28,6 @@ import (
 	"go-spring.org/stdlib/flatten"
 )
 
-var httpServerTag = log.RegisterAppTag("http", "server")
-
 func init() {
 	// Register a module for HTTP server.
 	enableSimpleHttpServer := OnProperty("spring.http.server.enabled").
@@ -51,6 +49,8 @@ func init() {
 		return nil
 	})
 }
+
+var httpServerTag = log.RegisterAppTag("http", "server")
 
 // HttpServeMux is a lightweight wrapper around an http.Handler,
 // allowing the default http.ServeMux or a custom handler
@@ -94,8 +94,11 @@ func NewSimpleHttpServer(h *HttpServeMux, cfg SimpleHttpServerConfig) *SimpleHtt
 	if h != nil {
 		handler = h.Handler
 	}
-	log.Debugf(context.Background(), httpServerTag, "creating HTTP server: addr=%s readTimeout=%s writeTimeout=%s idleTimeout=%s",
+
+	log.Debugf(context.Background(), httpServerTag,
+		"creating HTTP server: addr=%s readTimeout=%s writeTimeout=%s idleTimeout=%s",
 		cfg.Address, cfg.ReadTimeout, cfg.WriteTimeout, cfg.IdleTimeout)
+
 	return &SimpleHttpServer{svr: &http.Server{
 		Addr:              cfg.Address,
 		Handler:           handler,
@@ -115,20 +118,30 @@ func (s *SimpleHttpServer) Run(ctx context.Context, sig ReadySignal) error {
 		log.Errorf(ctx, httpServerTag, "failed to listen on %s: %v", s.svr.Addr, err)
 		return errutil.Explain(err, "failed to listen on %s", s.svr.Addr)
 	}
+
 	log.Infof(ctx, httpServerTag, "HTTP server listening on %s", s.svr.Addr)
+
 	<-sig.TriggerAndWait()
 	err = s.svr.Serve(ln)
 	if errors.Is(err, http.ErrServerClosed) {
 		log.Infof(ctx, httpServerTag, "HTTP server closed gracefully")
 		return nil
 	}
+
 	log.Errorf(ctx, httpServerTag, "HTTP server serve error: %v", err)
 	return errutil.Explain(err, "failed to serve on %s", s.svr.Addr)
+}
+
+// StopContext gracefully stops the HTTP server, allowing in-flight requests
+// to complete. The context is the app's shutdown context (values-only) and
+// is passed through to http.Server.Shutdown.
+func (s *SimpleHttpServer) StopContext(ctx context.Context) error {
+	log.Debugf(ctx, httpServerTag, "stopping HTTP server on %s", s.svr.Addr)
+	return s.svr.Shutdown(ctx)
 }
 
 // Stop gracefully stops the HTTP server, allowing in-flight requests
 // to complete.
 func (s *SimpleHttpServer) Stop() error {
-	log.Debugf(context.Background(), httpServerTag, "stopping HTTP server on %s", s.svr.Addr)
-	return s.svr.Shutdown(context.Background())
+	return s.StopContext(context.Background())
 }

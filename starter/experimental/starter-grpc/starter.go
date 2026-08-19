@@ -246,7 +246,13 @@ func (s *SimpleGrpcServer) Run(ctx context.Context, sig gs.ReadySignal) error {
 
 // Stop gracefully stops the underlying gRPC server.
 func (s *SimpleGrpcServer) Stop() error {
-	log.Infof(context.Background(), grpcTag, "grpc server shutting down on %s", s.cfg.Addr)
+	return s.StopContext(context.Background())
+}
+
+// StopContext gracefully stops the underlying gRPC server. grpc's GracefulStop
+// takes no context, so ctx only tags the shutdown log.
+func (s *SimpleGrpcServer) StopContext(ctx context.Context) error {
+	log.Infof(ctx, grpcTag, "grpc server shutting down on %s", s.cfg.Addr)
 	s.svr.GracefulStop()
 	return nil
 }

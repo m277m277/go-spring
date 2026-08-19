@@ -27,7 +27,7 @@ import (
 	"go-spring.org/stdlib/flatten"
 )
 
-var starterTag = log.RegisterInfraTag("xxljob", "")
+var starterTag = log.RegisterAppTag("xxljob", "")
 
 func init() {
 	gs.Module(gs.OnProperty("spring.xxljob"), func(r gs.BeanProvider, p flatten.Storage) error {

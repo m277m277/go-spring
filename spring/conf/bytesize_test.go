@@ -17,6 +17,8 @@
 package conf_test
 
 import (
+	"math"
+	"strconv"
 	"testing"
 
 	"go-spring.org/spring/conf"
@@ -41,11 +43,20 @@ func TestParseByteSize(t *testing.T) {
 		{"1M", 1 << 20},
 		{"1GB", 1 << 30},
 		{"1TB", 1 << 40},
-		{"1PB", 1 << 50},
 		{"1.5KB", 1536},
 		{"1.5MB", 1.5 * (1 << 20)},
 		{"  16MB  ", 16 << 20},
 		{"2.5GiB", 2.5 * (1 << 30)},
+		{"1 KB", 1 << 10}, // whitespace between number and suffix
+		{"+5MB", 5 << 20}, // explicit plus sign
+		{".5KB", 512},     // leading dot
+		{"1023B", 1023},   // stays in bytes
+		{"8TiB", 8 << 40}, // largest suffix
+		{"1.999B", 2},     // fractional bytes round to nearest
+		{"0.4B", 0},       // ... and down to zero
+		// 2^63-1024 is the largest multiple of 1024 a float64 represents
+		// exactly below the int64 ceiling; anything finer rounds up to 2^63.
+		{strconv.FormatInt(math.MaxInt64-1023, 10), conf.ByteSize(9223372036854774784)},
 	}
 	for _, c := range cases {
 		got, err := conf.ParseByteSize(c.in)
@@ -67,6 +78,9 @@ func TestParseByteSize_Errors(t *testing.T) {
 		{"-1MB", "negative byte size"},
 		{"1QB", "unknown suffix"},
 		{"1e3", "unknown suffix"},
+		{"9223372036854775807", "overflows int64"}, // ParseFloat rounds to 2^63
+		{"9223372036854775808", "overflows int64"}, // exactly 2^63
+		{"10000000TiB", "overflows int64"},         // ~2^63.25
 	}
 	for _, c := range bad {
 		_, err := conf.ParseByteSize(c.in)
@@ -85,6 +99,7 @@ func TestByteSizeString(t *testing.T) {
 		{1536, "1.5KiB"},
 		{1 << 20, "1.0MiB"},
 		{(1 << 30) * 3, "3.0GiB"},
+		{-3, "-3B"}, // negatives render as-is rather than being clamped
 	}
 	for _, c := range cases {
 		assert.That(t, c.in.String()).Equal(c.want)

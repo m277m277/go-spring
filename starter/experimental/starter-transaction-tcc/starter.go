@@ -75,7 +75,7 @@ import (
 
 var (
 	// starterTag identifies logs emitted by the transaction tcc starter.
-	starterTag = log.RegisterInfraTag("starter_transaction_tcc", "")
+	starterTag = log.RegisterAppTag("starter_transaction_tcc", "")
 )
 
 // enabled matches when the starter is not explicitly disabled.

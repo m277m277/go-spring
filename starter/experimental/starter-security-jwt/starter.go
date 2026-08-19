@@ -23,7 +23,7 @@ import (
 
 var (
 	// starterTag identifies logs emitted by the security jwt starter.
-	starterTag = log.RegisterInfraTag("starter_security_jwt", "")
+	starterTag = log.RegisterAppTag("starter_security_jwt", "")
 )
 
 func init() {

@@ -251,8 +251,9 @@ func (p *envParser) readValue(lookup func(string) (string, bool)) (string, error
 }
 
 // readUnquoted reads a value up to the end of the line. Variable references
-// are expanded; surrounding whitespace is trimmed. The '#' character is
-// treated as part of the value (no inline comments).
+// are expanded and trailing whitespace is trimmed (leading whitespace was
+// already skipped by readValue). The '#' character is treated as part of the
+// value (no inline comments).
 func (p *envParser) readUnquoted(lookup func(string) (string, bool)) (string, error) {
 	var b strings.Builder
 	for !p.eof() && p.peek() != '\n' {
@@ -403,20 +404,16 @@ func (p *envParser) expectLineEnd() error {
 }
 
 // isValidEnvName reports whether s is a valid environment variable name:
-// [A-Za-z_][A-Za-z0-9_]*.
+// [A-Za-z_][A-Za-z0-9_]*. It shares the same character rules as the bare
+// $NAME and ${NAME} references parsed by expandVar.
 func isValidEnvName(s string) bool {
-	if s == "" {
+	if s == "" || !isNameStart(s[0]) {
 		return false
 	}
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') {
-			continue
+	for i := 1; i < len(s); i++ {
+		if !isNameChar(s[i]) {
+			return false
 		}
-		if i > 0 && c >= '0' && c <= '9' {
-			continue
-		}
-		return false
 	}
 	return true
 }

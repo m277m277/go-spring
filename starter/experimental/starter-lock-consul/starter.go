@@ -34,7 +34,7 @@ import (
 	"go-spring.org/stdlib/flatten"
 )
 
-var starterTag = log.RegisterInfraTag("lock_consul", "")
+var starterTag = log.RegisterAppTag("lock_consul", "")
 
 func init() {
 	// Register one Locker bean per entry under "${spring.lock}". We bind the

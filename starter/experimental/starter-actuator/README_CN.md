@@ -106,21 +106,12 @@ curl -X POST http://127.0.0.1:9370/loggers/root \
 
 ## 优雅停机（Drain）
 
-收到 `SIGTERM` 时，框架在停止服务器前先执行一段排空流程：actuator 将 `/readyz`
-翻转为 `503 OUT_OF_SERVICE`（通过 `PreStop` 钩子），而 `/healthz` 与在途请求保持正常；
-随后等待 `app.shutdown.pre-stop-delay`，让 Kubernetes 端点控制器有时间把 Pod 从
-Service endpoints 中摘除，之后才停止接收新流量。这正是滚动更新做到无损的关键。之后
-才停止服务器，其耗时由 `app.shutdown.timeout` 限定。
-
-```properties
-# 就绪翻转为 false 后，停止服务器前等待这么久。
-app.shutdown.pre-stop-delay=5s
-# 可选，限定等待服务器停止的时长上限（0 = 无限等待）。
-app.shutdown.timeout=30s
-```
-
-两项都是框架级配置（作用于所有服务器，而非仅 actuator），默认均为 `0`，即禁用排空
-等待、保持立即停机的行为。
+收到 `SIGTERM` 时，actuator 将 `/readyz` 翻转为 `503 OUT_OF_SERVICE`（通过
+`PreStop` 钩子），而 `/healthz` 与在途请求保持正常。各 server 各自掌握自己的
+排空时序——在自身 `PreStop` / `StopContext` 允许的窗口内完成在途请求并停止自身——
+让 Kubernetes 端点控制器有时间把 Pod 从 Service endpoints 中摘除，之后才停止接收
+新流量。这正是滚动更新做到无损的关键。框架不再提供排空延迟或停机超时：排空与停机
+的边界是 server 自身的职责。
 
 ## 健康指示器
 

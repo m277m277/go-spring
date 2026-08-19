@@ -52,7 +52,7 @@ import (
 
 var (
 	// starterTag identifies logs emitted by the etcd registry starter.
-	starterTag = log.RegisterInfraTag("starter_registry_etcd", "")
+	starterTag = log.RegisterAppTag("starter_registry_etcd", "")
 )
 
 func init() {
@@ -134,7 +134,14 @@ func (s *Server) PreStop(ctx context.Context) {
 // Stop deregisters as a fallback should PreStop not have run. Deregister is
 // idempotent, so a second call is a no-op.
 func (s *Server) Stop() error {
-	s.deregister(context.Background())
+	return s.StopContext(context.Background())
+}
+
+// StopContext deregisters as a fallback should PreStop not have run,
+// propagating the shutdown context to the etcd Deregister call. Deregister is
+// idempotent, so a second call is a no-op.
+func (s *Server) StopContext(ctx context.Context) error {
+	s.deregister(ctx)
 	return nil
 }
 

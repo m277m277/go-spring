@@ -111,8 +111,8 @@ import (
 ## Graceful shutdown
 
 On `SIGTERM` the scheduler stops firing and waits for in-flight runs to finish,
-bounded by `spring.scheduler.drain-timeout` (default `30s`) — a safety net on
-top of the framework-level `app.shutdown.timeout`.
+bounded by `spring.scheduler.drain-timeout` (default `30s`) — the scheduler's
+own bound on its graceful shutdown.
 
 ## Configuration reference
 

@@ -27,6 +27,7 @@ import (
 	"go-spring.org/gs-mock/gsmock"
 	"go-spring.org/log"
 	"go-spring.org/spring/gs/internal/gs"
+	"go-spring.org/spring/gs/internal/gs_dync"
 	"go-spring.org/stdlib/errutil"
 	"go-spring.org/stdlib/goutil"
 	"go-spring.org/stdlib/testing/assert"
@@ -81,6 +82,7 @@ func (f *funcRunner) Run(ctx context.Context) error {
 type funcServer struct {
 	run     func(ctx context.Context, sig ReadySignal) error
 	stop    func() error
+	stopCtx func(ctx context.Context) error
 	preStop func(ctx context.Context)
 }
 
@@ -93,6 +95,13 @@ func (f *funcServer) Stop() error {
 		return nil
 	}
 	return f.stop()
+}
+
+func (f *funcServer) StopContext(ctx context.Context) error {
+	if f.stopCtx == nil {
+		return f.Stop()
+	}
+	return f.stopCtx(ctx)
 }
 
 func (f *funcServer) PreStop(ctx context.Context) {
@@ -117,7 +126,7 @@ func TestApp(t *testing.T) {
 		// conflict with the lower-precedence default layer's leaf (a=123):
 		// layered storages merge by precedence instead of rejecting the
 		// structure change, and each key resolves from its own layer.
-		ls := app.env.Load()
+		ls := app.p.Layered.Load()
 		assert.That(t, ls).NotNil()
 		v, ok := ls.Value("a.b")
 		assert.That(t, ok).True()
@@ -399,12 +408,11 @@ func TestApp(t *testing.T) {
 		}
 	})
 
-	t.Run("pre-stop runs before stop and waits the drain delay", func(t *testing.T) {
+	t.Run("pre-stop runs before stop", func(t *testing.T) {
 		Reset()
 		t.Cleanup(Reset)
 
 		app := NewApp()
-		app.Property("app.shutdown.pre-stop-delay", "100ms")
 
 		var preStopAt, stopAt time.Time
 		app.c.Provide(&funcServer{
@@ -432,51 +440,6 @@ func TestApp(t *testing.T) {
 		assert.That(t, preStopAt.IsZero()).False()
 		assert.That(t, stopAt.IsZero()).False()
 		assert.That(t, stopAt.After(preStopAt)).True()
-		// The drain delay must fully elapse between PreStop and Stop.
-		assert.That(t, stopAt.Sub(preStopAt) >= 100*time.Millisecond).True()
-	})
-
-	t.Run("shutdown timeout bounds the wait for stuck servers", func(t *testing.T) {
-		Reset()
-		t.Cleanup(Reset)
-
-		app := NewApp()
-		app.Property("app.shutdown.timeout", "100ms")
-
-		stopRelease := make(chan struct{})
-		t.Cleanup(func() { close(stopRelease) })
-
-		app.c.Provide(&funcServer{
-			run: func(ctx context.Context, sig ReadySignal) error {
-				<-sig.TriggerAndWait()
-				return nil
-			},
-			stop: func() error {
-				<-stopRelease // stuck server: Stop never finishes on its own
-				return nil
-			},
-		}).Export(gs.As[Server]())
-
-		go func() {
-			time.Sleep(50 * time.Millisecond)
-			app.ShutDown()
-		}()
-		err := app.Start()
-		assert.That(t, err).Nil()
-
-		started := time.Now()
-		done := make(chan struct{})
-		go func() {
-			app.WaitForShutdown()
-			close(done)
-		}()
-		select {
-		case <-done:
-			assert.That(t, time.Since(started) >= 100*time.Millisecond).True()
-			assert.String(t, logBuf.String()).Contains("shutdown timed out after 100ms, forcing cleanup")
-		case <-time.After(3 * time.Second):
-			t.Fatal("WaitForShutdown did not return within the shutdown timeout")
-		}
 	})
 
 	t.Run("refresh properties before start", func(t *testing.T) {
@@ -488,27 +451,15 @@ func TestApp(t *testing.T) {
 		assert.Error(t, err).Matches("app not started yet, cannot refresh properties")
 	})
 
-	t.Run("refresh properties after config dropped", func(t *testing.T) {
+	t.Run("config sources", func(t *testing.T) {
 		Reset()
 		t.Cleanup(Reset)
 
 		app := NewApp()
-		err := app.Start() // no gs.Dync values registered, config is dropped
-		assert.That(t, err).Nil()
+		provider := &PropertiesRefresher{app: app}
 
-		err = app.RefreshProperties()
-		assert.Error(t, err).Matches("configuration dropped: no gs.Dync values registered, nothing to refresh")
-	})
-
-	t.Run("env provider snapshot", func(t *testing.T) {
-		Reset()
-		t.Cleanup(Reset)
-
-		app := NewApp()
-		provider := &EnvProvider{app: app}
-
-		// Before properties are loaded the snapshot is empty.
-		assert.That(t, len(provider.Snapshot())).Equal(0)
+		// Before properties are loaded the sources are empty.
+		assert.That(t, len(provider.Sources())).Equal(0)
 
 		app.Property("app.name", "test-app")
 		err := app.Start()
@@ -517,11 +468,39 @@ func TestApp(t *testing.T) {
 		// The property lands in the default source (name ""), unmerged with the
 		// higher-priority command-line/environment sources.
 		var appName string
-		for _, src := range provider.Snapshot() {
+		for _, src := range provider.Sources() {
 			if src.Name == "" {
 				appName = src.Data["app.name"]
 			}
 		}
 		assert.String(t, appName).Equal("test-app")
 	})
+}
+
+// dyncConfig registers a gs.Dync field so a hot refresh has something to
+// propagate through the IoC container.
+type dyncConfig struct {
+	Addr gs_dync.Value[string] `value:"${addr:=127.0.0.1:5050}"`
+}
+
+// RefreshProperties is documented as callable from any goroutine. Concurrent
+// refreshes must be race-free — run with -race to make that a hard gate.
+func TestRefreshProperties_Concurrent(t *testing.T) {
+	Reset()
+	t.Cleanup(Reset)
+
+	app := NewApp()
+	app.c.Provide(&dyncConfig{})
+	err := app.Start()
+	assert.That(t, err).Nil()
+
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = app.RefreshProperties()
+		}()
+	}
+	wg.Wait()
 }

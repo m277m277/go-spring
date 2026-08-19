@@ -7,7 +7,10 @@ goroutine no longer crashes the process; the recovered panic is routed to a
 global `OnPanic` callback for logging, metrics, or alerting. It covers both
 `func(ctx)` (`Go`) and `func(ctx) (T, error)` (`GoValue`) shapes, and every
 launch returns a handle with `Wait()` for joining without hand-rolled channels
-or `sync.WaitGroup` bookkeeping. It is not a worker pool, semaphore, or
+or `sync.WaitGroup` bookkeeping. Two sibling entry points complete the story:
+`SafeRun` runs a function synchronously and converts a panic into an error on
+the normal return path, and `ReportPanic` reports an already-recovered panic
+value (from your own recover sites) through the same `OnPanic` callback. It is not a worker pool, semaphore, or
 cancellation framework — `errgroup`, `semaphore`, and friends stay in
 `golang.org/x/sync`.
 
@@ -115,7 +118,7 @@ value, err := goutil.GoValue(context.Background(), func(ctx context.Context) (st
 }, goutil.InheritCancel).Wait()
 
 // value is empty string (zero value of type T)
-// err contains panic info and stack trace
+// err contains the panic value; the full stack goes to OnPanic
 fmt.Printf("value: %q, error: %v\n", value, err)
 ```
 

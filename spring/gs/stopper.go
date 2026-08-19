@@ -21,7 +21,6 @@ import (
 	"sync"
 
 	"go-spring.org/log"
-	"go-spring.org/spring/gs/internal/gs_bean"
 )
 
 // Stopper is a shutdown function for a process-global resource whose cleanup
@@ -77,7 +76,7 @@ func RegisterStopper(name string, s Stopper) {
 	stopperMu.Lock()
 	defer stopperMu.Unlock()
 	stoppers[name] = s
-	log.Debugf(context.Background(), gs_bean.TagBeanLifecycle, "global stopper registered: %s", name)
+	log.Debugf(context.Background(), log.TagAppDef, "global stopper registered: %s", name)
 }
 
 // runStoppers invokes every registered stopper. Stoppers are independent and run
@@ -93,10 +92,10 @@ func runStoppers(ctx context.Context) {
 	ctx = context.WithoutCancel(ctx)
 	for name, s := range reg {
 		if err := s(ctx); err != nil {
-			log.Errorf(ctx, gs_bean.TagBeanLifecycle, "stopper %q failed: %v", name, err)
+			log.Errorf(ctx, log.TagAppDef, "stopper %q failed: %v", name, err)
 			continue
 		}
-		log.Debugf(ctx, gs_bean.TagBeanLifecycle, "stopper %q done", name)
+		log.Debugf(ctx, log.TagAppDef, "stopper %q done", name)
 	}
 }
 

@@ -30,7 +30,7 @@ import (
 
 var (
 	// starterTag identifies logs emitted by the k8s discovery starter.
-	starterTag = log.RegisterInfraTag("starter_discovery_k8s", "")
+	starterTag = log.RegisterAppTag("starter_discovery_k8s", "")
 )
 
 func init() {

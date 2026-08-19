@@ -166,13 +166,4 @@ func TestRegisterTags(t *testing.T) {
 	tag2 = RegisterRPCTag("http", "")
 	assert.That(t, tag2).NotNil()
 	assert.String(t, tag2.tag).Equal("_rpc_http")
-
-	// Test RegisterInfraTag
-	tag = RegisterInfraTag("redis", "query")
-	assert.That(t, tag).NotNil()
-	assert.String(t, tag.tag).Equal("_infra_redis_query")
-
-	tag2 = RegisterInfraTag("mysql", "")
-	assert.That(t, tag2).NotNil()
-	assert.String(t, tag2.tag).Equal("_infra_mysql")
 }

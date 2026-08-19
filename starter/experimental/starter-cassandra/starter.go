@@ -29,7 +29,7 @@ import (
 	"go-spring.org/stdlib/flatten"
 )
 
-var starterTag = log.RegisterInfraTag("cassandra", "")
+var starterTag = log.RegisterAppTag("cassandra", "")
 
 func init() {
 	// Register multiple Cassandra clients as a group, one per entry under

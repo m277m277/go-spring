@@ -41,7 +41,7 @@ import (
 
 var (
 	// starterTag identifies logs emitted by the resilience starter.
-	starterTag = log.RegisterInfraTag("starter_resilience", "")
+	starterTag = log.RegisterAppTag("starter_resilience", "")
 )
 
 func init() {

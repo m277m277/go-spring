@@ -117,6 +117,12 @@ func (s *SimpleHertzServer) Run(ctx context.Context, sig gs.ReadySignal) error {
 
 // Stop gracefully shuts the Hertz engine down.
 func (s *SimpleHertzServer) Stop() error {
-	log.Infof(context.Background(), hertzTag, "hertz server shutting down")
-	return s.h.Shutdown(context.Background())
+	return s.StopContext(context.Background())
+}
+
+// StopContext gracefully shuts the Hertz engine down, propagating ctx into the
+// engine's context-aware Shutdown so the drain rides the shutdown context.
+func (s *SimpleHertzServer) StopContext(ctx context.Context) error {
+	log.Infof(ctx, hertzTag, "hertz server shutting down")
+	return s.h.Shutdown(ctx)
 }

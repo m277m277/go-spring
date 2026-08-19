@@ -67,7 +67,7 @@ import (
 
 var (
 	// starterTag identifies logs emitted by the transaction saga starter.
-	starterTag = log.RegisterInfraTag("starter_transaction_saga", "")
+	starterTag = log.RegisterAppTag("starter_transaction_saga", "")
 )
 
 // enabled matches when the starter is not explicitly disabled.

@@ -148,10 +148,7 @@ func ParseBufferFullPolicy(s string) (BufferFullPolicy, error) {
 // and processes them in a background goroutine.
 type AsyncLogger struct {
 	LoggerBase
-	AppenderRefs []*AppenderRef `PluginElement:"appenderRef"`
-
-	// BufferSize is the number of events the async buffer can hold.
-	// Start returns an error if it is smaller than 100.
+	AppenderRefs []*AppenderRef   `PluginElement:"appenderRef"`
 	BufferSize   int              `PluginAttribute:"bufferSize,default=10000"`
 	OnBufferFull BufferFullPolicy `PluginAttribute:"onBufferFull,default=discard"`
 

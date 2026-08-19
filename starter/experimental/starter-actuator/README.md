@@ -106,23 +106,14 @@ produced by config encryption. All other values pass through unchanged.
 
 ## Graceful Shutdown (Drain)
 
-On `SIGTERM`, the framework runs a drain sequence before stopping servers: the
-actuator flips `/readyz` to `503 OUT_OF_SERVICE` (via a `PreStop` hook) while
-`/healthz` and in-flight requests stay up, then waits `app.shutdown.pre-stop-delay`
-so the Kubernetes endpoint controller can remove the pod from Service endpoints
-before it stops accepting new traffic. This is what makes a rolling update
-lossless. Servers are then stopped, bounded by `app.shutdown.timeout`.
-
-```properties
-# Wait this long after readiness flips false before stopping servers.
-app.shutdown.pre-stop-delay=5s
-# Optional cap on how long to wait for servers to stop (0 = wait indefinitely).
-app.shutdown.timeout=30s
-```
-
-Both settings are framework-level (they apply to every server, not just the
-actuator) and default to `0`, which disables the drain wait and preserves
-immediate shutdown.
+On `SIGTERM`, the actuator flips `/readyz` to `503 OUT_OF_SERVICE` (via a `PreStop`
+hook) while `/healthz` and in-flight requests stay up. Each server owns its own
+drain timing — it finishes in-flight requests and stops itself within the window
+its `PreStop` / `StopContext` allows — so the Kubernetes endpoint controller has
+time to remove the pod from Service endpoints before it stops accepting new
+traffic. This is what makes a rolling update lossless. There is no framework-level
+drain delay or shutdown timeout: drain and shutdown bounds are the server's own
+responsibility.
 
 ## Health Indicators
 

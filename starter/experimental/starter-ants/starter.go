@@ -30,7 +30,7 @@ import (
 	"go-spring.org/stdlib/flatten"
 )
 
-var starterTag = log.RegisterInfraTag("ants", "")
+var starterTag = log.RegisterAppTag("ants", "")
 
 func init() {
 	// Register multiple pools under ${spring.ants}. Each map key becomes a

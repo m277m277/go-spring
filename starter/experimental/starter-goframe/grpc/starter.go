@@ -124,7 +124,14 @@ func (s *GRPCServer) Run(ctx context.Context, sig gs.ReadySignal) error {
 // Stop gracefully stops the underlying grpcx server (which deregisters from etcd
 // when a registry is set and calls grpc.Server.GracefulStop) and unblocks Run.
 func (s *GRPCServer) Stop() error {
-	log.Infof(context.Background(), goframeGRPCTag, "goframe grpc server shutting down")
+	return s.StopContext(context.Background())
+}
+
+// StopContext gracefully stops the underlying grpcx server (which deregisters
+// from etcd when a registry is set and calls grpc.Server.GracefulStop) and
+// unblocks Run. grpcx Stop takes no context, so ctx only tags the shutdown log.
+func (s *GRPCServer) StopContext(ctx context.Context) error {
+	log.Infof(ctx, goframeGRPCTag, "goframe grpc server shutting down")
 	s.svr.Stop()
 	close(s.done)
 	return nil

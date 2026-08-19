@@ -92,7 +92,7 @@ func Beans() []*gs_bean.BeanDefinition {
 // available for all App/IOC containers that reference this global registry.
 func AddBean(bean *gs_bean.BeanDefinition) {
 	beans = append(beans, bean)
-	log.Debugf(context.Background(), gs_bean.TagBeanLifecycle, "global bean registered: %s", bean)
+	log.Debugf(context.Background(), log.TagAppDef, "global bean registered: %s", bean)
 }
 
 // AddModule registers a conditional module in the global registry.
@@ -104,7 +104,7 @@ func AddModule(c gs_cond.PropertyCondition, fn ModuleFunc, file string, line int
 		Condition:  c,
 		FileLine:   fmt.Sprintf("%s:%d", file, line),
 	})
-	log.Debugf(context.Background(), gs_bean.TagBeanLifecycle, "global module registered at %s:%d", file, line)
+	log.Debugf(context.Background(), log.TagAppDef, "global module registered at %s:%d", file, line)
 }
 
 // Clear resets all registered beans and modules, effectively emptying the
@@ -112,7 +112,7 @@ func AddModule(c gs_cond.PropertyCondition, fn ModuleFunc, file string, line int
 // (bean/module definitions are build artifacts no longer needed once the graph
 // is wired) and between tests for isolation.
 func Clear() {
-	log.Debugf(context.Background(), gs_bean.TagBeanLifecycle, "clear global beans (%d) and modules (%d)", len(beans), len(modules))
-	beans = nil
+	log.Debugf(context.Background(), log.TagAppDef, "clear global beans (%d) and modules (%d)", len(beans), len(modules))
 	modules = nil
+	beans = nil
 }

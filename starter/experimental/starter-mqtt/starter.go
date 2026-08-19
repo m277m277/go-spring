@@ -26,7 +26,7 @@ import (
 	"go-spring.org/stdlib/flatten"
 )
 
-var starterTag = log.RegisterInfraTag("mqtt", "")
+var starterTag = log.RegisterAppTag("mqtt", "")
 
 func init() {
 

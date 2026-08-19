@@ -88,21 +88,22 @@ secret 变更时,提供者的轮询 watcher 触发一次应用属性刷新,所�
 包裹或以 `{cipher}` 开头的值,都会在绑定前解密,应用代码只看到明文。
 
 ```properties
-db.password=ENC(<base64 密文>)
+db.password=ENC(aes:<base64 密文>)
 # 或 Spring Cloud Config 风格:
-db.password={cipher}<base64 密文>
+db.password={cipher}aes:<base64 密文>
 ```
+
+标记内必须指名驱动,因此多种方案可在同一份配置中共存。
 
 内置 `aes` 驱动使用 AES-GCM。密钥在带外提供 —— 绝不进配置文件:
 
 | 变量                         | 说明                                       |
 |------------------------------|--------------------------------------------|
 | `GS_CONFIG_DECRYPT_KEY`      | base64 编码的 AES 密钥(16/24/32 字节)     |
-| `GS_CONFIG_DECRYPT_KEY_FILE` | 保存 base64 密钥的文件路径                  |
-| `GS_CONFIG_DECRYPT_DRIVER`   | 驱动名,默认 `aes`                          |
+| `GS_CONFIG_DECRYPT_AES_KEY_FILE` | 保存 base64 密钥的文件路径                  |
 
 带标记却无法解密的值会让启动失败,而非降级为损坏的默认值。要接入非对称方案或
-云 KMS,在 `init` 中注册驱动并用环境变量选择:
+云 KMS,在 `init` 中注册驱动并在标记内指名:
 
 ```go
 conf.RegisterDecryptDriver("kms", func() (decrypt.Decryptor, error) { ... })

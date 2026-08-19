@@ -22,7 +22,6 @@ import (
 	"context"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"go-spring.org/log"
 	"go-spring.org/spring/gs/internal/gs"
@@ -86,17 +85,31 @@ type Server interface {
 
 // PreStopper is an optional interface a Server may implement to participate in
 // graceful drain. When shutdown begins, PreStop is invoked on every server that
-// implements it — before the configured pre-stop delay and before any server is
-// stopped — so the server can start refusing to advertise itself as ready (for
+// implements it — before any server is stopped — so the server can start refusing to advertise itself as ready (for
 // example, flip a readiness probe to OUT_OF_SERVICE) while in-flight requests
 // keep being served.
 //
 // This is what lets a Kubernetes rolling update be lossless: on SIGTERM the
 // readiness probe goes false, the endpoint controller removes the pod from
-// Service endpoints, and only after the pre-stop delay — enough time for that
-// removal to propagate — are the servers actually stopped.
+// Service endpoints, and — after whatever drain wait the server itself decides
+// on — the servers are then actually stopped.
 type PreStopper interface {
 	PreStop(ctx context.Context)
+}
+
+// Stopper is an optional interface a Server may implement to receive the
+// shutdown context when being stopped. Servers implementing it are stopped
+// via StopContext(ctx) instead of Stop(), where ctx is the root context
+// WITHOUT cancellation (the root is already cancelled at that point) and
+// WITHOUT a deadline - the app imposes no shutdown timeout, so bounding the
+// shutdown is each server's own responsibility; the context only carries
+// values.
+//
+// It lets servers propagate the context to context-aware cleanup APIs
+// (http.Server.Shutdown, logging, tracing) without letting root-context
+// cancellation abort their graceful drain.
+type Stopper interface {
+	StopContext(ctx context.Context) error
 }
 
 // ContextProvider is a wrapper that provides explicit access to the
@@ -123,32 +136,25 @@ type PropertiesRefresher struct {
 	app *App
 }
 
+// Started reports whether the application has finished wiring its IoC
+// container. Check it before calling RefreshProperties (which returns an error
+// if called before the app is started) — useful in a Runner that injects this
+// bean and runs during startup.
+func (c *PropertiesRefresher) Started() bool {
+	return c.app.Started()
+}
+
 // RefreshProperties refreshes application properties and
 // propagates the changes to the IoC container.
 func (c *PropertiesRefresher) RefreshProperties() error {
 	return c.app.RefreshProperties()
 }
 
-// EnvProvider exposes a read-only snapshot of the application's configuration
-// sources for operational introspection (e.g. an actuator "env" endpoint).
-// Components inject this bean instead of reaching into the container, and the
-// snapshot stays current across hot property refreshes.
-//
-// It carries no secret-masking policy of its own: callers that surface values
-// to operators are responsible for masking sensitive keys/values.
-type EnvProvider struct {
-	app *App
-}
-
-// Snapshot returns the raw configuration sources in priority order (highest
-// first), without merging them. Each source keeps its own flattened key-value
-// pairs, so callers can see the original data and decide for themselves how it
-// aggregates. Returns an empty slice before properties are loaded.
-func (c *EnvProvider) Snapshot() []flatten.Source {
-	if ls := c.app.env.Load(); ls != nil {
-		return (*ls).Sources()
-	}
-	return []flatten.Source{}
+// Sources returns the configuration sources in priority order (highest first),
+// without merging them, for operational introspection. Returns nil before
+// properties are loaded.
+func (c *PropertiesRefresher) Sources() []flatten.Source {
+	return c.app.Sources()
 }
 
 // App represents the core application, managing its lifecycle,
@@ -160,35 +166,15 @@ func (c *EnvProvider) Snapshot() []flatten.Source {
 //   - Runner and Server lifecycle management
 //   - Graceful shutdown orchestration
 type App struct {
-	c *gs_core.Container // IoC container
-
-	// p holds the application configuration. It is swapped atomically: Start
-	// drops it (Store(nil)) after the container is wired when no dynamic
-	// (gs.Dync) values are registered, while RefreshProperties — documented
-	// as callable from any goroutine — loads it concurrently.
-	p atomic.Pointer[gs_conf.AppConfig]
-
+	c      *gs_core.Container // IoC container
+	p      *gs_conf.AppConfig // Application configuration
 	ctx    context.Context    // Root context for managing cancellation
 	cancel context.CancelFunc // Function to cancel the root context
 	wg     sync.WaitGroup     // WaitGroup to track running servers
 
-	// preStopDelay is how long to wait, after readiness is flipped off, before
-	// stopping servers on shutdown. It gives external load balancers / the K8s
-	// endpoint controller time to stop routing traffic here. Zero disables the
-	// drain wait (default), preserving the previous immediate-shutdown behavior.
-	preStopDelay time.Duration
-	// shutdownTimeout bounds how long to wait for all servers to stop before
-	// forcing cleanup. Zero means wait indefinitely (default).
-	shutdownTimeout time.Duration
-
 	Rooters []Rooter `autowire:"?"`
 	Runners []Runner `autowire:"${spring.app.runners:=?}"`
 	Servers []Server `autowire:"${spring.app.servers:=?}"`
-
-	// env holds the most recently merged configuration storage, published for
-	// read-only introspection via EnvProvider. It is swapped atomically on
-	// every (re)load so a concurrent env snapshot never sees a torn state.
-	env atomic.Pointer[flatten.LayeredStorage]
 
 	// started is set to true after the IoC container has been fully wired
 	// (app.c.Refresh returned successfully). RefreshProperties refuses to
@@ -202,13 +188,12 @@ func NewApp() *App {
 	// nolint: staticcheck
 	ctx := context.WithValue(context.Background(), "app", "")
 	ctx, cancel := context.WithCancel(ctx)
-	app := &App{
+	return &App{
 		c:      gs_core.New(),
+		p:      gs_conf.NewAppConfig(),
 		ctx:    ctx,
 		cancel: cancel,
 	}
-	app.p.Store(gs_conf.NewAppConfig())
-	return app
 }
 
 // Context returns the root context for the application.
@@ -216,10 +201,27 @@ func (app *App) Context() context.Context {
 	return app.ctx
 }
 
+// Started reports whether the application has finished wiring its IoC container
+// (app.c.Refresh returned). Callers of RefreshProperties can check this first to
+// avoid the "app not started yet" error, e.g. when a Runner injects a
+// PropertiesRefresher and runs during startup, before Started becomes true.
+func (app *App) Started() bool {
+	return app.started.Load()
+}
+
+// Sources returns the configuration sources in priority order (highest first),
+// without merging them, for operational introspection (e.g. an actuator /env
+// endpoint). Each source keeps its own flattened key-value pairs. Returns nil
+// before properties are loaded. It carries no secret-masking policy of its own:
+// callers that surface values to operators are responsible for masking.
+func (app *App) Sources() []flatten.Source {
+	return app.p.Sources()
+}
+
 // Property sets an app-level property in the application's configuration.
 // This method allows programmatic configuration during initialization.
 func (app *App) Property(key string, val string) {
-	app.p.Load().Properties.Set(key, val)
+	app.p.Properties.Set(key, val)
 }
 
 // Provide registers a new bean definition in the IoC container.
@@ -246,43 +248,11 @@ func (app *App) RefreshProperties() error {
 	if !app.started.Load() {
 		return errutil.Explain(nil, "app not started yet, cannot refresh properties")
 	}
-	cp := app.p.Load()
-	if cp == nil {
-		return errutil.Explain(nil, "configuration dropped: no gs.Dync values registered, nothing to refresh")
-	}
-	p, err := cp.Refresh()
+	p, err := app.p.Refresh()
 	if err != nil {
 		return err
 	}
-	app.publishEnv(p)
 	return app.c.RefreshProperties(p)
-}
-
-// publishEnv atomically publishes the merged configuration storage so that
-// EnvProvider can serve a current read-only snapshot across hot refreshes. It
-// is a no-op for storages that are not the layered aggregate (the normal case
-// always is), so introspection simply reports nothing rather than failing.
-func (app *App) publishEnv(p flatten.Storage) {
-	if ls, ok := p.(*flatten.LayeredStorage); ok {
-		app.env.Store(ls)
-	}
-}
-
-// readDuration reads a duration value (e.g. "5s") from the configuration.
-// A missing, empty, or unparsable value yields 0, which callers treat as
-// "feature disabled", so a malformed setting degrades to the safe default
-// rather than failing startup.
-func readDuration(p flatten.Storage, key string) time.Duration {
-	v, ok := p.Value(key)
-	if !ok || v == "" {
-		return 0
-	}
-	d, err := time.ParseDuration(v)
-	if err != nil {
-		log.Warnf(context.Background(), log.TagAppDef, "invalid duration for %s=%q: %v", key, v, err)
-		return 0
-	}
-	return d
 }
 
 // initLog initializes the application's logging system based on configuration.
@@ -306,9 +276,8 @@ func (app *App) initLog(p flatten.Storage) error {
 //  3. Initialize logging system
 //  4. Refresh the IoC container with App as the graph root, wiring Rooter,
 //     Runner, Server, and other dependencies reachable from App
-//  5. Drop application configuration if no dynamic fields need refresh support
-//  6. Execute all Runner beans sequentially
-//  7. Start all configured servers in separate goroutines
+//  5. Execute all Runner beans sequentially
+//  6. Start all configured servers in separate goroutines
 //     - Each server signals readiness via ReadySignal
 //     - If a server panics or returns an unexpected error, ReadySignal is intercepted
 //     and the application initiates a graceful shutdown
@@ -317,18 +286,12 @@ func (app *App) Start() error {
 
 	app.c.Provide(&PropertiesRefresher{app})
 	app.c.Provide(&ContextProvider{app.ctx})
-	app.c.Provide(&EnvProvider{app})
 
 	// Load and refresh application properties
-	p, err := app.p.Load().Refresh()
+	p, err := app.p.Refresh()
 	if err != nil {
 		return err
 	}
-	app.publishEnv(p)
-
-	// Read shutdown drain settings from the merged configuration.
-	app.preStopDelay = readDuration(p, "app.shutdown.pre-stop-delay")
-	app.shutdownTimeout = readDuration(p, "app.shutdown.timeout")
 
 	// Initialize logger
 	if err = app.initLog(p); err != nil {
@@ -342,16 +305,8 @@ func (app *App) Start() error {
 		return err
 	}
 
-	// Mark the app as started so RefreshProperties is allowed from now on.
-	// This must happen after the container is fully wired — before this
-	// point, RefreshProperties is a no-op-or-error because the wiring graph
-	// isn't ready.
+	// Mark the app as started so RefreshProperties is allowed.
 	app.started.Store(true)
-
-	// If there are no dynamic fields, clear the configuration
-	if app.c.DynamicObjectsCount() == 0 {
-		app.p.Store(nil)
-	}
 
 	// Execute all Runner beans sequentially
 	for _, r := range app.Runners {
@@ -414,52 +369,43 @@ func (app *App) WaitForShutdown() {
 	<-app.ctx.Done()
 
 	// Graceful drain: give drain-aware servers a chance to stop advertising
-	// readiness (e.g. actuator /readiness -> OUT_OF_SERVICE), then wait the
-	// configured pre-stop delay so load balancers / the K8s endpoint controller
-	// remove this instance before we actually stop serving. Both steps are
-	// skipped when no delay is configured, preserving immediate shutdown.
-	if app.preStopDelay > 0 {
-		drainCtx := context.WithoutCancel(app.ctx)
-		for _, svr := range app.Servers {
-			if ps, ok := svr.(PreStopper); ok {
-				ps.PreStop(drainCtx)
-			}
+	// readiness (e.g. actuator /readiness -> OUT_OF_SERVICE) before we stop
+	// serving. The app imposes no delay and no timeout here: how long to wait
+	// for load balancers to de-route, and how long shutdown may take, are
+	// decided by each server itself (e.g. inside PreStop / StopContext).
+	drainCtx := context.WithoutCancel(app.ctx)
+	for _, svr := range app.Servers {
+		if ps, ok := svr.(PreStopper); ok {
+			ps.PreStop(drainCtx)
 		}
-		log.Infof(app.ctx, log.TagAppDef, "draining for %s before stopping servers", app.preStopDelay)
-		time.Sleep(app.preStopDelay)
 	}
 
-	// Stop all servers concurrently
+	// Stop all servers concurrently. The context passed to Stop is the root
+	// context without cancellation and without a deadline: it only carries
+	// values, never cancellation.
+	stopCtx := context.WithoutCancel(app.ctx)
 	var stopWg sync.WaitGroup
 	for _, svr := range app.Servers {
 		stopWg.Add(1)
 		goutil.Go(app.ctx, func(ctx context.Context) {
 			defer stopWg.Done()
-			if err := svr.Stop(); err != nil {
+			var err error
+			if s, ok := svr.(Stopper); ok {
+				err = s.StopContext(stopCtx)
+			} else {
+				err = svr.Stop()
+			}
+			if err != nil {
 				log.Errorf(ctx, log.TagAppDef, "shutdown server failed: %v", err)
 			}
 		}, goutil.DetachCancel)
 	}
 
-	// Wait for all servers to stop, bounded by shutdownTimeout when configured.
-	// On timeout we log and proceed to cleanup rather than blocking forever, so
-	// a stuck server cannot wedge the shutdown.
-	if app.shutdownTimeout > 0 {
-		done := make(chan struct{})
-		goutil.Go(app.ctx, func(context.Context) {
-			stopWg.Wait()
-			app.wg.Wait()
-			close(done)
-		}, goutil.DetachCancel)
-		select {
-		case <-done:
-		case <-time.After(app.shutdownTimeout):
-			log.Errorf(app.ctx, log.TagAppDef, "shutdown timed out after %s, forcing cleanup", app.shutdownTimeout)
-		}
-	} else {
-		stopWg.Wait()
-		app.wg.Wait()
-	}
+	// Wait indefinitely for all servers and their goroutines to stop. The app
+	// imposes no timeout: each server bounds its own shutdown (e.g. inside
+	// StopContext); a server that hangs hangs the process, by design.
+	stopWg.Wait()
+	app.wg.Wait()
 
 	app.c.Close()
 	log.Infof(app.ctx, log.TagAppDef, "shutdown complete")

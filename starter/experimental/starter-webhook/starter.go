@@ -36,7 +36,7 @@ import (
 	"go-spring.org/stdlib/errutil"
 )
 
-var starterTag = log.RegisterInfraTag("webhook", "")
+var starterTag = log.RegisterAppTag("webhook", "")
 
 // Notification is one outbound webhook message. Title is the headline (shown
 // bold/markdown by most receivers), Text is the body.

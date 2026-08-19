@@ -35,7 +35,7 @@ import (
 // so the wrapper body, lifecycle and observe/resilience wiring stay in one place.
 type DB = gormcore.DB
 
-var starterTag = log.RegisterInfraTag("gorm_sqlite", "")
+var starterTag = log.RegisterAppTag("gorm_sqlite", "")
 
 func init() {
 	gormcore.Register(gormcore.Dialect[Config]{

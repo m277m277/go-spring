@@ -169,11 +169,10 @@ func runTest() {
 	depDown.Store(false)
 	mustStatus(base+"/readiness", http.StatusOK)
 
-	// Trigger graceful shutdown. With app.shutdown.pre-stop-delay set, the
-	// framework flips readiness to OUT_OF_SERVICE and keeps serving for the drain
-	// window before stopping. Poll until /readiness reports 503 while /health
-	// stays 200, proving the pod would be drained from Service endpoints before
-	// it stops accepting traffic.
+	// Trigger graceful shutdown. The server flips readiness to OUT_OF_SERVICE and
+	// finishes its own drain before stopping. Poll until /readiness reports 503
+	// while /health stays 200, proving the pod would be drained from Service
+	// endpoints before it stops accepting traffic.
 	syscall.Kill(os.Getpid(), syscall.SIGTERM)
 
 	deadline := time.Now().Add(1500 * time.Millisecond)

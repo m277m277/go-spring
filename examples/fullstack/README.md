@@ -54,8 +54,8 @@ client --POST /api/orders (Bearer token)--> gateway :9440
   propagates order→inventory (W3C headers). See the notes for the gateway gap.
 - **Security**: `starter-security-jwt`. The order service is the resource server;
   the gateway forwards the caller's `Authorization` header untouched.
-- **Graceful shutdown**: on SIGTERM readiness flips to `OUT_OF_SERVICE`, then the
-  framework drains before stopping servers (`app.shutdown.pre-stop-delay`).
+- **Graceful shutdown**: on SIGTERM readiness flips to `OUT_OF_SERVICE`, then each
+  server finishes its own drain (PreStop / StopContext) before stopping.
 
 ## Run it
 

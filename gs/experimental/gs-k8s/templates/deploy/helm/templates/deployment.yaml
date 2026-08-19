@@ -16,9 +16,9 @@ spec:
       labels:
         {{- include "app.selectorLabels" . | nindent 8 }}
     spec:
-      # Give the app time to drain: readiness flips to OUT_OF_SERVICE on SIGTERM,
-      # preStop sleeps while the endpoint controller removes this pod, then the
-      # app stops servers. Keep this >= app.shutdown.timeout in app-k8s.properties.
+      # Give the app time to drain: readiness flips to OUT_OF_SERVICE on SIGTERM
+      # and each server bounds its own shutdown (in PreStop / StopContext), so the
+      # endpoint controller removes this pod while in-flight requests finish.
       terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
       securityContext:
         runAsNonRoot: true
@@ -80,8 +80,8 @@ spec:
             failureThreshold: 3
           lifecycle:
             preStop:
-              # Matches app.shutdown.pre-stop-delay. Gives the endpoint
-              # controller time to stop routing new requests to this pod.
+              # Gives the endpoint controller time to stop routing new requests
+              # to this pod before the process exits.
               exec:
                 command: ["sleep", "{{ .Values.preStopSleepSeconds }}"]
           resources:

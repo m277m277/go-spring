@@ -5,7 +5,9 @@
 `goutil` 以内置 panic 恢复的方式启动 goroutine，goroutine 内的 panic 不再拖垮进程；
 被 recover 的 panic 通过全局 `OnPanic` 回调上报，用于记录日志、上报监控或触发告警。
 包内覆盖 `func(ctx)`（`Go`）与 `func(ctx) (T, error)`（`GoValue`）两种签名，每次启动都
-返回带 `Wait()` 的句柄，无需手写 channel 或维护 `sync.WaitGroup`。它不是 worker 池、
+返回带 `Wait()` 的句柄，无需手写 channel 或维护 `sync.WaitGroup`。另有两个兄弟入口补全
+这条链路：`SafeRun` 同步执行函数并把 panic 转成正常返回路径上的 error；`ReportPanic`
+把你自己的 recover 站点拿到的 panic 值经同一个 `OnPanic` 回调上报。它不是 worker 池、
 信号量或取消框架 —— `errgroup`、`semaphore` 之类留在 `golang.org/x/sync`。
 
 ## 使用方式
@@ -112,7 +114,7 @@ value, err := goutil.GoValue(context.Background(), func(ctx context.Context) (st
 }, goutil.InheritCancel).Wait()
 
 // value 是空字符串（类型 T 的零值）
-// err 包含 panic 信息和堆栈跟踪
+// err 包含 panic 值；完整堆栈经 OnPanic 上报
 fmt.Printf("value: %q, error: %v\n", value, err)
 ```
 

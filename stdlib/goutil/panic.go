@@ -20,21 +20,33 @@ import (
 	"context"
 	"fmt"
 	"runtime/debug"
+
+	"go-spring.org/stdlib/errutil"
 )
 
-// This file widens the single-handler [OnPanic] mechanism beyond the Go /
-// GoValue launchers: [ReportPanic] is the reporting entry for recover sites
-// that cannot route through those launchers (server recovery interceptors,
-// message-handler loops, job runners), and [SafeRun] is the synchronous
-// panic-to-error form. One handler slot by design — see OnPanic.
+// PanicInfo contains information captured when a panic is recovered.
+type PanicInfo struct {
+	Panic any
+	Stack []byte
+}
+
+// OnPanic is a global callback invoked whenever a panic is recovered by this
+// package (Go, GoValue, SafeRun) or reported through [ReportPanic] from
+// external recover sites such as server interceptors and message-handler
+// loops.
+//
+// By default, it prints the panic value and stack trace to stdout.
+// Applications may override this function during initialization to provide
+// custom logging, metrics, or alerting behavior.
+var OnPanic = func(ctx context.Context, info PanicInfo) {
+	fmt.Printf("[PANIC] %v\n%s\n", info.Panic, info.Stack)
+}
 
 // ReportPanic reports an already-recovered panic value to [OnPanic],
 // capturing the current stack (the panicking frames are still on it when
-// called from a deferred recover). It is a no-op for a nil recovered value.
+// called from a deferred recover). The recovered value is reported as-is;
+// callers that may hold a nil value should check it themselves.
 func ReportPanic(ctx context.Context, recovered any) {
-	if recovered == nil {
-		return
-	}
 	if OnPanic != nil {
 		OnPanic(ctx, PanicInfo{Panic: recovered, Stack: debug.Stack()})
 	}
@@ -42,14 +54,13 @@ func ReportPanic(ctx context.Context, recovered any) {
 
 // SafeRun runs f synchronously, converting a panic into an error (after
 // reporting it through [OnPanic]) so callers that cannot afford a crashing
-// goroutine — scheduler jobs, message handlers — get the failure on their
+// goroutine - scheduler jobs, message handlers - get the failure on their
 // normal error path instead. Use [Go] for the goroutine form.
 func SafeRun(ctx context.Context, f func(ctx context.Context) error) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			stack := debug.Stack()
 			ReportPanic(ctx, r)
-			err = fmt.Errorf("panic recovered: %v\n%s", r, stack)
+			err = errutil.Explain(nil, "panic recovered: %v", r)
 		}
 	}()
 	return f(ctx)

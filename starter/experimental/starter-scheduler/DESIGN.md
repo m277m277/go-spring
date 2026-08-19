@@ -44,11 +44,10 @@ Triggers and concurrency primitives come from the zero-dep
   own minimal `Locker` / `Lock` interfaces to stay zero-dep, so a
   `lockerAdapter` in the starter bridges `lock.Locker` and bakes
   TTL / renewal options into the adapter.
-- **Drain participates in the framework drain.**
-  `spring.scheduler.drain-timeout` (default `30s`) bounds `Stop`;
-  it is a safety net on top of `app.shutdown.timeout` — the scheduler
-  stops accepting new fires immediately and waits for the in-flight
-  set.
+- **Drain is the scheduler's own bound on shutdown.**
+  `spring.scheduler.drain-timeout` (default `30s`) bounds `Stop` —
+  the scheduler stops accepting new fires immediately and waits for the
+  in-flight set.
 
 ## 3. Constraints
 

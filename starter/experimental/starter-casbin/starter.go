@@ -26,7 +26,7 @@ import (
 
 var (
 	// starterTag identifies logs emitted by the casbin starter.
-	starterTag = log.RegisterInfraTag("starter_casbin", "")
+	starterTag = log.RegisterAppTag("starter_casbin", "")
 )
 
 func init() {

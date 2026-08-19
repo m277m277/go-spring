@@ -39,7 +39,7 @@ import (
 // so the wrapper body, lifecycle and observe/resilience wiring stay in one place.
 type DB = gormcore.DB
 
-var starterTag = log.RegisterInfraTag("gorm_postgres", "")
+var starterTag = log.RegisterAppTag("gorm_postgres", "")
 
 func init() {
 	gormcore.Register(gormcore.Dialect[Config]{

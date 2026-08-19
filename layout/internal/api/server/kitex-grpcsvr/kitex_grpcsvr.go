@@ -84,9 +84,16 @@ func (s *Server) Run(ctx context.Context, sig gs.ReadySignal) error {
 	}
 }
 
-// Stop signals Run to return so Go-Spring can complete its shutdown sequence.
-func (s *Server) Stop() error {
+// StopContext is the context-aware variant of Stop: it receives the shutdown
+// context from Go-Spring (values-only, no cancellation) and holds the real
+// shutdown logic. Stop delegates here with context.Background().
+func (s *Server) StopContext(ctx context.Context) error {
 	// TODO: svr.Stop() to trigger the underlying Kitex graceful shutdown.
 	close(s.done)
 	return nil
+}
+
+// Stop signals Run to return so Go-Spring can complete its shutdown sequence.
+func (s *Server) Stop() error {
+	return s.StopContext(context.Background())
 }

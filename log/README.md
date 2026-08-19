@@ -55,6 +55,14 @@ This design enables a unified logging API without explicitly creating logger ins
 libraries can emit logs in a standardized way. The framework automatically matches each tag to the most
 specific logger.
 
+Three prefixes are officially recommended, covering most backend scenarios:
+
+| Prefix | Applicable scenarios | Example |
+|--------|----------------------|---------|
+| `_app_` | Application lifecycle and infrastructure (startup, configuration, connection pools, circuit breakers) | `_app_startup` |
+| `_biz_` | Business processes and domain events | `_biz_order_create` |
+| `_rpc_` | External dependency calls (databases, caches, MQ, downstream services) | `_rpc_redis_get` |
+
 ```go
 // Register tags by category
 var (
@@ -70,12 +78,88 @@ A `Logger` is the component that actually processes logs. Different tags can be 
 and each logger can independently set its level and output. You can also retrieve a logger instance by name
 via `GetLogger`, mainly for compatibility with legacy projects that record pre-formatted messages via `Write`.
 
+### Log Levels
+
+Seven levels are supported: `Trace`, `Debug`, `Info`, `Warn`, `Error`, `Panic`, and `Fatal`. Note that
+`Panic` and `Fatal` are level semantics only (logs accompanying a panic / fatal error) - the library
+does **not** panic or exit the process after recording; whether to terminate is the caller's decision.
+
+A logger's `level` accepts two forms:
+
+- Single level: `DEBUG`, meaning that level and above (e.g. `INFO` is equivalent to `INFO~FATAL`)
+- Level range: `DEBUG~INFO`, emitting only logs inside the range - useful for filters like
+  "everything below WARN"
+
+When no logger is configured, the default level is `INFO` (overridable via the `GS_LOGGER_DEFAULT_LEVEL`
+environment variable).
+
+### Caller Information
+
+Every log entry automatically carries the caller's file name and line number. The default `fast` mode
+(caches per call-site PC; identical results to `default` but faster) can be adjusted via the
+`GS_LOGGER_CALLER_TYPE` environment variable:
+
+| Value | Description |
+|-------|-------------|
+| `fast` | Default. Caches lookups by call-site PC; output is identical to `default`, just faster |
+| `default` | Resolves through `runtime.Caller` on every call, no caching |
+| `none` | No caller information collected, best performance |
+
 ### Contextual Field Extraction
 
 You can configure hook functions to extract contextual data from `context.Context` and include it in log entries:
 
-* `StringFromContext`: extracts a string value from the context (e.g., a request ID).
-* `FieldsFromContext`: returns a list of structured fields from the context, such as trace ID or user ID.
+* `StringFromContext`: extracts a string value from the context (e.g., a request ID), shown as a
+  standalone segment
+* `FieldsFromContext`: returns a list of structured fields from the context, such as trace ID or user ID
+
+Both hooks are package-level function variables set once at process startup (`starter-otel` sets them
+automatically to emit tracing fields). Extracted fields are placed before business fields. Both are
+invoked for every log entry - keep them lightweight and prefer cached values.
+
+## Logging API
+
+Every level comes in two styles: structured and formatted. Note that the field parameter takes
+two different forms:
+
+- `Trace` / `Debug` take a **lazy builder** `func() []Field` - the closure is not invoked (and
+  nothing is allocated) when the level is disabled; ideal for high-frequency debug logs
+- `Info` through `Fatal` take **ready-made fields** `...Field` - fields are constructed before
+  the call
+
+```go
+log.Debug(ctx, tag, func() []log.Field {
+	return []log.Field{log.String("user_id", "10001")} // skipped when level disabled
+})
+log.Info(ctx, tag, log.String("user_id", "10001"), log.Msg("login succeeded"))
+log.Infof(ctx, tag, "user %s logged in", userID)
+```
+
+Common field constructors:
+
+| Category | Functions |
+|----------|-----------|
+| Message | `Msg` / `Msgf` |
+| Scalars | `Nil` / `Bool` / `Int` / `Uint` / `Float` / `String` (each with a nullable `XxxPtr` variant) |
+| Slices | `Bools` / `Ints` / `Uints` / `Floats` / `Strings` |
+| Composite | `Reflect` (encode any value via reflection) / `Any` / `Array` / `Object` (nested fields) / `FieldsFromMap` |
+
+## Output Formats
+
+**TextLayout** (default, plain text with `||` separators):
+
+```
+[INFO][2026-08-19T10:23:45.123][main.go:42] _app_def||event=user_login||user_id=10001||msg=user logged in successfully
+```
+
+**JSONLayout** (friendly to log aggregation systems):
+
+```json
+{"level":"info","time":"2026-08-19T10:23:45.123","fileLine":"main.go:42","tag":"_app_def","event":"user_login","user_id":10001,"msg":"user logged in successfully"}
+```
+
+Contextual fields (produced by `StringFromContext` / `FieldsFromContext`) precede business fields in
+both formats.
 
 ## Installation
 
@@ -174,7 +258,44 @@ logger.request.appenderRef[0].ref=file
 - `logger.yyy.type` - logger type
 - `logger.yyy.level` - log level range, supports forms like `DEBUG` and `DEBUG~INFO`
 - `logger.yyy.tag` - list of tags to match, supports the suffix wildcard
+- `logger.yyy.appenderRef[n].ref` - name of a linked appender; multiple refs allowed
+- `logger.yyy.appenderRef[n].level` - optional per-appender level filter
 - `${property}` variable references are supported
+
+### Common Settings
+
+Frequently used attributes of each plugin beyond `type` (unlisted ones use defaults):
+
+**FileAppender / RollingFileAppender**
+
+| Attribute | Default | Description |
+|-----------|---------|-------------|
+| `dir` | `./logs` | Log directory |
+| `file` | - | Log file name (required) |
+| `layout` | `TextLayout` | Layout plugin |
+| `interval` | `1h` | Rotation interval (Rolling only, e.g. `24h`) |
+| `maxAge` | `168h` | Max retention of old logs; expired files are cleaned automatically (Rolling only) |
+| `syncLock` | `false` | Recommended when multiple goroutines write the same file (Rolling only) |
+
+**Logger (SyncLogger / AsyncLogger)**
+
+| Attribute | Default | Description |
+|-----------|---------|-------------|
+| `level` | all | Log level range |
+| `tag` | `*` | List of tags to match |
+| `bufferSize` | `10000` | Buffered event count for async mode, minimum 100 (Async only) |
+| `onBufferFull` | `discard` | Buffer-full strategy: `block` / `discard` / `drop-oldest` (Async only) |
+
+**TextLayout / JSONLayout**
+
+| Attribute | Default | Description |
+|-----------|---------|-------------|
+| `fileLineMaxLength` | `48` | Max display width of the caller's "file:line" field; longer values are truncated |
+
+Convenience loggers (`ConsoleLogger`, `FileLogger`, `RollingFileLogger`) build their appenders in-tree -
+configure `dir` / `file` / `layout` and other same-named fields directly on the logger. `RollingFileLogger`
+additionally supports `separate` (WARN-and-above go to a `.wf` file) and `async` + `bufferSize` +
+`onBufferFull` (built-in async output).
 
 ## Built-in Plugins
 
@@ -220,13 +341,102 @@ to see the comparison:
 go test -bench=. ./benchmarks/logs
 ```
 
+## Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `GS_LOGGER_DEFAULT_LEVEL` | `INFO` | Default level when no logger is configured; accepts level-range syntax |
+| `GS_LOGGER_BUFFER_CAP` | `10KB` | Pool-return cap for encoding buffers; larger buffers are discarded |
+| `GS_LOGGER_CALLER_TYPE` | `fast` | Caller-info mode: `fast` / `default` / `none` |
+
+Environment variables are read at process startup and do not take effect if changed at runtime;
+use `RefreshConfig` for runtime adjustments to the logging topology.
+
 ## Custom Extensions
 
-You can extend the library by implementing the following interfaces:
+You can customize output targets and formats by implementing the `Appender` / `Layout` interfaces:
 
-- `Appender` interface: custom output targets
-- `Layout` interface: custom output formats
-- Register the implementations via `RegisterPlugin`, then use them in the configuration
+```go
+type KafkaAppender struct {
+	log.AppenderBase // built-in Name / Layout common fields
+
+	Topic string `PluginAttribute:"topic"`
+	// ... your Kafka producer
+}
+
+func (c *KafkaAppender) Start() error         { return producer.Connect() }
+func (c *KafkaAppender) Stop()                { producer.Close() }
+func (c *KafkaAppender) ConcurrentSafe() bool { return true }
+func (c *KafkaAppender) Append(e *log.Event) {
+	// encode the event with c.Layout and send it; do not hold the Event past Append
+}
+
+// Register during package init; then use appender.kafka.type=KafkaAppender in config
+func init() {
+	log.RegisterPlugin[KafkaAppender]("KafkaAppender")
+}
+```
+
+Two things to note:
+
+- An appender whose `ConcurrentSafe` returns `false` can only be attached to an `AsyncLogger`
+  (written serially by the background thread); concurrency-safe appenders also work with
+  synchronous loggers
+- `Append` must not modify or retain the `Event` - it is a pooled object that may be reused at
+  any time
+
+## Architecture & Design
+
+This library is Go-Spring's foundation logging library with zero business dependencies (only
+`stdlib` and the Go standard library); it is consumed by `spring/` and every `starter-*`.
+Design goals: **pluggable, config-driven, zero allocation per event on the hot path**.
+
+### Layered Model
+
+A log entry flows through three layers from call site to disk:
+
+```
+caller                    config (RefreshConfig)               output
+log.Info(ctx, tag, ...) -> Tag -> Logger -> Layout -> Appender
+```
+
+- **Tag**: the sole caller-side entry point. Business code holds a `*Tag` and never a `Logger`
+  value, so a config refresh can atomically rebind loggers without callers noticing.
+- **Logger**: matched by tag, each with its own level and output.
+- **Layout / Appender**: formatting and output targets, registered via `RegisterPlugin`;
+  config values like `type=JSONLayout` are resolved through this registry.
+
+### Hot Reload
+
+`RefreshConfig` takes a flat property map, then atomically swaps the global logger/appender
+set behind atomic pointers: readers take no locks and no logs are lost during the swap.
+`Refresh` also starts new plugins and stops the replaced ones (implement `Lifecycle` to
+participate). Reading and parsing the configuration file is the caller's job - the library
+does not bind itself to any config format.
+
+### Performance Design
+
+- **Zero-allocation field construction**: the primary API takes a `func() []Field` builder, so
+  level-disabled call sites allocate nothing for fields; `Infof`-style formatted variants are
+  more ergonomic but take the slower path.
+- **Object pooling**: log events and encoding buffers come from `sync.Pool`; buffers larger
+  than 10 KB are discarded instead of returned to the pool (tunable via the
+  `GS_LOGGER_BUFFER_CAP` environment variable).
+- **Value-type fields**: `Field` is a value type; primitive helpers like `Bool`/`Int`/
+  `String`/`Msg` build fields without allocating a slice.
+
+### Usage Constraints
+
+- Tags can only be declared during package init: calling `RegisterTag` after the first
+  `RefreshConfig` panics - this is part of the atomic-swap contract.
+- Tag naming rules: 3–36 characters, lowercase letters / digits / underscores only, 1–4
+  segments; `RegisterAppTag` / `RegisterBizTag` / `RegisterRPCTag` generate well-formed names
+  automatically.
+- In a custom `Appender`, do not retain a `Field.Any` slice or a `*bytes.Buffer` past
+  `EncodeTo` - they are pooled objects that may be reused at any time.
+- Only console / file / rolling-file sinks ship in-tree. Remote outputs such as Kafka or Loki
+  belong in their own starter implementing and registering an `Appender`, keeping this library
+  dependency-free.
 
 ## License
 

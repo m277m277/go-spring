@@ -56,7 +56,7 @@ func init() {
 	})
 }
 
-var starterTag = log.RegisterInfraTag("neo4j", "")
+var starterTag = log.RegisterAppTag("neo4j", "")
 
 // newClient creates a new Neo4j client based on the provided configuration.
 // After the driver is built, connectivity is verified so that misconfiguration

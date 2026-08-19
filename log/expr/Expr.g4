@@ -16,7 +16,7 @@ STRING
     ;
 
 // Integer literal: optional sign, decimal or hexadecimal
-// Examples: 42, -17, 0xFF
+// Examples: 42, -17, +0xFF
 INTEGER
     : ('+' | '-')? DIGIT+ | '0x' HEX_DIGIT+
     ;

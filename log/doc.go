@@ -15,78 +15,36 @@
  */
 
 /*
-Package log is a high-performance and extensible logging library designed specifically for the Go programming
-language. It provides flexible and structured logging capabilities, including context field extraction, multi-level
-logging configuration, and multiple output options, making it ideal for server-side applications.
+Package log is a high-performance and extensible structured logging library for Go. Logs are
+classified by registered tags, configured through a flat property map, and rendered by pluggable
+Logger / Layout / Appender plugins.
 
-## Core Concepts:
+# Usage
 
-Tag:
+Register tags during package init, then log through them. Code never holds a Logger value: the
+framework binds each tag to the most specific configured logger and rebinds atomically on
+[RefreshConfig].
 
-Tag is a core concept in the log package used to categorize logs. Tags are registered via the `RegisterTag`
-function. In the logging configuration, a logger binds to tags either by exact name or with a hierarchical
-"_*" suffix wildcard (e.g. `_app_request_*` matches every tag starting with `_app_request_`). This approach
-allows for a unified API for logging without explicitly creating logger instances. Even third-party libraries
-can write logs without setting up a logger object.
+	var TagRequestIn = log.RegisterRPCTag("http", "in")
 
-Loggers:
+	log.Infof(ctx, TagRequestIn, "hello %s", name)
 
-A Logger is the object that actually handles the logging process. You can obtain a logger instance using the
-`GetLogger` function, which is mainly provided for compatibility with legacy projects. This allows you to
-directly retrieve a logger by its name and log pre-formatted messages using the `Write` function.
+	log.Info(ctx, TagRequestIn,
+		log.String("user_id", "10001"),
+		log.Msg("login succeeded"),
+	)
 
-Context Field Extraction:
+Trace and Debug take a lazy field builder so level-disabled call sites allocate nothing:
 
-Contextual data can be extracted and included in log entries via configurable functions:
-- `log.StringFromContext`: Extracts a string value (e.g., a request ID) from the context.
-- `log.FieldsFromContext`: Returns a list of structured fields from the context, such as trace IDs or user IDs.
-
-Configuration Refresh:
-
-The `log.RefreshConfig` function (or `log.Refresh` with any `flatten.Storage`) rebuilds all loggers and
-appenders at runtime from a flat property map. Reading and parsing a configuration file (e.g., YAML or JSON)
-is the caller's job — for example by decoding the file into a map and flattening it with
-`go-spring.org/stdlib/flatten` — before handing the result to `log.RefreshConfig`.
-
-Logger Initialization and Logging:
-
-- Using `GetLogger`, you can fetch a logger instance (often for compatibility with older systems).
-- You can also register custom tags using `RegisterTag` to classify logs according to your needs.
-
-Logging Messages:
-
-The package provides various logging functions, such as `Tracef`, `Debugf`, `Infof`, `Warnf`, etc.,
-which log messages at different levels (e.g., Trace, Debug, Info, Warn).
-These functions can either accept structured fields or formatted messages.
-
-Structured Logging:
-
-The logger also supports structured logging, where fields are captured as key-value pairs and logged with the message.
-The fields can be provided directly in the log functions or through a map.
-
-## Examples:
-
-Using a pre-registered tag:
-
-	log.Tracef(ctx, TagRequestOut, "hello %s", "world")
-	log.Debugf(ctx, TagRequestOut, "hello %s", "world")
-	log.Infof(ctx, TagRequestIn, "hello %s", "world")
-	log.Warnf(ctx, TagRequestIn, "hello %s", "world")
-	log.Errorf(ctx, TagRequestIn, "hello %s", "world")
-	log.Panicf(ctx, TagRequestIn, "hello %s", "world")
-	log.Fatalf(ctx, TagRequestIn, "hello %s", "world")
-
-Using structured fields:
-
-	log.Trace(ctx, TagRequestOut, func() []log.Field {
-		return []log.Field{
-			log.Msgf("hello %s", "world"),
-		}
+	log.Debug(ctx, TagRequestIn, func() []log.Field {
+		return []log.Field{log.String("user_id", "10001")}
 	})
 
-	log.Error(ctx, TagRequestIn, log.FieldsFromMap(map[string]any{
-		"key1": "value1",
-		"key2": "value2",
-	}))
+# Configuration
+
+Logger topology is loaded from a flat property map; reading and parsing the configuration file
+is the caller's job (e.g. via go-spring.org/stdlib/flatten). See the package README for the
+configuration reference, built-in plugin list, and extension guide:
+https://github.com/go-spring/log
 */
 package log

@@ -35,7 +35,7 @@ import (
 	"go-spring.org/stdlib/flatten"
 )
 
-var starterTag = log.RegisterInfraTag("lock_etcd", "")
+var starterTag = log.RegisterAppTag("lock_etcd", "")
 
 func init() {
 	// Register one etcd-backed Locker per entry under "${spring.lock}". A

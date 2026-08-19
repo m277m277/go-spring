@@ -46,7 +46,7 @@ import (
 	"go-spring.org/stdlib/flatten"
 )
 
-var starterTag = log.RegisterInfraTag("lock_redis", "")
+var starterTag = log.RegisterAppTag("lock_redis", "")
 
 func init() {
 	gs.Module(gs.OnProperty("spring.lock"), func(r gs.BeanProvider, p flatten.Storage) error {

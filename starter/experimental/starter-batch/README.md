@@ -147,10 +147,10 @@ Multiple repo beans without an explicit `spring.batch.repository` is a
 ## Graceful shutdown
 
 On `SIGTERM` the runner cancels every in-flight startup launch and waits for
-them to finish, bounded by `spring.batch.drain-timeout` (default `30s`) — a
-safety net on top of the framework-level `app.shutdown.timeout`. A step that
-honours its context returns promptly and leaves the step in `stopped` state,
-which is *restartable* on the next boot from the last committed checkpoint.
+them to finish, bounded by `spring.batch.drain-timeout` (default `30s`) — the
+runner's own bound on its graceful shutdown. A step that honours its context
+returns promptly and leaves the step in `stopped` state, which is *restartable*
+on the next boot from the last committed checkpoint.
 
 ## Configuration reference
 

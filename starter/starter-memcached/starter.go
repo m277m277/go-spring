@@ -29,7 +29,7 @@ import (
 	"go-spring.org/stdlib/flatten"
 )
 
-var starterTag = log.RegisterInfraTag("memcached", "")
+var starterTag = log.RegisterAppTag("memcached", "")
 
 func init() {
 	// Register multiple Memcached clients as a group, one per entry under

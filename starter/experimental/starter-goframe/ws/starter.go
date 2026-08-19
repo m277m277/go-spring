@@ -113,6 +113,13 @@ func (s *WSServer) Run(ctx context.Context, sig gs.ReadySignal) error {
 // Stop gracefully shuts down the goframe server (which also deregisters from
 // etcd when a registry is set) and unblocks Run.
 func (s *WSServer) Stop() error {
+	return s.StopContext(context.Background())
+}
+
+// StopContext gracefully shuts down the goframe server (which also deregisters
+// from etcd when a registry is set) and unblocks Run. ghttp Shutdown takes no
+// context, so ctx is unused here.
+func (s *WSServer) StopContext(ctx context.Context) error {
 	err := s.svr.Shutdown()
 	close(s.done)
 	return err

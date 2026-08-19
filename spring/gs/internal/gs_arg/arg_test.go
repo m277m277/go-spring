@@ -679,7 +679,8 @@ func TestBindArg_Bind(t *testing.T) {
 			Value("test"),
 		}
 		arg := Bind(fn, args...)
-		assert.String(t, arg.fileline).Matches("gs/internal/gs_arg/arg_test.go:.*")
+		// Bind itself does not stamp file:line; the external gs.BindArg boundary does.
+		assert.String(t, arg.fileline).Equal("")
 	})
 
 	t.Run("success with returning value and error", func(t *testing.T) {
@@ -691,7 +692,7 @@ func TestBindArg_Bind(t *testing.T) {
 			Value("test"),
 		}
 		arg := Bind(fn, args...)
-		assert.String(t, arg.fileline).Matches("gs/internal/gs_arg/arg_test.go:.*")
+		assert.String(t, arg.fileline).Equal("")
 	})
 }
 

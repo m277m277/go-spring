@@ -32,13 +32,15 @@ func withTestOnPanic(t *testing.T, fn func(context.Context, PanicInfo)) {
 	t.Cleanup(func() { OnPanic = old })
 }
 
-// TestReportPanicNilIsNoop pins that a nil recovered value reports nothing.
-func TestReportPanicNilIsNoop(t *testing.T) {
-	fired := false
-	withTestOnPanic(t, func(context.Context, PanicInfo) { fired = true })
-	ReportPanic(context.Background(), nil) // must not fire the handler
-	if fired {
-		t.Fatal("nil recovered value must not dispatch")
+// TestReportPanicNilDispatches pins the contract that ReportPanic does not
+// filter the recovered value: nil is dispatched as-is, callers that may hold
+// a nil value check it themselves.
+func TestReportPanicNilDispatches(t *testing.T) {
+	var got PanicInfo
+	withTestOnPanic(t, func(_ context.Context, info PanicInfo) { got = info })
+	ReportPanic(context.Background(), nil)
+	if got.Panic != nil {
+		t.Fatal("nil recovered value must be reported as-is")
 	}
 }
 
@@ -74,8 +76,8 @@ func TestSafeRunConvertsPanic(t *testing.T) {
 	if !strings.Contains(err.Error(), "boom") {
 		t.Fatalf("error should name the panic value: %v", err)
 	}
-	if !strings.Contains(err.Error(), "goroutine") {
-		t.Fatalf("error should carry the stack: %v", err)
+	if strings.Contains(err.Error(), "goroutine") {
+		t.Fatalf("error should not embed the stack: %v", err)
 	}
 	if reported != "boom" {
 		t.Fatalf("OnPanic should have been invoked, got %v", reported)

@@ -87,8 +87,10 @@ Rules of thumb:
 ## Graceful shutdown
 
 `terminationGracePeriodSeconds` (30s) and the container `preStop` sleep (5s)
-align with `app.shutdown.timeout` / `app.shutdown.pre-stop-delay` in
-`conf/app-k8s.properties`. Rolling updates drain in-flight requests losslessly.
+bound the drain: readiness flips to OUT_OF_SERVICE on SIGTERM, the preStop sleep
+lets the endpoint controller stop routing new traffic, and each server finishes
+its own shutdown (in PreStop / StopContext). Rolling updates drain in-flight
+requests losslessly.
 
 ## Metrics
 

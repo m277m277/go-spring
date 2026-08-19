@@ -245,7 +245,7 @@ func TestBindEach(t *testing.T) {
 			calls++
 			return fmt.Errorf("boom")
 		})
-		assert.Error(t, err).Matches("boom")
+		assert.Error(t, err).Matches(`entry "\w+" failed: boom`)
 		assert.That(t, calls).Equal(1) // first error aborts, remaining entries are skipped
 	})
 }
@@ -271,4 +271,45 @@ func BenchmarkResolve(b *testing.B) {
 			_, _ = conf.Resolve(p, s)
 		}
 	})
+}
+
+type nilConverterTarget struct{}
+
+func TestRegisterNilConverter(t *testing.T) {
+	var fn conf.Converter[nilConverterTarget]
+	assert.Panic(t, func() {
+		conf.RegisterConverter(fn)
+	}, "converter for type .* cannot be nil")
+}
+
+func TestRegisterNilValidateFunc(t *testing.T) {
+	const name = "nilValidateFuncForTest"
+	var fn conf.ValidateFunc[int]
+	assert.Panic(t, func() {
+		conf.RegisterValidateFunc(name, fn)
+	}, "validate function nilValidateFuncForTest cannot be nil")
+}
+
+func TestRegisterValidateFuncEmptyName(t *testing.T) {
+	assert.Panic(t, func() {
+		conf.RegisterValidateFunc("", func(int) (bool, error) { return true, nil })
+	}, "validate function name can't be empty")
+}
+
+func TestRegisterValidateFuncDuplicateName(t *testing.T) {
+	const name = "dupValidateFuncForTest"
+	conf.RegisterValidateFunc(name, func(int) (bool, error) { return true, nil })
+	assert.Panic(t, func() {
+		conf.RegisterValidateFunc(name, func(int) (bool, error) { return true, nil })
+	}, "validate function "+name+" already exists")
+}
+
+type dupConverterTarget struct{}
+
+func TestRegisterDuplicateConverter(t *testing.T) {
+	conf.RegisterConverter(func(string) (dupConverterTarget, error) { return dupConverterTarget{}, nil })
+
+	assert.Panic(t, func() {
+		conf.RegisterConverter(func(string) (dupConverterTarget, error) { return dupConverterTarget{}, nil })
+	}, "converter for type .* already exists")
 }

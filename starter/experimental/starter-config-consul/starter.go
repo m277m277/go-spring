@@ -57,7 +57,7 @@ func init() {
 
 var (
 	// starterTag identifies logs emitted by the consul config center starter.
-	starterTag = log.RegisterInfraTag("starter_config_consul", "")
+	starterTag = log.RegisterAppTag("starter_config_consul", "")
 
 	// consulController is the global singleton. It is ONLY referenced in init
 	// functions. All other code operates on the

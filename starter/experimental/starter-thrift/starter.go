@@ -168,6 +168,13 @@ func (s *SimpleThriftServer) Run(ctx context.Context, sig gs.ReadySignal) error 
 // Stop gracefully stops the underlying Thrift server, interrupting the accept
 // loop and waiting for in-flight requests to drain.
 func (s *SimpleThriftServer) Stop() error {
-	log.Infof(context.Background(), thriftTag, "thrift server shutting down on %s", s.cfg.Addr)
+	return s.StopContext(context.Background())
+}
+
+// StopContext gracefully stops the underlying Thrift server, interrupting the
+// accept loop and waiting for in-flight requests to drain. Thrift's Stop takes
+// no context, so ctx only tags the shutdown log.
+func (s *SimpleThriftServer) StopContext(ctx context.Context) error {
+	log.Infof(ctx, thriftTag, "thrift server shutting down on %s", s.cfg.Addr)
 	return s.svr.Stop()
 }

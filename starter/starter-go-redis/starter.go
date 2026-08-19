@@ -34,7 +34,7 @@ import (
 	"go-spring.org/stdlib/flatten"
 )
 
-var starterTag = log.RegisterInfraTag("go_redis", "")
+var starterTag = log.RegisterAppTag("go_redis", "")
 
 func init() {
 	// Register Redis clients as a group, one per entry under "${spring.go-redis}".

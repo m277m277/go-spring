@@ -113,7 +113,14 @@ func (e *Executor) Run(ctx context.Context, sig gs.ReadySignal) error {
 
 // Stop implements gs.Server.
 func (e *Executor) Stop() error {
-	return e.srv.Shutdown(context.Background())
+	return e.StopContext(context.Background())
+}
+
+// StopContext implements gs.Stopper: gracefully shut the callback server down,
+// propagating ctx into http.Server.Shutdown so the drain rides the shutdown
+// context.
+func (e *Executor) StopContext(ctx context.Context) error {
+	return e.srv.Shutdown(ctx)
 }
 
 // Destroy is the bean destroy path.

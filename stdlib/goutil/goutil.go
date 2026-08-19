@@ -15,40 +15,26 @@
  */
 
 // Package goutil provides utilities for running goroutines safely with
-// built-in panic recovery.
+// built-in panic recovery, plus the shared panic-reporting chain built on a
+// global OnPanic callback.
 //
 // In Go, a panic that occurs inside a goroutine will terminate the entire
 // process if it is not recovered. This package wraps goroutine execution
-// with a deferred recover handler to prevent such crashes.
+// with a deferred recover handler to prevent such crashes. SafeRun offers
+// the synchronous form (panic converted to an error), and ReportPanic lets
+// external recover sites route through the same OnPanic callback so the
+// whole application reports panics uniformly.
 //
-// When a panic is recovered, a global OnPanic callback is invoked, allowing
+// When a panic is recovered, the global OnPanic callback is invoked, allowing
 // applications to log the panic, emit metrics, or trigger alerts. This makes
 // failures in concurrent code easier to observe and diagnose.
 package goutil
 
 import (
 	"context"
-	"fmt"
-	"runtime/debug"
 
 	"go-spring.org/stdlib/errutil"
 )
-
-// PanicInfo contains information captured when a panic is recovered.
-type PanicInfo struct {
-	Panic any
-	Stack []byte
-}
-
-// OnPanic is a global callback invoked whenever a panic is recovered inside
-// a goroutine launched by this package.
-//
-// By default, it prints the panic value and stack trace to stdout.
-// Applications may override this function during initialization to provide
-// custom logging, metrics, or alerting behavior.
-var OnPanic = func(ctx context.Context, info PanicInfo) {
-	fmt.Printf("[PANIC] %v\n%s\n", info.Panic, info.Stack)
-}
 
 // CancelMode controls how the context passed to a goroutine handles
 // cancellation relative to its parent context.
@@ -107,9 +93,7 @@ func Go(ctx context.Context, f func(ctx context.Context), mode CancelMode) *Stat
 		defer s.done()
 		defer func() {
 			if r := recover(); r != nil {
-				if OnPanic != nil {
-					OnPanic(ctx, PanicInfo{r, debug.Stack()})
-				}
+				ReportPanic(ctx, r)
 			}
 		}()
 		f(ctx)
@@ -169,11 +153,8 @@ func GoValue[T any](ctx context.Context, f GoValueFunc[T], mode CancelMode) *Val
 		defer s.done()
 		defer func() {
 			if r := recover(); r != nil {
-				stack := debug.Stack()
-				if OnPanic != nil {
-					OnPanic(ctx, PanicInfo{r, stack})
-				}
-				s.err = errutil.Explain(nil, "panic recovered: %v\n%s", r, stack)
+				ReportPanic(ctx, r)
+				s.err = errutil.Explain(nil, "panic recovered: %v", r)
 			}
 		}()
 		s.val, s.err = f(ctx)

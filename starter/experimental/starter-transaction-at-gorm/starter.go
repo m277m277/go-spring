@@ -68,10 +68,10 @@ import (
 
 var (
 	// starterTag identifies logs emitted by the transaction at-gorm starter.
-	// The subType stays at three underscore segments so that with the "infra"
-	// root prepended by RegisterInfraTag the tag is four segments — the log
+	// The subType stays at three underscore segments so that with the "app"
+	// root prepended by RegisterAppTag the tag is four segments — the log
 	// package's max tag depth (log.isValidTag).
-	starterTag = log.RegisterInfraTag("transaction_at_gorm", "")
+	starterTag = log.RegisterAppTag("transaction_at_gorm", "")
 )
 
 // enabled matches when the starter is not explicitly disabled.

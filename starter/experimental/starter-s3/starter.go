@@ -28,7 +28,7 @@ import (
 	"go-spring.org/stdlib/flatten"
 )
 
-var starterTag = log.RegisterInfraTag("s3", "")
+var starterTag = log.RegisterAppTag("s3", "")
 
 func init() {
 	// Register multiple S3 clients as a group, one per entry under

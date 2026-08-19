@@ -199,7 +199,14 @@ func (s *SimpleTrpcServer) Run(ctx context.Context, sig gs.ReadySignal) error {
 // Stop closes the underlying tRPC server, which unblocks Serve, then signals Run
 // to return so Go-Spring can complete shutdown.
 func (s *SimpleTrpcServer) Stop() error {
-	log.Infof(context.Background(), trpcTag, "trpc server shutting down on %s", s.cfg.Addr)
+	return s.StopContext(context.Background())
+}
+
+// StopContext closes the underlying tRPC server, which unblocks Serve, then
+// signals Run to return so Go-Spring can complete shutdown. tRPC's Close takes
+// no context, so ctx only tags the shutdown log.
+func (s *SimpleTrpcServer) StopContext(ctx context.Context) error {
+	log.Infof(ctx, trpcTag, "trpc server shutting down on %s", s.cfg.Addr)
 	if s.svr != nil {
 		_ = s.svr.Close(nil)
 	}
